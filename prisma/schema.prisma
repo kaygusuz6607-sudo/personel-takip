@@ -1,0 +1,129 @@
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  password  String
+  name      String
+  role      String   @default("SUPER_ADMIN") // SUPER_ADMIN, ADMIN, ACCOUNTANT, READ_ONLY
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Department {
+  id          String            @id @default(uuid())
+  name        String            @unique
+  description String?
+  staffs      StaffDepartment[]
+  createdAt   DateTime          @default(now())
+}
+
+model StaffDepartment {
+  staffId      String
+  departmentId String
+  staff        Staff      @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  department   Department @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+
+  @@id([staffId, departmentId])
+}
+
+model Staff {
+  id                   String            @id @default(uuid())
+  tcNo                 String            @unique
+  fullName             String
+  birthDate            DateTime?
+  phone                String?
+  email                String?
+  iban                 String?
+  title                String? // Öğretmen, İdari Personel, vb.
+  hireDate             DateTime?
+  terminationDate      DateTime?
+  mebAssignmentDate    DateTime?
+  unofficialWorkPeriod String? // "3 ay 12 gün" vb.
+  sgkStartDate         DateTime?
+  notes                String?
+  status               String            @default("ACTIVE") // ACTIVE, PASSIVE, ON_LEAVE
+  
+  departments          StaffDepartment[]
+  salaryConfig         SalaryConfig?
+  payrolls             Payroll[]
+  leaves               LeaveRecord[]
+  
+  createdAt            DateTime          @default(now())
+  updatedAt            DateTime          @updatedAt
+}
+
+model SalaryConfig {
+  id                 String   @id @default(uuid())
+  staffId            String   @unique
+  staff              Staff    @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  salaryType         String   @default("MONTHLY") // MONTHLY, HOURLY, DAILY, HYBRID
+  monthlySalary      Float    @default(0)
+  hourlyRate         Float    @default(0)
+  dailyRate          Float    @default(0)
+  officialSalaryPart Float    @default(0)
+  updatedAt          DateTime @updatedAt
+}
+
+model Payroll {
+  id                   String    @id @default(uuid())
+  staffId              String
+  staff                Staff     @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  year                 Int
+  month                Int       // 1 - 12
+  workDays             Int       @default(30) // SGK standardı 30
+  reportDays           Int       @default(0)
+  unpaidLeaveDays      Int       @default(0)
+  lessonHours          Float     @default(0)
+  dailyWorkDays        Int       @default(0)
+  holidayWorkDays      Int       @default(0)
+  holidayChoice        String    @default("LEAVE_1_TO_1") // LEAVE_1_TO_1 (1'e 1 izin) veya DOUBLE_PAY (çift yevmiye)
+  
+  // Hesaplanan Kalemler
+  baseEarned           Float     @default(0)
+  hourlyEarned         Float     @default(0)
+  dailyEarned          Float     @default(0)
+  holidayEarned        Float     @default(0)
+  grossTotal           Float     @default(0)
+  
+  // SGK & Vergi Kesintileri
+  sgkEmployee          Float     @default(0) // %14
+  unemploymentEmployee Float     @default(0) // %1
+  incomeTax            Float     @default(0) // %15 varsayılan
+  stampTax             Float     @default(0) // %0.759
+  isManualTax          Boolean   @default(false)
+  totalDeductions      Float     @default(0)
+  
+  netTotal             Float     @default(0)
+  officialAmount       Float     @default(0) // Resmî SGK hesabından yatan
+  unofficialAmount     Float     @default(0) // Elden / gayriresmî yatan
+  
+  isPaid               Boolean   @default(false)
+  paidDate             DateTime?
+  notes                String?
+  
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  @@unique([staffId, year, month])
+}
+
+model LeaveRecord {
+  id          String   @id @default(uuid())
+  staffId     String
+  staff       Staff    @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  leaveType   String   // ANNUAL, SICK, HOLIDAY_COMPENSATION (Resmi Tatil Telafisi), EXCUSE, UNPAID
+  startDate   DateTime
+  endDate     DateTime
+  daysCount   Float
+  description String?
+  status      String   @default("APPROVED") // APPROVED, PENDING, REJECTED
+  createdAt   DateTime @default(now())
+}
