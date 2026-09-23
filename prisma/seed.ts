@@ -57,7 +57,7 @@ async function main() {
       sgkStartDate: new Date("2026-09-24"), // Gayriresmi süre: 3 yıl 23 gün
       mebAssignmentDate: new Date("2026-09-24"), // 1 gün öncesi kuralı: BUGÜN BİLDİRİM UYARISI VERİR!
       isSgkNotified: false,
-      reportDays: 1, // 1 gün rapor!
+      reportDays: 0,
     },
     {
       tcNo: "23456789012",

@@ -114,12 +114,8 @@ export function calculateOfficialSplit(params: {
     return { officialAmount: 0, unofficialAmount: netTotal };
   }
 
-  // 3. Geçmiş bir ayda zaten atanmışsa -> Normal resmi dönem
+  // 3. Geçmiş bir ayda zaten atanmışsa -> Ataması tamamlanmış resmi personel: TAMAMI RESMÎ BANKA!
   if (assignYear < year || (assignYear === year && assignMonth < month)) {
-    if (officialSalaryPart > 0) {
-      const off = Math.min(netTotal, Number(officialSalaryPart.toFixed(2)));
-      return { officialAmount: off, unofficialAmount: Number((netTotal - off).toFixed(2)) };
-    }
     return { officialAmount: netTotal, unofficialAmount: 0 };
   }
 

@@ -4,8 +4,8 @@ import { useState } from "react";
 import { FileSpreadsheet, Download, Calendar, Users, DollarSign, CheckCircle2 } from "lucide-react";
 
 export default function RaporlarPage() {
-  const [year, setYear] = useState(2024);
-  const [month, setMonth] = useState(8);
+  const [year, setYear] = useState(() => new Date().getFullYear());
+  const [month, setMonth] = useState(() => new Date().getMonth() + 1);
 
   const months = [
     { num: 1, name: "Ocak" },

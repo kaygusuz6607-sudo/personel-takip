@@ -28,10 +28,33 @@ export default async function DashboardPage() {
     },
   });
 
-  // Son bordro verileri
-  const latestPayrolls = await prisma.payroll.findMany({
-    where: { year: 2024, month: 8 },
+  // Son bordro verileri (dinamik)
+  const now = new Date();
+  const currentYear = now.getFullYear();
+  const currentMonth = now.getMonth() + 1;
+  const monthNames = [
+    "Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran",
+    "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"
+  ];
+  let activeYear = currentYear;
+  let activeMonth = currentMonth;
+
+  let latestPayrolls = await prisma.payroll.findMany({
+    where: { year: activeYear, month: activeMonth },
   });
+
+  if (latestPayrolls.length === 0) {
+    const latestOne = await prisma.payroll.findFirst({
+      orderBy: [{ year: "desc" }, { month: "desc" }],
+    });
+    if (latestOne) {
+      activeYear = latestOne.year;
+      activeMonth = latestOne.month;
+      latestPayrolls = await prisma.payroll.findMany({
+        where: { year: activeYear, month: activeMonth },
+      });
+    }
+  }
 
   const grossTotal = latestPayrolls.reduce((sum, p) => sum + p.grossTotal, 0);
   const totalDeductions = latestPayrolls.reduce((sum, p) => sum + p.totalDeductions, 0);
@@ -118,7 +141,9 @@ export default async function DashboardPage() {
       <div className="bg-gradient-to-r from-teal-800 to-slate-900 rounded-2xl text-white p-6 shadow-md">
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 border-b border-teal-700/60 pb-5">
           <div>
-            <span className="text-xs font-semibold uppercase tracking-wider text-teal-300">Ağustos 2024 Bordro Durumu</span>
+            <span className="text-xs font-semibold uppercase tracking-wider text-teal-300">
+              {monthNames[activeMonth - 1]} {activeYear} Bordro Durumu
+            </span>
             <h2 className="text-xl font-bold mt-0.5">Maaş & Ödeme Özeti</h2>
           </div>
           <div className="flex items-center gap-3">

@@ -59,8 +59,8 @@ interface PayrollRow {
 }
 
 export default function MaasTahakkukPage() {
-  const [year, setYear] = useState(2024);
-  const [month, setMonth] = useState(8);
+  const [year, setYear] = useState(() => new Date().getFullYear());
+  const [month, setMonth] = useState(() => new Date().getMonth() + 1);
   const [rows, setRows] = useState<PayrollRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [savingId, setSavingId] = useState<string | null>(null);
@@ -445,8 +445,20 @@ export default function MaasTahakkukPage() {
                       </td>
 
                       {/* Net Ödeme */}
-                      <td className="py-3 px-3 text-right font-extrabold text-teal-800 text-sm min-w-[105px]">
-                        {formatCurrency(p.netTotal)}
+                      <td className="py-3 px-3 text-right min-w-[120px]">
+                        <span className="font-extrabold text-teal-800 text-sm block">
+                          {formatCurrency(p.netTotal)}
+                        </span>
+                        {p.unofficialAmount > 0 && (
+                          <span className="text-[10px] text-amber-900 bg-amber-100/80 border border-amber-300 px-1.5 py-0.5 rounded font-bold inline-block mt-0.5" title="Elden Ödenecek Gayriresmî Tutar">
+                            💵 Elden: {formatCurrency(p.unofficialAmount)}
+                          </span>
+                        )}
+                        {p.officialAmount > 0 && (
+                          <span className="text-[10px] text-teal-800 bg-teal-50 border border-teal-200 px-1.5 py-0.5 rounded font-semibold inline-block mt-0.5 ml-1" title="Banka Üzerinden Ödenecek Resmî Tutar">
+                            🏛️ Banka: {formatCurrency(p.officialAmount)}
+                          </span>
+                        )}
                       </td>
 
                       {/* Kaydet Butonu */}

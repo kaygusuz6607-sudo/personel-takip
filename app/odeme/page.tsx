@@ -55,8 +55,8 @@ interface PaymentTotals {
 }
 
 export default function PersonelOdemePage() {
-  const [year, setYear] = useState(2024);
-  const [month, setMonth] = useState(8);
+  const [year, setYear] = useState(() => new Date().getFullYear());
+  const [month, setMonth] = useState(() => new Date().getMonth() + 1);
   const [statusFilter, setStatusFilter] = useState("ALL"); // ALL, PAID, PENDING
   const [payrolls, setPayrolls] = useState<PayrollItem[]>([]);
   const [totals, setTotals] = useState<PaymentTotals | null>(null);
@@ -319,22 +319,27 @@ export default function PersonelOdemePage() {
                         {formatCurrency(item.netTotal)}
                       </span>
 
-                      <div className="flex flex-col items-end gap-1">
-                        {/* İşe Girişten Atamaya Kadar: ELDEN */}
-                        {item.unofficialAmount > 0 && (
+                        {/* Elden ve Banka Dağılımı */}
+                        {item.unofficialAmount > 0 && item.officialAmount > 0 ? (
+                          <>
+                            <span className="inline-flex items-center gap-1.5 bg-amber-100 text-amber-950 border border-amber-300 px-2.5 py-0.5 rounded text-[11px] font-bold shadow-2xs">
+                              <Banknote className="w-3.5 h-3.5 text-amber-700" />
+                              <span>💵 Elden (Atama Öncesi): {formatCurrency(item.unofficialAmount)}</span>
+                            </span>
+                            <span className="inline-flex items-center gap-1.5 bg-teal-50 text-teal-900 border border-teal-200 px-2.5 py-0.5 rounded text-[11px] font-semibold">
+                              <span>🏛️ Banka (Atama Sonrası): {formatCurrency(item.officialAmount)}</span>
+                            </span>
+                          </>
+                        ) : item.unofficialAmount > 0 ? (
                           <span className="inline-flex items-center gap-1.5 bg-amber-100 text-amber-950 border border-amber-300 px-2.5 py-0.5 rounded text-[11px] font-bold shadow-2xs">
                             <Banknote className="w-3.5 h-3.5 text-amber-700" />
-                            <span>Elden (Atama Öncesi): {formatCurrency(item.unofficialAmount)}</span>
+                            <span>💵 Elden (Gayriresmî): {formatCurrency(item.unofficialAmount)}</span>
                           </span>
-                        )}
-
-                        {/* Atamadan Ay Sonuna Kadar: RESMİ BANKA */}
-                        {item.officialAmount > 0 && (
+                        ) : (
                           <span className="inline-flex items-center gap-1.5 bg-teal-50 text-teal-900 border border-teal-200 px-2.5 py-0.5 rounded text-[11px] font-semibold">
-                            <span>🏛️ Banka (Atama Sonrası): {formatCurrency(item.officialAmount)}</span>
+                            <span>🏛️ Banka (Resmî): {formatCurrency(item.officialAmount)}</span>
                           </span>
                         )}
-                      </div>
                     </div>
                   </div>
                 );

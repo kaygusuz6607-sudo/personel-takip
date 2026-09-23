@@ -5,8 +5,10 @@ import { calculateOfficialSplit } from "@/lib/payroll-calculator";
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
-    const year = parseInt(searchParams.get("year") || "2024");
-    const month = parseInt(searchParams.get("month") || "8");
+    const currentYear = new Date().getFullYear();
+    const currentMonth = new Date().getMonth() + 1;
+    const year = parseInt(searchParams.get("year") || String(currentYear));
+    const month = parseInt(searchParams.get("month") || String(currentMonth));
     const status = searchParams.get("status") || "ALL"; // ALL, PAID, PENDING
 
     const where: any = { year, month };
