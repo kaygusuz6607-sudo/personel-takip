@@ -314,24 +314,27 @@ export default function PersonelOdemePage() {
                     </div>
 
                     {/* Sağ Kolon: Net Ödeme ve Elden Ödenecek Tutar Kırılımı */}
-                    <div className="col-span-6 sm:col-span-5 text-right space-y-0.5">
+                    <div className="col-span-6 sm:col-span-5 text-right space-y-1">
                       <span className="font-extrabold text-blue-600 sm:text-base text-sm tracking-tight block">
                         {formatCurrency(item.netTotal)}
                       </span>
 
-                      {/* Elden Ödenecek (Gayriresmî) Tutar Rozeti (Kullanıcı Talebi) */}
-                      {item.unofficialAmount > 0 && (
-                        <div className="inline-flex items-center gap-1 bg-amber-50 border border-amber-300 text-amber-900 px-2 py-0.5 rounded text-[11px] font-bold">
-                          <Banknote className="w-3.5 h-3.5 text-amber-700" />
-                          <span>Elden: {formatCurrency(item.unofficialAmount)}</span>
-                        </div>
-                      )}
+                      <div className="flex flex-col items-end gap-1">
+                        {/* İşe Girişten Atamaya Kadar: ELDEN */}
+                        {item.unofficialAmount > 0 && (
+                          <span className="inline-flex items-center gap-1.5 bg-amber-100 text-amber-950 border border-amber-300 px-2.5 py-0.5 rounded text-[11px] font-bold shadow-2xs">
+                            <Banknote className="w-3.5 h-3.5 text-amber-700" />
+                            <span>Elden (Atama Öncesi): {formatCurrency(item.unofficialAmount)}</span>
+                          </span>
+                        )}
 
-                      {item.officialAmount > 0 && item.unofficialAmount > 0 && (
-                        <span className="text-[10px] text-slate-400 block">
-                          Banka: {formatCurrency(item.officialAmount)}
-                        </span>
-                      )}
+                        {/* Atamadan Ay Sonuna Kadar: RESMİ BANKA */}
+                        {item.officialAmount > 0 && (
+                          <span className="inline-flex items-center gap-1.5 bg-teal-50 text-teal-900 border border-teal-200 px-2.5 py-0.5 rounded text-[11px] font-semibold">
+                            <span>🏛️ Banka (Atama Sonrası): {formatCurrency(item.officialAmount)}</span>
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </div>
                 );

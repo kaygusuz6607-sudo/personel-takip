@@ -1,4 +1,5 @@
 import { PrismaClient } from "@prisma/client";
+import { calculateOfficialSplit } from "../lib/payroll-calculator";
 
 const prisma = new PrismaClient();
 
@@ -232,8 +233,17 @@ async function main() {
     const gross = Number((baseEarned + hourlyEarned).toFixed(2));
     const deductions = 0; // Manuel sistemde varsayılan 0 kesinti
     const net = gross;
-    const official = Math.min(net, s.officialSalaryPart || net);
-    const unofficial = Math.max(0, Number((net - official).toFixed(2)));
+    const split2024 = calculateOfficialSplit({
+      netTotal: net,
+      monthlySalary: s.monthlySalary,
+      year: 2024,
+      month: 8,
+      hireDate: s.hireDate,
+      mebAssignmentDate: s.mebAssignmentDate,
+      sgkStartDate: s.sgkStartDate,
+      officialSalaryPart: s.officialSalaryPart,
+      reportDays,
+    });
 
     await prisma.payroll.upsert({
       where: {
@@ -252,8 +262,8 @@ async function main() {
         grossTotal: gross,
         totalDeductions: deductions,
         netTotal: net,
-        officialAmount: official,
-        unofficialAmount: unofficial,
+        officialAmount: split2024.officialAmount,
+        unofficialAmount: split2024.unofficialAmount,
       },
       create: {
         staffId: staff.id,
@@ -269,10 +279,61 @@ async function main() {
         grossTotal: gross,
         totalDeductions: deductions,
         netTotal: net,
-        officialAmount: official,
-        unofficialAmount: unofficial,
+        officialAmount: split2024.officialAmount,
+        unofficialAmount: split2024.unofficialAmount,
         isPaid: s.fullName !== "Akif Sancak",
         paidDate: s.fullName !== "Akif Sancak" ? new Date("2024-09-05") : null,
+      },
+    });
+
+    // 2026/9 (Geçiş Ayı: Atamaya kadar Elden, sonraya Banka)
+    const split2026 = calculateOfficialSplit({
+      netTotal: net,
+      monthlySalary: s.monthlySalary,
+      year: 2026,
+      month: 9,
+      hireDate: s.hireDate,
+      mebAssignmentDate: s.mebAssignmentDate,
+      sgkStartDate: s.sgkStartDate,
+      officialSalaryPart: s.officialSalaryPart,
+      reportDays,
+    });
+
+    await prisma.payroll.upsert({
+      where: {
+        staffId_year_month: {
+          staffId: staff.id,
+          year: 2026,
+          month: 9,
+        },
+      },
+      update: {
+        workDays: 30,
+        reportDays,
+        lessonHours,
+        baseEarned,
+        hourlyEarned,
+        grossTotal: gross,
+        totalDeductions: deductions,
+        netTotal: net,
+        officialAmount: split2026.officialAmount,
+        unofficialAmount: split2026.unofficialAmount,
+      },
+      create: {
+        staffId: staff.id,
+        year: 2026,
+        month: 9,
+        workDays: 30,
+        reportDays,
+        lessonHours,
+        baseEarned,
+        hourlyEarned,
+        grossTotal: gross,
+        totalDeductions: deductions,
+        netTotal: net,
+        officialAmount: split2026.officialAmount,
+        unofficialAmount: split2026.unofficialAmount,
+        isPaid: false,
       },
     });
   }

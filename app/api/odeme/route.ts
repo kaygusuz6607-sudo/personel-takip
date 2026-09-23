@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { calculateOfficialSplit } from "@/lib/payroll-calculator";
 
 export async function GET(request: Request) {
   try {
@@ -25,23 +26,40 @@ export async function GET(request: Request) {
       orderBy: { staff: { fullName: "asc" } },
     });
 
-    // Toplamlar (Edutime alt çubuğu)
-    const allMonthPayrolls = await prisma.payroll.findMany({
-      where: { year, month },
+    // Her personelin atama tarihine göre elden ve resmi banka tutarını dinamik hesapla
+    const updatedPayrolls = payrolls.map((p) => {
+      const split = calculateOfficialSplit({
+        netTotal: p.netTotal,
+        monthlySalary: p.staff.salaryConfig?.monthlySalary || 0,
+        year: p.year,
+        month: p.month,
+        hireDate: p.staff.hireDate,
+        mebAssignmentDate: p.staff.mebAssignmentDate,
+        sgkStartDate: p.staff.sgkStartDate,
+        officialSalaryPart: p.staff.salaryConfig?.officialSalaryPart || 0,
+        reportDays: p.reportDays,
+      });
+
+      return {
+        ...p,
+        officialAmount: split.officialAmount,
+        unofficialAmount: split.unofficialAmount,
+      };
     });
 
-    const brütToplam = allMonthPayrolls.reduce((sum, p) => sum + p.grossTotal, 0);
-    const toplamKesinti = allMonthPayrolls.reduce((sum, p) => sum + p.totalDeductions, 0);
-    const netOdeme = allMonthPayrolls.reduce((sum, p) => sum + p.netTotal, 0);
-    const resmiToplam = allMonthPayrolls.reduce((sum, p) => sum + p.officialAmount, 0);
-    const eldenToplam = allMonthPayrolls.reduce((sum, p) => sum + p.unofficialAmount, 0);
-    const odenenTutar = allMonthPayrolls
+    // Toplamlar (Edutime alt çubuğu)
+    const brütToplam = updatedPayrolls.reduce((sum, p) => sum + p.grossTotal, 0);
+    const toplamKesinti = updatedPayrolls.reduce((sum, p) => sum + p.totalDeductions, 0);
+    const netOdeme = updatedPayrolls.reduce((sum, p) => sum + p.netTotal, 0);
+    const resmiToplam = updatedPayrolls.reduce((sum, p) => sum + p.officialAmount, 0);
+    const eldenToplam = updatedPayrolls.reduce((sum, p) => sum + p.unofficialAmount, 0);
+    const odenenTutar = updatedPayrolls
       .filter((p) => p.isPaid)
       .reduce((sum, p) => sum + p.netTotal, 0);
     const bekleyenTutar = netOdeme - odenenTutar;
 
     return NextResponse.json({
-      payrolls,
+      payrolls: updatedPayrolls,
       totals: {
         brütToplam,
         toplamKesinti,
@@ -50,8 +68,8 @@ export async function GET(request: Request) {
         eldenToplam,
         odenenTutar,
         bekleyenTutar,
-        toplamPersonel: allMonthPayrolls.length,
-        odenenPersonel: allMonthPayrolls.filter((p) => p.isPaid).length,
+        toplamPersonel: updatedPayrolls.length,
+        odenenPersonel: updatedPayrolls.filter((p) => p.isPaid).length,
       },
     });
   } catch (error) {

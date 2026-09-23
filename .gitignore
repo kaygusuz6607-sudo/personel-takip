@@ -5,3 +5,4 @@ out
 .env.local
 dev.db-journal
 *.log
+cloudflared.exe

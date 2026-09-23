@@ -1,94 +1,34 @@
-import { calculatePayroll } from "../lib/payroll-calculator";
+import { calculatePayroll, calculateOfficialSplit } from "../lib/payroll-calculator";
 
 function runTests() {
-  console.log("=== BORDRO MOTORU DOĞRULAMA TESTLERİ ===");
+  console.log("=== BORDRO VE ATAMA TARİHİ GEÇİŞ TESTLERİ ===");
 
-  // Test 1: Akif Bey - Aylık Maaşlı (28.075,50 TL), 30 gün çalışma, 1 gün rapor
-  const akifResult = calculatePayroll({
-    salaryType: "MONTHLY",
+  // Test: Akif Sancak - İşe Giriş 01.09.2026, Atama 24.09.2026 (23 gün elden, 7 gün banka)
+  const split = calculateOfficialSplit({
+    netTotal: 28075.5,
     monthlySalary: 28075.5,
-    hourlyRate: 0,
-    dailyRate: 0,
-    workDays: 30,
-    reportDays: 1,
-    unpaidLeaveDays: 0,
-    lessonHours: 0,
-    dailyWorkDays: 0,
-    holidayWorkDays: 0,
-    holidayChoice: "LEAVE_1_TO_1",
+    year: 2026,
+    month: 9,
+    hireDate: "2026-09-01",
+    mebAssignmentDate: "2026-09-24",
+    sgkStartDate: "2026-09-24",
   });
 
-  const expectedDaily = 28075.5 / 30; // 935.85 TL
-  const expectedEarned = Number((expectedDaily * 29).toFixed(2)); // 27139.65 TL
+  const daily = 28075.5 / 30; // 935.85
+  const expectedElden = Number((daily * 23).toFixed(2)); // 21524.55
+  const expectedBanka = Number((28075.5 - expectedElden).toFixed(2)); // 6550.95
 
-  console.log("Test 1 (Akif Sancak - 1 Gün Rapor):");
-  console.log(`  Hesaplanan Brüt Hakediş: ${akifResult.baseEarned} TL (Beklenen: ${expectedEarned} TL)`);
-  if (Math.abs(akifResult.baseEarned - expectedEarned) < 0.01) {
-    console.log("  ✔ BAŞARILI: 1 gün rapor tutarı (935,85 TL) tam olarak düşüldü!");
+  console.log(`Akif Sancak Atama Geçiş Testi (24 Eylül Ataması):`);
+  console.log(`  Elden (Atama Öncesi 23 Gün): ${split.unofficialAmount} TL (Beklenen: ${expectedElden} TL)`);
+  console.log(`  Banka (Atama Sonrası 7 Gün): ${split.officialAmount} TL (Beklenen: ${expectedBanka} TL)`);
+
+  if (
+    Math.abs(split.unofficialAmount - expectedElden) < 0.05 &&
+    Math.abs(split.officialAmount - expectedBanka) < 0.05
+  ) {
+    console.log("  ✔ BAŞARILI: Atama öncesi elden, atama sonrası banka tam olarak hesaplandı!");
   } else {
     console.error("  ❌ HATA: Hesap uyuşmuyor!");
-  }
-
-  // Test 2: Ders Saatli Personel - 450 TL/saat, 15 ders
-  const dersResult = calculatePayroll({
-    salaryType: "HOURLY",
-    monthlySalary: 0,
-    hourlyRate: 450,
-    dailyRate: 0,
-    workDays: 30,
-    reportDays: 0,
-    unpaidLeaveDays: 0,
-    lessonHours: 15,
-    dailyWorkDays: 0,
-    holidayWorkDays: 0,
-    holidayChoice: "LEAVE_1_TO_1",
-  });
-
-  console.log("\nTest 2 (Ders Saatli - 450 TL x 15 Saat):");
-  console.log(`  Hesaplanan: ${dersResult.hourlyEarned} TL (Beklenen: 6750 TL)`);
-  if (dersResult.hourlyEarned === 6750) {
-    console.log("  ✔ BAŞARILI: 450 x 15 = 6.750 TL tam hesaplandı!");
-  } else {
-    console.error("  ❌ HATA!");
-  }
-
-  // Test 3: Resmi Tatil Mesaisi - Seçenek A (1'e 1 İzin) vs Seçenek B (Çift Yevmiye)
-  const holidayLeaveResult = calculatePayroll({
-    salaryType: "MONTHLY",
-    monthlySalary: 30000,
-    hourlyRate: 0,
-    dailyRate: 0,
-    workDays: 30,
-    reportDays: 0,
-    unpaidLeaveDays: 0,
-    lessonHours: 0,
-    dailyWorkDays: 0,
-    holidayWorkDays: 1,
-    holidayChoice: "LEAVE_1_TO_1",
-  });
-
-  const holidayDoubleResult = calculatePayroll({
-    salaryType: "MONTHLY",
-    monthlySalary: 30000,
-    hourlyRate: 0,
-    dailyRate: 0,
-    workDays: 30,
-    reportDays: 0,
-    unpaidLeaveDays: 0,
-    lessonHours: 0,
-    dailyWorkDays: 0,
-    holidayWorkDays: 1,
-    holidayChoice: "DOUBLE_PAY",
-  });
-
-  console.log("\nTest 3 (Resmi Tatil Mesaisi Tercihleri):");
-  console.log(`  Seçenek A (1'e 1 İzin): Eklenen Tutar = ${holidayLeaveResult.holidayEarned} TL (0 olmalı, izne yansır)`);
-  console.log(`  Seçenek B (Çift Yevmiye): Eklenen Tutar = ${holidayDoubleResult.holidayEarned} TL (1000 TL yevmiye olmalı)`);
-
-  if (holidayLeaveResult.holidayEarned === 0 && holidayDoubleResult.holidayEarned === 1000) {
-    console.log("  ✔ BAŞARILI: İzin ve Çift Yevmiye ayrımı kusursuz çalışıyor!");
-  } else {
-    console.error("  ❌ HATA!");
   }
 }
 

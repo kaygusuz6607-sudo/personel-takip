@@ -1,3 +1,13 @@
+export function parseSafeDate(d: string | Date | null | undefined): Date | null {
+  if (!d) return null;
+  const str = d instanceof Date ? d.toISOString() : String(d);
+  const parts = str.split("T")[0].split("-").map(Number);
+  if (parts.length === 3 && !isNaN(parts[0]) && !isNaN(parts[1]) && !isNaN(parts[2])) {
+    return new Date(parts[0], parts[1] - 1, parts[2]);
+  }
+  return null;
+}
+
 /**
  * İki tarih arasındaki süreyi "X yıl Y ay Z gün" formatında Türkçe olarak hesaplar
  */
@@ -7,10 +17,10 @@ export function calculateDuration(
 ): string {
   if (!startDateStr) return "—";
 
-  const start = new Date(startDateStr);
-  const end = endDateStr ? new Date(endDateStr) : new Date();
+  const start = parseSafeDate(startDateStr);
+  const end = endDateStr ? parseSafeDate(endDateStr) : new Date();
 
-  if (isNaN(start.getTime()) || isNaN(end.getTime())) return "—";
+  if (!start || !end) return "—";
   if (start > end) return "0 gün";
 
   let years = end.getFullYear() - start.getFullYear();
@@ -19,7 +29,6 @@ export function calculateDuration(
 
   if (days < 0) {
     months -= 1;
-    // Bir önceki ayın gün sayısını bul
     const prevMonthLastDay = new Date(end.getFullYear(), end.getMonth(), 0).getDate();
     days += prevMonthLastDay;
   }
@@ -58,20 +67,18 @@ export function checkMebSgkNotification(
     return { needsNotification: false, isMonday: false, message: "", urgency: "NONE" };
   }
 
-  const mebDate = new Date(mebAssignmentDateStr);
-  if (isNaN(mebDate.getTime())) {
+  const mebDate = parseSafeDate(mebAssignmentDateStr);
+  if (!mebDate) {
     return { needsNotification: false, isMonday: false, message: "", urgency: "NONE" };
   }
 
   const today = new Date();
-  // Saatleri sıfırla (sadece gün karşılaştırması)
   const dToday = new Date(today.getFullYear(), today.getMonth(), today.getDate());
   const dMeb = new Date(mebDate.getFullYear(), mebDate.getMonth(), mebDate.getDate());
 
   const dayOfWeek = dMeb.getDay(); // 0: Pazar, 1: Pazartesi, ..., 6: Cumartesi
   const isMonday = dayOfWeek === 1;
 
-  // Gün farkı: dMeb - dToday
   const diffTime = dMeb.getTime() - dToday.getTime();
   const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
 
