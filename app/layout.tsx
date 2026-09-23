@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { Sidebar } from "@/components/Sidebar";
+import { NotificationBanner } from "@/components/NotificationBanner";
 
 export const metadata: Metadata = {
   title: "Personel Takip Sistemi - Özel Okul & Dershane",
@@ -17,6 +18,7 @@ export default function RootLayout({
       <body className="bg-slate-50 min-h-screen text-slate-800 flex flex-col lg:flex-row antialiased">
         <Sidebar />
         <main className="flex-1 min-w-0 flex flex-col min-h-screen overflow-x-hidden">
+          <NotificationBanner />
           {children}
         </main>
       </body>

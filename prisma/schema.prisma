@@ -50,6 +50,7 @@ model Staff {
   sgkStartDate         DateTime?
   notes                String?
   status               String            @default("ACTIVE") // ACTIVE, PASSIVE, ON_LEAVE
+  isSgkNotified        Boolean           @default(false)
   
   departments          StaffDepartment[]
   salaryConfig         SalaryConfig?
@@ -91,13 +92,20 @@ model Payroll {
   hourlyEarned         Float     @default(0)
   dailyEarned          Float     @default(0)
   holidayEarned        Float     @default(0)
+  
+  // Ek Ücret (+) ve Manuel Kesinti (-) (Kullanıcının talep ettiği esnek sistem)
+  bonusAmount          Float     @default(0) // Prim, Yol vb. (+)
+  bonusDescription     String?
+  deductionAmount      Float     @default(0) // Avans, Ceza vb. (-)
+  deductionDescription String?
+  
   grossTotal           Float     @default(0)
   
-  // SGK & Vergi Kesintileri
-  sgkEmployee          Float     @default(0) // %14
-  unemploymentEmployee Float     @default(0) // %1
-  incomeTax            Float     @default(0) // %15 varsayılan
-  stampTax             Float     @default(0) // %0.759
+  // Kesintiler
+  sgkEmployee          Float     @default(0) // Opsiyonel yasal kesinti
+  unemploymentEmployee Float     @default(0)
+  incomeTax            Float     @default(0)
+  stampTax             Float     @default(0)
   isManualTax          Boolean   @default(false)
   totalDeductions      Float     @default(0)
   

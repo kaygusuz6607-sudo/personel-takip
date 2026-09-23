@@ -33,6 +33,8 @@ export async function GET(request: Request) {
     const brütToplam = allMonthPayrolls.reduce((sum, p) => sum + p.grossTotal, 0);
     const toplamKesinti = allMonthPayrolls.reduce((sum, p) => sum + p.totalDeductions, 0);
     const netOdeme = allMonthPayrolls.reduce((sum, p) => sum + p.netTotal, 0);
+    const resmiToplam = allMonthPayrolls.reduce((sum, p) => sum + p.officialAmount, 0);
+    const eldenToplam = allMonthPayrolls.reduce((sum, p) => sum + p.unofficialAmount, 0);
     const odenenTutar = allMonthPayrolls
       .filter((p) => p.isPaid)
       .reduce((sum, p) => sum + p.netTotal, 0);
@@ -44,6 +46,8 @@ export async function GET(request: Request) {
         brütToplam,
         toplamKesinti,
         netOdeme,
+        resmiToplam,
+        eldenToplam,
         odenenTutar,
         bekleyenTutar,
         toplamPersonel: allMonthPayrolls.length,

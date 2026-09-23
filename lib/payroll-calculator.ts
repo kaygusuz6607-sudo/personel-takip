@@ -14,7 +14,13 @@ export interface SalaryCalculationInput {
   holidayWorkDays: number;
   holidayChoice: "LEAVE_1_TO_1" | "DOUBLE_PAY" | string;
 
-  // Manuel kesinti müdahalesi varsa
+  // Esnek Ek Ücret (+) ve Manuel Kesinti (-) (Kullanıcı Talebi)
+  bonusAmount?: number; // Prim, Yol, İkramiye vb. (+)
+  bonusDescription?: string;
+  deductionAmount?: number; // Avans, Ceza, Eksik Gün Kesintisi vb. (-)
+  deductionDescription?: string;
+
+  // SGK/Vergi kesintisi istenirse
   isManualTax?: boolean;
   manualSgkEmployee?: number;
   manualUnemployment?: number;
@@ -27,6 +33,10 @@ export interface SalaryCalculationResult {
   hourlyEarned: number;
   dailyEarned: number;
   holidayEarned: number;
+  bonusAmount: number;
+  bonusDescription: string;
+  deductionAmount: number;
+  deductionDescription: string;
   grossTotal: number;
 
   sgkEmployee: number;
@@ -46,13 +56,17 @@ export function calculatePayroll(input: SalaryCalculationInput): SalaryCalculati
     monthlySalary = 0,
     hourlyRate = 0,
     dailyRate = 0,
-    workDays = 30, // SGK 30 gün standardı
+    workDays = 30, // Standart 30 gün
     reportDays = 0,
     unpaidLeaveDays = 0,
     lessonHours = 0,
     dailyWorkDays = 0,
     holidayWorkDays = 0,
     holidayChoice = "LEAVE_1_TO_1",
+    bonusAmount = 0,
+    bonusDescription = "",
+    deductionAmount = 0,
+    deductionDescription = "",
     isManualTax = false,
     manualSgkEmployee = 0,
     manualUnemployment = 0,
@@ -87,19 +101,20 @@ export function calculatePayroll(input: SalaryCalculationInput): SalaryCalculati
   // 3. Resmi Tatil Mesaisi Hesabı
   if (holidayWorkDays > 0) {
     if (holidayChoice === "DOUBLE_PAY") {
-      // Çift yevmiye: Aylık maaşlı ise günlükBase, günlük ücretli ise dailyRate baz alınır
       const holidayDaily = dailyBase > 0 ? dailyBase : dailyRate;
       holidayEarned = Number((holidayDaily * holidayWorkDays).toFixed(2));
     } else {
-      // LEAVE_1_TO_1: Bordroya para eklenmez, izin havuzuna 1'e 1 gün eklenir
-      holidayEarned = 0;
+      holidayEarned = 0; // LEAVE_1_TO_1 izin havuzuna eklenir
     }
   }
 
-  // 4. Brüt Toplam
-  const grossTotal = Number((baseEarned + hourlyEarned + dailyEarned + holidayEarned).toFixed(2));
+  // 4. Brüt Toplam = Maaş/Ders Hakedişi + Resmi Tatil + Ek Ücretler (Bonuslar)
+  const grossTotal = Number(
+    (baseEarned + hourlyEarned + dailyEarned + holidayEarned + (Number(bonusAmount) || 0)).toFixed(2)
+  );
 
-  // 5. Kesinti Hesaplama (SGK %14, İşsizlik %1, Gelir Vergisi %15, Damga %0.759)
+  // 5. Kesintiler: Kullanıcının girdiği doğrudan Kesinti Tutarı (-) + Varsa yasal kesintiler
+  let taxDeductions = 0;
   let sgkEmployee = 0;
   let unemploymentEmployee = 0;
   let incomeTax = 0;
@@ -110,22 +125,16 @@ export function calculatePayroll(input: SalaryCalculationInput): SalaryCalculati
     unemploymentEmployee = Number(manualUnemployment.toFixed(2));
     incomeTax = Number(manualIncomeTax.toFixed(2));
     stampTax = Number(manualStampTax.toFixed(2));
-  } else {
-    // Otomatik hesap
-    sgkEmployee = Number((grossTotal * 0.14).toFixed(2));
-    unemploymentEmployee = Number((grossTotal * 0.01).toFixed(2));
-    incomeTax = Number((grossTotal * 0.15).toFixed(2));
-    stampTax = Number((grossTotal * 0.00759).toFixed(2));
+    taxDeductions = sgkEmployee + unemploymentEmployee + incomeTax + stampTax;
   }
 
-  const totalDeductions = Number(
-    (sgkEmployee + unemploymentEmployee + incomeTax + stampTax).toFixed(2)
-  );
+  const directDeductions = Number(deductionAmount) || 0;
+  const totalDeductions = Number((directDeductions + taxDeductions).toFixed(2));
 
-  // 6. Net Ödeme
+  // 6. Net Ödeme = Brüt Toplam - Toplam Kesintiler
   const netTotal = Math.max(0, Number((grossTotal - totalDeductions).toFixed(2)));
 
-  // 7. Resmi vs Gayriresmi Ödeme Ayrımı
+  // 7. Resmi vs Gayriresmi (Elden) Ödeme Ayrımı
   let officialAmount = 0;
   let unofficialAmount = 0;
 
@@ -133,6 +142,7 @@ export function calculatePayroll(input: SalaryCalculationInput): SalaryCalculati
     officialAmount = Math.min(netTotal, Number(officialSalaryPart.toFixed(2)));
     unofficialAmount = Math.max(0, Number((netTotal - officialAmount).toFixed(2)));
   } else {
+    // Resmi kısım belirtilmemişse veya gayriresmi dönemdeyse tamamı elden
     officialAmount = netTotal;
     unofficialAmount = 0;
   }
@@ -142,6 +152,10 @@ export function calculatePayroll(input: SalaryCalculationInput): SalaryCalculati
     hourlyEarned,
     dailyEarned,
     holidayEarned,
+    bonusAmount: Number(bonusAmount) || 0,
+    bonusDescription: bonusDescription || "",
+    deductionAmount: directDeductions,
+    deductionDescription: deductionDescription || "",
     grossTotal,
     sgkEmployee,
     unemploymentEmployee,

@@ -3,17 +3,14 @@
 import { useState, useEffect } from "react";
 import {
   Calculator,
-  Calendar,
   Save,
   CheckCircle2,
-  AlertCircle,
   HelpCircle,
-  RefreshCw,
+  PlusCircle,
+  MinusCircle,
   Sliders,
   DollarSign,
-  Palmtree,
-  ShieldCheck,
-  ChevronDown,
+  TrendingUp,
 } from "lucide-react";
 import { calculatePayroll } from "@/lib/payroll-calculator";
 
@@ -38,6 +35,10 @@ interface PayrollRow {
     dailyWorkDays: number;
     holidayWorkDays: number;
     holidayChoice: string;
+    bonusAmount: number;
+    bonusDescription: string;
+    deductionAmount: number;
+    deductionDescription: string;
     baseEarned: number;
     hourlyEarned: number;
     dailyEarned: number;
@@ -64,7 +65,7 @@ export default function MaasTahakkukPage() {
   const [loading, setLoading] = useState(true);
   const [savingId, setSavingId] = useState<string | null>(null);
   const [savedSuccessId, setSavedSuccessId] = useState<string | null>(null);
-  const [activeTaxModalStaff, setActiveTaxModalStaff] = useState<PayrollRow | null>(null);
+  const [activeModalStaff, setActiveModalStaff] = useState<PayrollRow | null>(null);
 
   const months = [
     { num: 1, name: "Ocak" },
@@ -101,11 +102,7 @@ export default function MaasTahakkukPage() {
   }, [year, month]);
 
   // Hücre değiştiğinde satırın hesaplamasını anlık güncelle
-  const handleInputChange = (
-    staffId: string,
-    field: string,
-    value: any
-  ) => {
+  const handleInputChange = (staffId: string, field: string, value: any) => {
     setRows((prev) =>
       prev.map((row) => {
         if (row.staffId !== staffId) return row;
@@ -125,6 +122,10 @@ export default function MaasTahakkukPage() {
           dailyWorkDays: Number(updatedPayroll.dailyWorkDays) || 0,
           holidayWorkDays: Number(updatedPayroll.holidayWorkDays) || 0,
           holidayChoice: updatedPayroll.holidayChoice || "LEAVE_1_TO_1",
+          bonusAmount: Number(updatedPayroll.bonusAmount) || 0,
+          bonusDescription: updatedPayroll.bonusDescription || "",
+          deductionAmount: Number(updatedPayroll.deductionAmount) || 0,
+          deductionDescription: updatedPayroll.deductionDescription || "",
           isManualTax: updatedPayroll.isManualTax,
           manualSgkEmployee: updatedPayroll.sgkEmployee,
           manualUnemployment: updatedPayroll.unemploymentEmployee,
@@ -132,13 +133,19 @@ export default function MaasTahakkukPage() {
           manualStampTax: updatedPayroll.stampTax,
         });
 
-        return {
+        const newRow = {
           ...row,
           payroll: {
             ...updatedPayroll,
             ...calc,
           },
         };
+
+        if (activeModalStaff && activeModalStaff.staffId === staffId) {
+          setActiveModalStaff(newRow);
+        }
+
+        return newRow;
       })
     );
   };
@@ -184,7 +191,7 @@ export default function MaasTahakkukPage() {
         <div>
           <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Maaş & Tahakkuk</h1>
           <p className="text-sm text-slate-500 mt-0.5">
-            Ders saati, 30 gün SGK standardı, rapor kesintileri ve tatil mesaisi hesaplama motoru
+            Ders saati, 30 gün standardı, rapor düşüşü, esnek ek ücretler ve kesintiler
           </p>
         </div>
 
@@ -229,13 +236,13 @@ export default function MaasTahakkukPage() {
               <strong>Aylık Maaşlı:</strong> SGK kuralı gereği ay 30 gün kabul edilir. Günlük yevmiye = Maaş / 30. Girilen rapor günleri bu tutardan otomatik düşülür.
             </li>
             <li>
-              <strong>Ders Saatli:</strong> Girilen ders saati $\times$ Saat ücreti otomatik hesaplanır.
+              <strong>Ders Saatli:</strong> Girilen ders saati $\times$ Saat ücreti anında hesaplanır.
+            </li>
+            <li>
+              <strong>Ek Ücretler (+) & Kesintiler (-):</strong> Prim, avans, yol vb. kalemler için açıklama ve tutar girildiğinde <strong>Net Ödeme otomatik hesaplanır</strong>.
             </li>
             <li>
               <strong>Resmi Tatilde Çalışma:</strong> &ldquo;1&apos;e 1 İzin&rdquo; seçilirse personele izin havuzunda +1 gün eklenir; &ldquo;Çift Yevmiye&rdquo; seçilirse bordroya eklenir.
-            </li>
-            <li>
-              <strong>SGK & Vergi:</strong> Otomatik hesaplanır. Dilerseniz ✏️ butonuna basarak manuel değerler girebilirsiniz.
             </li>
           </ul>
         </div>
@@ -254,12 +261,12 @@ export default function MaasTahakkukPage() {
                 <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold uppercase tracking-wider">
                   <th className="py-3 px-3">Personel</th>
                   <th className="py-3 px-3">Ücret Modeli</th>
-                  <th className="py-3 px-3 text-center">Çalışma Günü</th>
-                  <th className="py-3 px-3 text-center">Rapor Günü</th>
-                  <th className="py-3 px-3 text-center">Ders Saati</th>
-                  <th className="py-3 px-3 text-center">Resmi Tatil</th>
-                  <th className="py-3 px-3 text-right">Brüt Toplam</th>
-                  <th className="py-3 px-3 text-right">Kesintiler (SGK/Vergi)</th>
+                  <th className="py-3 px-2 text-center">Çalışma Günü</th>
+                  <th className="py-3 px-2 text-center">Rapor Günü</th>
+                  <th className="py-3 px-2 text-center">Ders Saati</th>
+                  <th className="py-3 px-2 text-center">Resmi Tatil</th>
+                  <th className="py-3 px-3 text-right">Brüt Hakediş</th>
+                  <th className="py-3 px-3 text-center">Ek Ücret / Kesinti</th>
                   <th className="py-3 px-3 text-right font-bold text-teal-900">Net Ödeme</th>
                   <th className="py-3 px-3 text-center">İşlem</th>
                 </tr>
@@ -274,13 +281,13 @@ export default function MaasTahakkukPage() {
                   return (
                     <tr key={row.staffId} className="hover:bg-slate-50/80 transition-colors">
                       {/* Personel Bilgisi */}
-                      <td className="py-3 px-3 min-w-[170px]">
+                      <td className="py-3 px-3 min-w-[160px]">
                         <p className="font-bold text-slate-800 text-sm">{row.fullName}</p>
                         <p className="text-[11px] text-slate-400">{row.title || row.departments[0]}</p>
                       </td>
 
                       {/* Ücret Tipi */}
-                      <td className="py-3 px-3 min-w-[140px]">
+                      <td className="py-3 px-3 min-w-[130px]">
                         {isMonthly && (
                           <span className="font-semibold text-teal-800 block">
                             {formatCurrency(row.monthlySalary)} / ay
@@ -319,7 +326,7 @@ export default function MaasTahakkukPage() {
                               handleInputChange(row.staffId, "workDays", parseInt(e.target.value) || 0)
                             }
                             className="w-14 text-center py-1 px-1 bg-slate-50 border border-slate-200 rounded font-semibold focus:outline-none focus:ring-1 focus:ring-teal-600"
-                            title="Standart 30 gün SGK"
+                            title="Standart 30 gün"
                           />
                         ) : isDaily ? (
                           <input
@@ -337,7 +344,7 @@ export default function MaasTahakkukPage() {
                         )}
                       </td>
 
-                      {/* Rapor Günü (Düşüş) */}
+                      {/* Rapor Günü (Maaştan Düşüş) */}
                       <td className="py-3 px-2 text-center">
                         {isMonthly ? (
                           <input
@@ -348,7 +355,7 @@ export default function MaasTahakkukPage() {
                               handleInputChange(row.staffId, "reportDays", parseInt(e.target.value) || 0)
                             }
                             className="w-12 text-center py-1 px-1 bg-rose-50 border border-rose-200 text-rose-700 font-bold rounded focus:outline-none focus:ring-1 focus:ring-rose-500"
-                            title="Raporlu gün sayısı (Maaştan düşülür)"
+                            title="Raporlu gün sayısı (Maaştan otomatik düşer)"
                           />
                         ) : (
                           <span className="text-slate-300">—</span>
@@ -403,35 +410,42 @@ export default function MaasTahakkukPage() {
                         </div>
                       </td>
 
-                      {/* Brüt Tutar */}
-                      <td className="py-3 px-3 text-right font-semibold text-slate-800">
+                      {/* Brüt Hakediş (Rapor düşüşü yansımış) */}
+                      <td className="py-3 px-3 text-right font-semibold text-slate-800 min-w-[100px]">
                         {formatCurrency(p.grossTotal)}
                       </td>
 
-                      {/* Kesintiler & Manuel Düzenleme Butonu */}
-                      <td className="py-3 px-3 text-right">
-                        <div className="flex items-center justify-end gap-1">
-                          <span className="text-rose-600 font-medium">
-                            - {formatCurrency(p.totalDeductions)}
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => setActiveTaxModalStaff(row)}
-                            className="p-1 hover:bg-slate-100 rounded text-slate-400 hover:text-slate-700"
-                            title="Kesintileri Gör / Düzenle"
-                          >
-                            <Sliders className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                        {p.isManualTax && (
-                          <span className="text-[10px] text-amber-600 font-semibold block">
-                            (Manuel Kesinti)
-                          </span>
-                        )}
+                      {/* Ek Ücret (+) & Kesinti (-) Giriş / Düzenleme Butonu */}
+                      <td className="py-3 px-3 text-center min-w-[140px]">
+                        <button
+                          type="button"
+                          onClick={() => setActiveModalStaff(row)}
+                          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-slate-200 hover:border-teal-600 bg-white hover:bg-teal-50 transition-all text-slate-700 hover:text-teal-800 shadow-xs"
+                          title="Açıklama ve Tutar Gir"
+                        >
+                          <Sliders className="w-3.5 h-3.5 text-teal-600" />
+                          <div className="text-left leading-tight">
+                            {p.bonusAmount > 0 && (
+                              <span className="text-[11px] text-emerald-600 font-bold block">
+                                +{formatCurrency(p.bonusAmount)}
+                              </span>
+                            )}
+                            {p.totalDeductions > 0 && (
+                              <span className="text-[11px] text-rose-600 font-bold block">
+                                -{formatCurrency(p.totalDeductions)}
+                              </span>
+                            )}
+                            {p.bonusAmount === 0 && p.totalDeductions === 0 && (
+                              <span className="text-[11px] text-slate-400 font-medium">
+                                Düzenle
+                              </span>
+                            )}
+                          </div>
+                        </button>
                       </td>
 
                       {/* Net Ödeme */}
-                      <td className="py-3 px-3 text-right font-extrabold text-teal-800 text-sm">
+                      <td className="py-3 px-3 text-right font-extrabold text-teal-800 text-sm min-w-[105px]">
                         {formatCurrency(p.netTotal)}
                       </td>
 
@@ -440,7 +454,7 @@ export default function MaasTahakkukPage() {
                         <button
                           onClick={() => handleSavePayroll(row)}
                           disabled={savingId === row.staffId}
-                          className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                          className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
                             savedSuccessId === row.staffId
                               ? "bg-emerald-600 text-white"
                               : "bg-teal-700 hover:bg-teal-800 text-white shadow-xs"
@@ -468,137 +482,164 @@ export default function MaasTahakkukPage() {
         )}
       </div>
 
-      {/* SGK & Vergi Kesintileri Manuel Müdahale Modalı (Fotoğraftaki BÖLÜM 10 Şeması) */}
-      {activeTaxModalStaff && (
+      {/* Ek Ücret & Kesinti Düzenleme Modalı (Açıklama + Tutar) */}
+      {activeModalStaff && (
         <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-md w-full shadow-2xl p-6 relative">
+          <div className="bg-white rounded-2xl max-w-lg w-full shadow-2xl p-6 relative">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100">
               <div>
-                <h3 className="font-bold text-slate-900">SGK & Vergi Kesinti Kartı</h3>
-                <p className="text-xs text-slate-500">{activeTaxModalStaff.fullName} — {year}/{month}</p>
+                <h3 className="font-bold text-slate-900 text-base">Ek Ücret & Kesinti Girişi</h3>
+                <p className="text-xs text-slate-500">
+                  {activeModalStaff.fullName} — {year}/{month}
+                </p>
               </div>
               <button
-                onClick={() => setActiveTaxModalStaff(null)}
+                onClick={() => setActiveModalStaff(null)}
                 className="text-slate-400 hover:text-slate-600 text-sm font-bold p-1"
               >
                 ✕
               </button>
             </div>
 
-            <div className="mt-4 space-y-3 text-sm">
-              <div className="bg-slate-50 p-3 rounded-lg flex items-center justify-between">
-                <span className="text-slate-600 font-medium">Brüt Maaş Tutarı:</span>
-                <span className="font-bold text-slate-800">
-                  {formatCurrency(activeTaxModalStaff.payroll.grossTotal)}
+            <div className="mt-4 space-y-4 text-xs">
+              {/* Brüt Hakediş Özeti */}
+              <div className="bg-slate-50 p-3 rounded-xl flex items-center justify-between">
+                <span className="text-slate-600 font-medium">Temel Çalışma Hakedişi:</span>
+                <span className="font-bold text-slate-900 text-sm">
+                  {formatCurrency(
+                    activeModalStaff.payroll.baseEarned +
+                      activeModalStaff.payroll.hourlyEarned +
+                      activeModalStaff.payroll.dailyEarned +
+                      activeModalStaff.payroll.holidayEarned
+                  )}
                 </span>
               </div>
 
-              <div>
-                <label className="block text-xs font-medium text-slate-600 mb-1">
-                  SGK İşçi Payı (%14)
-                </label>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={activeTaxModalStaff.payroll.sgkEmployee}
-                  onChange={(e) =>
-                    handleInputChange(
-                      activeTaxModalStaff.staffId,
-                      "sgkEmployee",
-                      parseFloat(e.target.value) || 0
-                    )
-                  }
-                  className="w-full px-3 py-1.5 border border-slate-200 rounded-lg text-sm font-semibold"
-                />
+              {/* 1. Ek Ücret (+) Bölümü (Prim, Yol, İkramiye vb.) */}
+              <div className="p-3.5 bg-emerald-50/60 rounded-xl border border-emerald-200/70 space-y-2">
+                <div className="flex items-center gap-1.5 font-bold text-emerald-800 text-xs">
+                  <PlusCircle className="w-4 h-4 text-emerald-600" />
+                  <span>Ek Ücret / Prim / Yol Yardımı (+)</span>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-[11px] font-medium text-emerald-900 mb-1">
+                      Ek Ücret Tutarı (TL)
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={activeModalStaff.payroll.bonusAmount || ""}
+                      onChange={(e) =>
+                        handleInputChange(
+                          activeModalStaff.staffId,
+                          "bonusAmount",
+                          parseFloat(e.target.value) || 0
+                        )
+                      }
+                      placeholder="0.00"
+                      className="w-full px-3 py-1.5 bg-white border border-emerald-300 rounded-lg text-sm font-bold text-emerald-700 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-medium text-emerald-900 mb-1">
+                      Açıklama
+                    </label>
+                    <input
+                      type="text"
+                      value={activeModalStaff.payroll.bonusDescription || ""}
+                      onChange={(e) =>
+                        handleInputChange(
+                          activeModalStaff.staffId,
+                          "bonusDescription",
+                          e.target.value
+                        )
+                      }
+                      placeholder="Örn: Başarı Primi, Yol Desteği"
+                      className="w-full px-3 py-1.5 bg-white border border-emerald-300 rounded-lg text-xs"
+                    />
+                  </div>
+                </div>
               </div>
 
-              <div>
-                <label className="block text-xs font-medium text-slate-600 mb-1">
-                  İşsizlik İşçi Payı (%1)
-                </label>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={activeTaxModalStaff.payroll.unemploymentEmployee}
-                  onChange={(e) =>
-                    handleInputChange(
-                      activeTaxModalStaff.staffId,
-                      "unemploymentEmployee",
-                      parseFloat(e.target.value) || 0
-                    )
-                  }
-                  className="w-full px-3 py-1.5 border border-slate-200 rounded-lg text-sm font-semibold"
-                />
+              {/* 2. Kesinti (-) Bölümü (Avans, Ceza, Eksik Gün vb.) */}
+              <div className="p-3.5 bg-rose-50/60 rounded-xl border border-rose-200/70 space-y-2">
+                <div className="flex items-center gap-1.5 font-bold text-rose-800 text-xs">
+                  <MinusCircle className="w-4 h-4 text-rose-600" />
+                  <span>Kesinti / Avans / Ceza (-)</span>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-[11px] font-medium text-rose-900 mb-1">
+                      Kesinti Tutarı (TL)
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={activeModalStaff.payroll.deductionAmount || ""}
+                      onChange={(e) =>
+                        handleInputChange(
+                          activeModalStaff.staffId,
+                          "deductionAmount",
+                          parseFloat(e.target.value) || 0
+                        )
+                      }
+                      placeholder="0.00"
+                      className="w-full px-3 py-1.5 bg-white border border-rose-300 rounded-lg text-sm font-bold text-rose-700 focus:outline-none focus:ring-1 focus:ring-rose-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-medium text-rose-900 mb-1">
+                      Açıklama
+                    </label>
+                    <input
+                      type="text"
+                      value={activeModalStaff.payroll.deductionDescription || ""}
+                      onChange={(e) =>
+                        handleInputChange(
+                          activeModalStaff.staffId,
+                          "deductionDescription",
+                          e.target.value
+                        )
+                      }
+                      placeholder="Örn: Maaş Avansı, Ceza Kesintisi"
+                      className="w-full px-3 py-1.5 bg-white border border-rose-300 rounded-lg text-xs"
+                    />
+                  </div>
+                </div>
               </div>
 
-              <div>
-                <label className="block text-xs font-medium text-slate-600 mb-1">
-                  Gelir Vergisi (%15 Dilim)
-                </label>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={activeTaxModalStaff.payroll.incomeTax}
-                  onChange={(e) =>
-                    handleInputChange(
-                      activeTaxModalStaff.staffId,
-                      "incomeTax",
-                      parseFloat(e.target.value) || 0
-                    )
-                  }
-                  className="w-full px-3 py-1.5 border border-slate-200 rounded-lg text-sm font-semibold"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-medium text-slate-600 mb-1">
-                  Damga Vergisi (%0,759)
-                </label>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={activeTaxModalStaff.payroll.stampTax}
-                  onChange={(e) =>
-                    handleInputChange(
-                      activeTaxModalStaff.staffId,
-                      "stampTax",
-                      parseFloat(e.target.value) || 0
-                    )
-                  }
-                  className="w-full px-3 py-1.5 border border-slate-200 rounded-lg text-sm font-semibold"
-                />
-              </div>
-
-              <div className="pt-3 border-t border-slate-100 flex items-center justify-between font-bold">
-                <span>Net Ödeme:</span>
-                <span className="text-teal-800 text-base">
-                  {formatCurrency(activeTaxModalStaff.payroll.netTotal)}
+              {/* Net Ödeme Özeti */}
+              <div className="p-3 bg-teal-50 rounded-xl border border-teal-200 flex items-center justify-between">
+                <div>
+                  <span className="font-bold text-teal-950 text-sm block">Hesaplanan Net Ödeme:</span>
+                  <span className="text-[10px] text-teal-700">Tutar ve açıklama değiştikçe anında güncellenir</span>
+                </div>
+                <span className="text-lg font-extrabold text-teal-800">
+                  {formatCurrency(activeModalStaff.payroll.netTotal)}
                 </span>
               </div>
             </div>
 
-            <div className="mt-5 flex items-center justify-between">
+            <div className="mt-5 flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
               <button
                 type="button"
-                onClick={() => {
-                  handleInputChange(activeTaxModalStaff.staffId, "isManualTax", false);
-                  setActiveTaxModalStaff(null);
-                }}
-                className="text-xs text-teal-700 hover:underline flex items-center gap-1"
+                onClick={() => setActiveModalStaff(null)}
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold"
               >
-                <RefreshCw className="w-3 h-3" />
-                Otomatik Hesaba Sıfırla
+                Kapat
               </button>
-
               <button
                 type="button"
                 onClick={() => {
-                  handleInputChange(activeTaxModalStaff.staffId, "isManualTax", true);
-                  setActiveTaxModalStaff(null);
+                  handleSavePayroll(activeModalStaff);
+                  setActiveModalStaff(null);
                 }}
-                className="px-4 py-2 bg-teal-800 text-white rounded-lg text-xs font-semibold"
+                className="px-5 py-2 bg-teal-800 hover:bg-teal-900 text-white rounded-lg text-xs font-bold shadow-xs"
               >
-                Uygula
+                Kaydet ve Uygula
               </button>
             </div>
           </div>

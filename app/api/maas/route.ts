@@ -8,7 +8,6 @@ export async function GET(request: Request) {
     const year = parseInt(searchParams.get("year") || "2024");
     const month = parseInt(searchParams.get("month") || "8");
 
-    // Tüm personelleri ücret yapılandırmalarıyla getir
     const staffs = await prisma.staff.findMany({
       where: { status: { in: ["ACTIVE", "ON_LEAVE"] } },
       include: {
@@ -40,19 +39,23 @@ export async function GET(request: Request) {
         };
       }
 
-      // Henüz bordro kaydedilmemişse varsayılan değerlerle anlık hesap yap
+      // Varsayılan hesap
       const calc = calculatePayroll({
         salaryType: config?.salaryType || "MONTHLY",
         monthlySalary: config?.monthlySalary || 0,
         hourlyRate: config?.hourlyRate || 0,
         dailyRate: config?.dailyRate || 0,
-        workDays: 30, // Standart 30 gün SGK
+        workDays: 30,
         reportDays: 0,
         unpaidLeaveDays: 0,
         lessonHours: 0,
         dailyWorkDays: 0,
         holidayWorkDays: 0,
         holidayChoice: "LEAVE_1_TO_1",
+        bonusAmount: 0,
+        bonusDescription: "",
+        deductionAmount: 0,
+        deductionDescription: "",
         officialSalaryPart: config?.officialSalaryPart || 0,
       });
 
@@ -104,6 +107,10 @@ export async function POST(request: Request) {
       dailyWorkDays = 0,
       holidayWorkDays = 0,
       holidayChoice = "LEAVE_1_TO_1",
+      bonusAmount = 0,
+      bonusDescription = "",
+      deductionAmount = 0,
+      deductionDescription = "",
       isManualTax = false,
       manualSgkEmployee = 0,
       manualUnemployment = 0,
@@ -125,7 +132,6 @@ export async function POST(request: Request) {
 
     const config = staff.salaryConfig;
 
-    // Hesaplama motorunu çalıştır
     const calc = calculatePayroll({
       salaryType: config.salaryType,
       monthlySalary: config.monthlySalary,
@@ -139,6 +145,10 @@ export async function POST(request: Request) {
       dailyWorkDays: Number(dailyWorkDays) || 0,
       holidayWorkDays: Number(holidayWorkDays) || 0,
       holidayChoice,
+      bonusAmount: Number(bonusAmount) || 0,
+      bonusDescription,
+      deductionAmount: Number(deductionAmount) || 0,
+      deductionDescription,
       isManualTax,
       manualSgkEmployee: Number(manualSgkEmployee) || 0,
       manualUnemployment: Number(manualUnemployment) || 0,
@@ -146,7 +156,6 @@ export async function POST(request: Request) {
       manualStampTax: Number(manualStampTax) || 0,
     });
 
-    // Kayıt oluştur veya güncelle
     const payroll = await prisma.payroll.upsert({
       where: {
         staffId_year_month: {
@@ -163,6 +172,10 @@ export async function POST(request: Request) {
         dailyWorkDays: Number(dailyWorkDays),
         holidayWorkDays: Number(holidayWorkDays),
         holidayChoice,
+        bonusAmount: calc.bonusAmount,
+        bonusDescription: calc.bonusDescription,
+        deductionAmount: calc.deductionAmount,
+        deductionDescription: calc.deductionDescription,
         baseEarned: calc.baseEarned,
         hourlyEarned: calc.hourlyEarned,
         dailyEarned: calc.dailyEarned,
@@ -192,6 +205,10 @@ export async function POST(request: Request) {
         dailyWorkDays: Number(dailyWorkDays),
         holidayWorkDays: Number(holidayWorkDays),
         holidayChoice,
+        bonusAmount: calc.bonusAmount,
+        bonusDescription: calc.bonusDescription,
+        deductionAmount: calc.deductionAmount,
+        deductionDescription: calc.deductionDescription,
         baseEarned: calc.baseEarned,
         hourlyEarned: calc.hourlyEarned,
         dailyEarned: calc.dailyEarned,
@@ -212,7 +229,7 @@ export async function POST(request: Request) {
       },
     });
 
-    // Eğer resmi tatil mesaisi var ve seçim 1'e 1 izin ise, LeaveRecord tablosuna otomatik telafi izni ekle!
+    // 1'e 1 İzin kontrolü
     if (holidayWorkDays > 0 && holidayChoice === "LEAVE_1_TO_1") {
       const desc = `${year}/${month} dönemi ${holidayWorkDays} gün resmi tatil çalışması karşılığı hak edilen 1'e 1 telafi izni`;
       const existingLeave = await prisma.leaveRecord.findFirst({

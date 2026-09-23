@@ -12,7 +12,10 @@ import {
   Filter,
   DollarSign,
   TrendingUp,
+  Banknote,
+  Briefcase,
 } from "lucide-react";
+import { calculateDuration } from "@/lib/date-utils";
 
 interface PayrollItem {
   id: string;
@@ -32,6 +35,9 @@ interface PayrollItem {
     iban: string | null;
     title: string | null;
     phone: string | null;
+    hireDate: string | null;
+    sgkStartDate: string | null;
+    unofficialWorkPeriod: string | null;
     departments: { department: { name: string } }[];
   };
 }
@@ -40,6 +46,8 @@ interface PaymentTotals {
   brütToplam: number;
   toplamKesinti: number;
   netOdeme: number;
+  resmiToplam: number;
+  eldenToplam: number;
   odenenTutar: number;
   bekleyenTutar: number;
   toplamPersonel: number;
@@ -92,7 +100,6 @@ export default function PersonelOdemePage() {
 
   const togglePaidStatus = async (item: PayrollItem) => {
     const nextStatus = !item.isPaid;
-    // Anlık UI optimistik güncelleme
     setPayrolls((prev) =>
       prev.map((p) => (p.id === item.id ? { ...p, isPaid: nextStatus } : p))
     );
@@ -125,14 +132,14 @@ export default function PersonelOdemePage() {
   };
 
   return (
-    <div className="pb-36 min-h-screen">
+    <div className="pb-40 min-h-screen">
       <div className="p-4 sm:p-6 lg:p-8 max-w-5xl mx-auto w-full space-y-5">
         {/* Üst Başlık & Kontroller */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
             <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Personel Ödeme</h1>
             <p className="text-xs text-slate-500 mt-0.5">
-              Banka havalesi, net ödeme takibi ve ödendi durumları
+              Banka havalesi, <strong>Elden Ödenecek Gayriresmî Tutar</strong> ve ödeme takibi
             </p>
           </div>
 
@@ -176,6 +183,31 @@ export default function PersonelOdemePage() {
           </div>
         </div>
 
+        {/* Resmî Banka vs Elden Ödeme Özet Kartı */}
+        {totals && (
+          <div className="grid grid-cols-2 gap-3 bg-white p-3.5 rounded-xl border border-slate-200 shadow-xs">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-lg bg-teal-50 text-teal-700 flex items-center justify-center font-bold">
+                🏛️
+              </div>
+              <div>
+                <p className="text-[11px] text-slate-500 font-medium">Resmî Bankadan Ödenecek</p>
+                <p className="text-base font-bold text-teal-800">{formatCurrency(totals.resmiToplam)}</p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3 border-l border-slate-100 pl-4">
+              <div className="w-9 h-9 rounded-lg bg-amber-50 text-amber-700 flex items-center justify-center font-bold">
+                💵
+              </div>
+              <div>
+                <p className="text-[11px] text-amber-800 font-medium">Elden (Gayriresmî) Ödenecek</p>
+                <p className="text-base font-bold text-amber-900">{formatCurrency(totals.eldenToplam)}</p>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Durum Filtre Sekmeleri */}
         <div className="flex items-center gap-2 border-b border-slate-200 pb-2">
           {[
@@ -207,81 +239,109 @@ export default function PersonelOdemePage() {
             <div className="divide-y divide-slate-100">
               {/* Başlık Satırı */}
               <div className="bg-slate-50/90 px-4 py-3 grid grid-cols-12 text-xs font-bold text-slate-600 uppercase tracking-wider">
-                <div className="col-span-7 sm:col-span-8">Personel</div>
-                <div className="col-span-5 sm:col-span-4 text-right">Net Ödeme</div>
+                <div className="col-span-6 sm:col-span-7">Personel & Çalışma Durumu</div>
+                <div className="col-span-6 sm:col-span-5 text-right">Ödeme Tutarları</div>
               </div>
 
               {/* Personel Satırları */}
-              {payrolls.map((item) => (
-                <div
-                  key={item.id}
-                  className="px-4 py-3.5 grid grid-cols-12 items-center hover:bg-slate-50/70 transition-colors"
-                >
-                  {/* Sol Kolon: Personel Adı ve "Ödendi" Durumu */}
-                  <div className="col-span-7 sm:col-span-8 flex flex-col sm:flex-row sm:items-center gap-1.5 sm:gap-3">
-                    <span className="font-bold text-slate-800 text-sm tracking-tight">
-                      {item.staff.fullName}
-                    </span>
+              {payrolls.map((item) => {
+                // Otomatik hesaplanan gayriresmi süre
+                const calculatedDuration = calculateDuration(
+                  item.staff.hireDate,
+                  item.staff.sgkStartDate
+                );
 
-                    {/* Ödendi / Bekliyor Etiketi (Tıklanabilir Toggle) */}
-                    <button
-                      onClick={() => togglePaidStatus(item)}
-                      className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded text-[11px] font-semibold transition-all self-start sm:self-auto border ${
-                        item.isPaid
-                          ? "bg-emerald-50 text-emerald-700 border-emerald-300 hover:bg-emerald-100"
-                          : "bg-amber-50 text-amber-700 border-amber-300 hover:bg-amber-100"
-                      }`}
-                      title="Durumu değiştirmek için tıkla"
-                    >
-                      {item.isPaid ? (
-                        <>
-                          <Check className="w-3 h-3 text-emerald-600" />
-                          <span>Ödendi</span>
-                        </>
-                      ) : (
-                        <>
-                          <Clock className="w-3 h-3 text-amber-600" />
-                          <span>Bekliyor</span>
-                        </>
-                      )}
-                    </button>
+                return (
+                  <div
+                    key={item.id}
+                    className="px-4 py-3.5 grid grid-cols-12 items-center hover:bg-slate-50/70 transition-colors"
+                  >
+                    {/* Sol Kolon: Personel Adı, "Ödendi" Durumu ve Gayriresmî Süre */}
+                    <div className="col-span-6 sm:col-span-7 flex flex-col gap-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-bold text-slate-800 text-sm tracking-tight">
+                          {item.staff.fullName}
+                        </span>
 
-                    {/* IBAN Kopyalama */}
-                    {item.staff.iban && (
-                      <button
-                        onClick={() => copyIban(item.staff.iban!, item.id)}
-                        className="hidden md:inline-flex items-center gap-1 text-[11px] text-slate-400 hover:text-teal-700 font-mono"
-                        title="IBAN Kopyala"
-                      >
-                        <Copy className="w-3 h-3" />
-                        <span>{item.staff.iban.substring(0, 10)}...</span>
-                        {copiedId === item.id && (
-                          <span className="text-emerald-600 font-bold ml-1">Kopyalandı!</span>
+                        {/* Ödendi / Bekliyor Etiketi */}
+                        <button
+                          onClick={() => togglePaidStatus(item)}
+                          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold transition-all border ${
+                            item.isPaid
+                              ? "bg-emerald-50 text-emerald-700 border-emerald-300 hover:bg-emerald-100"
+                              : "bg-amber-50 text-amber-700 border-amber-300 hover:bg-amber-100"
+                          }`}
+                          title="Durumu değiştirmek için tıkla"
+                        >
+                          {item.isPaid ? (
+                            <>
+                              <Check className="w-3 h-3 text-emerald-600" />
+                              <span>Ödendi</span>
+                            </>
+                          ) : (
+                            <>
+                              <Clock className="w-3 h-3 text-amber-600" />
+                              <span>Bekliyor</span>
+                            </>
+                          )}
+                        </button>
+                      </div>
+
+                      {/* Otomatik Gayriresmi Çalışma Süresi Rozeti */}
+                      <div className="flex items-center gap-2 flex-wrap text-[11px] text-slate-500">
+                        {calculatedDuration !== "—" && calculatedDuration !== "0 gün" && (
+                          <span className="inline-flex items-center gap-1 bg-amber-100/70 text-amber-900 px-2 py-0.5 rounded font-medium">
+                            <Briefcase className="w-3 h-3 text-amber-700" />
+                            <span>Gayriresmî: {calculatedDuration}</span>
+                          </span>
                         )}
-                      </button>
-                    )}
-                  </div>
 
-                  {/* Sağ Kolon: Net Ödeme Tutarı (Görseldeki Mavi Renkli ₺28.075,50 gibi) */}
-                  <div className="col-span-5 sm:col-span-4 text-right">
-                    <span className="font-extrabold text-blue-600 sm:text-base text-sm tracking-tight block">
-                      {formatCurrency(item.netTotal)}
-                    </span>
-                    {/* Resmi / Gayriresmi ayrımı varsa küçük göster */}
-                    {item.unofficialAmount > 0 && (
-                      <span className="text-[10px] text-slate-400 block">
-                        Resmi: {formatCurrency(item.officialAmount)} | Elden: {formatCurrency(item.unofficialAmount)}
+                        {/* IBAN Kopyalama */}
+                        {item.staff.iban && (
+                          <button
+                            onClick={() => copyIban(item.staff.iban!, item.id)}
+                            className="inline-flex items-center gap-1 text-[11px] text-slate-400 hover:text-teal-700 font-mono"
+                            title="IBAN Kopyala"
+                          >
+                            <Copy className="w-3 h-3" />
+                            <span>{item.staff.iban.substring(0, 14)}...</span>
+                            {copiedId === item.id && (
+                              <span className="text-emerald-600 font-bold ml-1">Kopyalandı!</span>
+                            )}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Sağ Kolon: Net Ödeme ve Elden Ödenecek Tutar Kırılımı */}
+                    <div className="col-span-6 sm:col-span-5 text-right space-y-0.5">
+                      <span className="font-extrabold text-blue-600 sm:text-base text-sm tracking-tight block">
+                        {formatCurrency(item.netTotal)}
                       </span>
-                    )}
+
+                      {/* Elden Ödenecek (Gayriresmî) Tutar Rozeti (Kullanıcı Talebi) */}
+                      {item.unofficialAmount > 0 && (
+                        <div className="inline-flex items-center gap-1 bg-amber-50 border border-amber-300 text-amber-900 px-2 py-0.5 rounded text-[11px] font-bold">
+                          <Banknote className="w-3.5 h-3.5 text-amber-700" />
+                          <span>Elden: {formatCurrency(item.unofficialAmount)}</span>
+                        </div>
+                      )}
+
+                      {item.officialAmount > 0 && item.unofficialAmount > 0 && (
+                        <span className="text-[10px] text-slate-400 block">
+                          Banka: {formatCurrency(item.officialAmount)}
+                        </span>
+                      )}
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
 
               {/* Ara Toplam Satırı (Görseldeki Toplam ₺621.804,43) */}
               {totals && (
                 <div className="px-4 py-3.5 bg-slate-50/80 grid grid-cols-12 items-center font-bold text-slate-800 border-t border-slate-200">
-                  <div className="col-span-7 sm:col-span-8 text-sm">Toplam</div>
-                  <div className="col-span-5 sm:col-span-4 text-right text-sm sm:text-base text-slate-900">
+                  <div className="col-span-6 sm:col-span-7 text-sm">Genel Toplam</div>
+                  <div className="col-span-6 sm:col-span-5 text-right text-sm sm:text-base text-slate-900">
                     {formatCurrency(totals.netOdeme)}
                   </div>
                 </div>
@@ -295,7 +355,7 @@ export default function PersonelOdemePage() {
       {totals && (
         <div className="fixed bottom-0 left-0 right-0 z-30 bg-white/95 backdrop-blur-md border-t border-slate-200 shadow-xl py-3 px-4">
           <div className="max-w-5xl mx-auto grid grid-cols-3 gap-2 sm:gap-6 text-center">
-            {/* Brüt Toplam (Yeşil/Turkuaz) */}
+            {/* Brüt Toplam */}
             <div className="bg-emerald-50/60 sm:bg-transparent rounded-xl p-2 sm:p-0">
               <p className="text-[11px] sm:text-xs font-semibold text-slate-500">Brüt Toplam</p>
               <p className="text-xs sm:text-lg font-bold text-teal-600 mt-0.5">
@@ -303,7 +363,7 @@ export default function PersonelOdemePage() {
               </p>
             </div>
 
-            {/* Toplam Kesinti (Kırmızı/Pembe) */}
+            {/* Toplam Kesinti */}
             <div className="bg-rose-50/60 sm:bg-transparent rounded-xl p-2 sm:p-0 border-x sm:border-x-0 border-slate-200">
               <p className="text-[11px] sm:text-xs font-semibold text-slate-500">Toplam Kesinti</p>
               <p className="text-xs sm:text-lg font-bold text-rose-500 mt-0.5">
@@ -311,7 +371,7 @@ export default function PersonelOdemePage() {
               </p>
             </div>
 
-            {/* Net Ödeme (Mavi) */}
+            {/* Net Ödeme */}
             <div className="bg-blue-50/60 sm:bg-transparent rounded-xl p-2 sm:p-0">
               <p className="text-[11px] sm:text-xs font-semibold text-slate-500">Net Ödeme</p>
               <p className="text-xs sm:text-lg font-extrabold text-blue-600 mt-0.5">

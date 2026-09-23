@@ -17,7 +17,9 @@ import {
   X,
   AlertCircle,
   FileText,
+  Briefcase,
 } from "lucide-react";
+import { calculateDuration } from "@/lib/date-utils";
 
 interface Department {
   id: string;
@@ -308,7 +310,14 @@ export default function PersonellerPage() {
 
                     <td className="py-3.5 px-4">
                       <p className="text-slate-800 font-medium">{staff.title || "—"}</p>
-                      <div className="flex flex-wrap gap-1 mt-0.5">
+                      {calculateDuration(staff.hireDate, staff.sgkStartDate) !== "—" &&
+                        calculateDuration(staff.hireDate, staff.sgkStartDate) !== "0 gün" && (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-amber-800 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded mt-0.5">
+                            <Briefcase className="w-2.5 h-2.5 text-amber-600" />
+                            Gayriresmî: {calculateDuration(staff.hireDate, staff.sgkStartDate)}
+                          </span>
+                        )}
+                      <div className="flex flex-wrap gap-1 mt-1">
                         {staff.departments.map((d) => (
                           <span
                             key={d.department.id}
@@ -571,7 +580,15 @@ export default function PersonellerPage() {
                     <input
                       type="date"
                       value={form.hireDate}
-                      onChange={(e) => setForm({ ...form, hireDate: e.target.value })}
+                      onChange={(e) => {
+                        const newHire = e.target.value;
+                        const autoDur = calculateDuration(newHire, form.sgkStartDate);
+                        setForm({
+                          ...form,
+                          hireDate: newHire,
+                          unofficialWorkPeriod: autoDur !== "—" ? autoDur : form.unofficialWorkPeriod,
+                        });
+                      }}
                       className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-600/20 focus:border-teal-600"
                     />
                   </div>
@@ -595,21 +612,32 @@ export default function PersonellerPage() {
                     <input
                       type="date"
                       value={form.sgkStartDate}
-                      onChange={(e) => setForm({ ...form, sgkStartDate: e.target.value })}
+                      onChange={(e) => {
+                        const newSgk = e.target.value;
+                        const autoDur = calculateDuration(form.hireDate, newSgk);
+                        setForm({
+                          ...form,
+                          sgkStartDate: newSgk,
+                          unofficialWorkPeriod: autoDur !== "—" ? autoDur : form.unofficialWorkPeriod,
+                        });
+                      }}
                       className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-600/20 focus:border-teal-600"
                     />
                   </div>
 
                   <div>
-                    <label className="block text-xs font-medium text-slate-700 mb-1">
-                      Gayriresmî Çalışma Süresi
+                    <label className="block text-xs font-medium text-slate-700 mb-1 flex items-center justify-between">
+                      <span>Gayriresmî Çalışma Süresi</span>
+                      <span className="text-[10px] text-teal-700 font-semibold bg-teal-50 px-1.5 py-0.5 rounded">
+                        Otomatik Hesaplanır
+                      </span>
                     </label>
                     <input
                       type="text"
                       value={form.unofficialWorkPeriod}
                       onChange={(e) => setForm({ ...form, unofficialWorkPeriod: e.target.value })}
-                      placeholder="Örn: 3 ay 12 gün"
-                      className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-600/20 focus:border-teal-600"
+                      placeholder="Örn: 3 yıl 9 gün"
+                      className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-600/20 focus:border-teal-600 font-semibold text-amber-900 bg-amber-50/40"
                     />
                   </div>
                 </div>
