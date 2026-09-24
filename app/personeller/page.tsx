@@ -143,7 +143,7 @@ export default function PersonellerPage() {
       hireDate: new Date().toISOString().split("T")[0],
       mebAssignmentDate: "",
       mebAssignmentEndDate: "",
-      isMebPermanent: true,
+      isMebPermanent: false,
       sgkStartDate: "",
       unofficialWorkPeriod: "",
       notes: "",
@@ -173,7 +173,7 @@ export default function PersonellerPage() {
       hireDate: staff.hireDate ? staff.hireDate.split("T")[0] : "",
       mebAssignmentDate: staff.mebAssignmentDate ? staff.mebAssignmentDate.split("T")[0] : "",
       mebAssignmentEndDate: staff.mebAssignmentEndDate ? staff.mebAssignmentEndDate.split("T")[0] : "",
-      isMebPermanent: staff.isMebPermanent ?? true,
+      isMebPermanent: staff.mebAssignmentDate ? (staff.isMebPermanent ?? true) : false,
       sgkStartDate: staff.sgkStartDate ? staff.sgkStartDate.split("T")[0] : "",
       unofficialWorkPeriod: staff.unofficialWorkPeriod || "",
       notes: "",
@@ -356,7 +356,11 @@ export default function PersonellerPage() {
                           )}
 
                         {/* MEB Atama Durumu */}
-                        {staff.isMebPermanent ? (
+                        {!staff.mebAssignmentDate ? (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-medium text-slate-500 bg-slate-100 border border-slate-200 px-1.5 py-0.5 rounded">
+                            ⚪ MEB: Atama Yapılmadı
+                          </span>
+                        ) : staff.isMebPermanent ? (
                           <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-teal-800 bg-teal-50 border border-teal-200 px-1.5 py-0.5 rounded">
                             ♾️ MEB: Süresiz
                           </span>
@@ -728,13 +732,26 @@ export default function PersonellerPage() {
                   </div>
 
                   <div>
-                    <label className="block text-xs font-medium text-slate-700 mb-1">
-                      MEB Atama Başlangıç Tarihi
+                    <label className="block text-xs font-medium text-slate-700 mb-1 flex items-center justify-between">
+                      <span>MEB Atama Başlangıç Tarihi</span>
+                      {!form.mebAssignmentDate && (
+                        <span className="text-[10px] text-slate-500 font-semibold bg-slate-100 px-1.5 py-0.5 rounded">
+                          Atama Yapılmadı
+                        </span>
+                      )}
                     </label>
                     <input
                       type="date"
                       value={form.mebAssignmentDate}
-                      onChange={(e) => setForm({ ...form, mebAssignmentDate: e.target.value })}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setForm({
+                          ...form,
+                          mebAssignmentDate: val,
+                          isMebPermanent: val ? (form.mebAssignmentDate ? form.isMebPermanent : true) : false,
+                          mebAssignmentEndDate: val ? form.mebAssignmentEndDate : "",
+                        });
+                      }}
                       className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-600/20 focus:border-teal-600"
                     />
                   </div>
@@ -775,24 +792,52 @@ export default function PersonellerPage() {
                     />
                   </div>
 
-                  {/* MEB Atama Bitiş & Süresiz Seçeneği Kartı */}
+                  {/* MEB Atama Bitiş & Süresiz & Yapılmadı Seçeneği Kartı */}
                   <div className="sm:col-span-2 p-3.5 bg-gradient-to-r from-teal-50/70 to-slate-50 border border-teal-200/80 rounded-xl space-y-3">
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
                       <div>
                         <div className="flex items-center gap-1.5">
-                          <span className="text-teal-700 font-bold text-xs">🏛️ MEB Atama Süre Türü:</span>
+                          <span className="text-teal-700 font-bold text-xs">🏛️ MEB Atama Durumu & Süre Türü:</span>
                         </div>
                         <p className="text-[11px] text-slate-500 mt-0.5">
-                          Atama süresiz mi yoksa belirli bir bitiş tarihine mi tabi?
+                          Personelin MEB ataması var mı? Süresiz mi yoksa belirli bir bitiş tarihine mi tabi?
                         </p>
                       </div>
 
-                      <div className="flex items-center gap-1 bg-white p-1 rounded-lg border border-slate-200 shadow-2xs">
+                      <div className="flex flex-wrap items-center gap-1 bg-white p-1 rounded-lg border border-slate-200 shadow-2xs">
                         <button
                           type="button"
-                          onClick={() => setForm({ ...form, isMebPermanent: true, mebAssignmentEndDate: "" })}
+                          onClick={() =>
+                            setForm({
+                              ...form,
+                              mebAssignmentDate: "",
+                              mebAssignmentEndDate: "",
+                              isMebPermanent: false,
+                            })
+                          }
                           className={`px-3 py-1.5 text-xs font-bold rounded-md transition-all flex items-center gap-1.5 ${
-                            form.isMebPermanent
+                            !form.mebAssignmentDate
+                              ? "bg-slate-700 text-white shadow-xs"
+                              : "text-slate-600 hover:text-slate-900 hover:bg-slate-100"
+                          }`}
+                        >
+                          <span>🚫</span>
+                          <span>MEB Ataması Yapılmadı</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setForm({
+                              ...form,
+                              isMebPermanent: true,
+                              mebAssignmentEndDate: "",
+                              mebAssignmentDate:
+                                form.mebAssignmentDate || form.hireDate || new Date().toISOString().split("T")[0],
+                            })
+                          }
+                          className={`px-3 py-1.5 text-xs font-bold rounded-md transition-all flex items-center gap-1.5 ${
+                            form.mebAssignmentDate && form.isMebPermanent
                               ? "bg-teal-700 text-white shadow-xs"
                               : "text-slate-600 hover:text-slate-900 hover:bg-slate-100"
                           }`}
@@ -800,11 +845,19 @@ export default function PersonellerPage() {
                           <span>♾️</span>
                           <span>Süresiz Atama</span>
                         </button>
+
                         <button
                           type="button"
-                          onClick={() => setForm({ ...form, isMebPermanent: false })}
+                          onClick={() =>
+                            setForm({
+                              ...form,
+                              isMebPermanent: false,
+                              mebAssignmentDate:
+                                form.mebAssignmentDate || form.hireDate || new Date().toISOString().split("T")[0],
+                            })
+                          }
                           className={`px-3 py-1.5 text-xs font-bold rounded-md transition-all flex items-center gap-1.5 ${
-                            !form.isMebPermanent
+                            form.mebAssignmentDate && !form.isMebPermanent
                               ? "bg-teal-700 text-white shadow-xs"
                               : "text-slate-600 hover:text-slate-900 hover:bg-slate-100"
                           }`}
@@ -815,7 +868,12 @@ export default function PersonellerPage() {
                       </div>
                     </div>
 
-                    {!form.isMebPermanent && (
+                    {!form.mebAssignmentDate ? (
+                      <div className="pt-2 text-xs text-slate-500 flex items-center gap-2 border-t border-slate-200/50">
+                        <span className="inline-block w-2 h-2 rounded-full bg-slate-400 shrink-0"></span>
+                        <span>Bu personel için henüz MEB atama kaydı bulunmuyor. Atama yapıldığında <strong>Süresiz</strong> veya <strong>Tarihli</strong> butonunu seçebilirsiniz.</span>
+                      </div>
+                    ) : !form.isMebPermanent ? (
                       <div className="pt-3 border-t border-teal-200/60 grid grid-cols-1 sm:grid-cols-2 gap-3 items-center">
                         <div>
                           <label className="block text-xs font-bold text-slate-800 mb-1">
@@ -823,7 +881,7 @@ export default function PersonellerPage() {
                           </label>
                           <input
                             type="date"
-                            required={!form.isMebPermanent}
+                            required={!form.isMebPermanent && !!form.mebAssignmentDate}
                             value={form.mebAssignmentEndDate}
                             onChange={(e) => setForm({ ...form, mebAssignmentEndDate: e.target.value })}
                             className="w-full px-3 py-2 text-sm bg-white border border-teal-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-600/20 focus:border-teal-600 font-semibold text-slate-900"
@@ -833,6 +891,11 @@ export default function PersonellerPage() {
                           <span className="font-bold text-amber-950 block mb-0.5">🔔 1 Hafta Önce Hatırlatma Aktif</span>
                           Atama bitişine <strong>7 gün (1 hafta)</strong> kala ve süre dolduğunda sistem ana sayfada bildirim çubuğunda hatırlatacaktır.
                         </div>
+                      </div>
+                    ) : (
+                      <div className="pt-2 text-xs text-teal-700 flex items-center gap-2 border-t border-teal-200/50">
+                        <span className="inline-block w-2 h-2 rounded-full bg-teal-500 shrink-0"></span>
+                        <span>Süresiz atama aktif. Belirli bir bitiş tarihi aranmaz ve atama süresi dolum bildirimi üretilmez.</span>
                       </div>
                     )}
                   </div>
