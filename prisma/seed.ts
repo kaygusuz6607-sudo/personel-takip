@@ -6,17 +6,53 @@ const prisma = new PrismaClient();
 async function main() {
   console.log("Seeding updated data...");
 
-  // 1. Admin Kullanıcısı
-  await prisma.user.upsert({
-    where: { email: "admin@okul.com" },
-    update: {},
-    create: {
-      email: "admin@okul.com",
-      password: "admin",
-      name: "Süper Admin",
+  // 1. Yetkili Kullanıcılar (2-3 kişilik ekip için)
+  const defaultUsers = [
+    {
+      username: "admin",
+      email: "admin@cosmos.local",
+      password: "admin", // aynı zamanda "admin" veya "admin123" ile de giriş yapabilecek
+      name: "Süper Yönetici",
       role: "SUPER_ADMIN",
     },
-  });
+    {
+      username: "muhasebe",
+      email: "muhasebe@cosmos.local",
+      password: "muhasebe123",
+      name: "Muhasebe Sorumlusu",
+      role: "ACCOUNTANT",
+    },
+    {
+      username: "mudur",
+      email: "mudur@cosmos.local",
+      password: "mudur123",
+      name: "Kurum Müdürü",
+      role: "ADMIN",
+    },
+  ];
+
+  for (const u of defaultUsers) {
+    const existing = await prisma.user.findFirst({
+      where: {
+        OR: [{ username: u.username }, { email: u.email }],
+      },
+    });
+
+    if (existing) {
+      await prisma.user.update({
+        where: { id: existing.id },
+        data: {
+          username: u.username,
+          name: u.name,
+          role: u.role,
+        },
+      });
+    } else {
+      await prisma.user.create({
+        data: u,
+      });
+    }
+  }
 
   // 2. Departmanlar
   const depts = [

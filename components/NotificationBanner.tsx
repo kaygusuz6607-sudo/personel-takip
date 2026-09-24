@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { usePathname } from "next/navigation";
 import { Bell, AlertTriangle, CheckCircle2, ChevronRight, X } from "lucide-react";
 
 interface NotificationItem {
@@ -16,11 +17,13 @@ interface NotificationItem {
 }
 
 export function NotificationBanner() {
+  const pathname = usePathname();
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [dismissed, setDismissed] = useState(false);
   const [loading, setLoading] = useState(false);
 
   const fetchNotifications = async () => {
+    if (pathname === "/login") return;
     try {
       const res = await fetch("/api/notifications");
       const data = await res.json();
@@ -56,7 +59,7 @@ export function NotificationBanner() {
     }
   };
 
-  if (notifications.length === 0 || dismissed) return null;
+  if (pathname === "/login" || notifications.length === 0 || dismissed) return null;
 
   return (
     <div className="bg-amber-500 text-slate-900 border-b border-amber-600 shadow-md">

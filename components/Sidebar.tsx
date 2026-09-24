@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { useState } from "react";
+import { usePathname, useRouter } from "next/navigation";
+import { useState, useEffect } from "react";
 import {
   LayoutDashboard,
   Users,
@@ -18,9 +18,42 @@ import {
   ShieldCheck,
 } from "lucide-react";
 
+interface AuthUser {
+  id: string;
+  username: string;
+  name: string;
+  role: string;
+  email?: string | null;
+}
+
 export function Sidebar() {
   const pathname = usePathname();
+  const router = useRouter();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
+
+  useEffect(() => {
+    if (pathname === "/login") return;
+    fetch("/api/auth/me")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data && data.user) {
+          setCurrentUser(data.user);
+        }
+      })
+      .catch(() => {});
+  }, [pathname]);
+
+  const handleLogout = async () => {
+    try {
+      await fetch("/api/auth/logout", { method: "POST" });
+    } catch {}
+    window.location.href = "/login";
+  };
+
+  if (pathname === "/login") {
+    return null;
+  }
 
   const menuItems = [
     { href: "/", label: "Gösterge Paneli", icon: LayoutDashboard },
@@ -30,7 +63,15 @@ export function Sidebar() {
     { href: "/odeme", label: "Personel Ödeme", icon: CreditCard },
     { href: "/izin", label: "İzin Girişi & Takip", icon: CalendarCheck },
     { href: "/raporlar", label: "Raporlar & Excel", icon: FileSpreadsheet },
+    { href: "/kullanicilar", label: "Yetkili Kullanıcılar", icon: ShieldCheck },
   ];
+
+  const getInitials = (name?: string) => {
+    if (!name) return "US";
+    const parts = name.trim().split(" ");
+    if (parts.length === 1) return parts[0].substring(0, 2).toUpperCase();
+    return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+  };
 
   const isActive = (path: string) => {
     if (path === "/" && pathname === "/") return true;
@@ -57,8 +98,8 @@ export function Sidebar() {
         </div>
 
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-full bg-teal-600 flex items-center justify-center font-bold text-sm">
-            SA
+          <div className="w-8 h-8 rounded-full bg-teal-600 flex items-center justify-center font-bold text-xs tracking-wider">
+            {getInitials(currentUser?.name)}
           </div>
         </div>
       </header>
@@ -120,16 +161,27 @@ export function Sidebar() {
               })}
             </nav>
 
-            <div className="p-4 border-t border-slate-100 bg-slate-50">
-              <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-full bg-teal-700 text-white flex items-center justify-center font-bold text-sm">
-                  SA
+            <div className="p-4 border-t border-slate-100 bg-slate-50 flex items-center justify-between">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="w-9 h-9 rounded-full bg-teal-700 text-white flex items-center justify-center font-bold text-xs shrink-0">
+                  {getInitials(currentUser?.name)}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold text-slate-800 truncate">Süper Admin</p>
-                  <p className="text-xs text-slate-500 truncate">admin@okul.com</p>
+                  <p className="text-sm font-semibold text-slate-800 truncate">
+                    {currentUser?.name || "Yetkili"}
+                  </p>
+                  <p className="text-xs text-slate-500 truncate">
+                    @{currentUser?.username || "kullanıcı"}
+                  </p>
                 </div>
               </div>
+              <button
+                onClick={handleLogout}
+                title="Çıkış Yap"
+                className="p-2 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
+              >
+                <LogOut className="w-5 h-5" />
+              </button>
             </div>
           </div>
         </div>
@@ -178,17 +230,22 @@ export function Sidebar() {
         <div className="p-4 border-t border-slate-100 bg-slate-50/50">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2.5 min-w-0">
-              <div className="w-8 h-8 rounded-full bg-slate-800 text-white flex items-center justify-center font-bold text-xs shrink-0">
-                SA
+              <div className="w-8 h-8 rounded-full bg-slate-800 text-white flex items-center justify-center font-bold text-xs shrink-0 tracking-wider">
+                {getInitials(currentUser?.name)}
               </div>
               <div className="min-w-0">
-                <p className="text-xs font-semibold text-slate-800 truncate">Süper Admin</p>
-                <p className="text-[11px] text-slate-400 truncate">admin@okul.com</p>
+                <p className="text-xs font-semibold text-slate-800 truncate">
+                  {currentUser?.name || "Yetkili"}
+                </p>
+                <p className="text-[11px] text-teal-700 font-medium truncate">
+                  @{currentUser?.username || "admin"}
+                </p>
               </div>
             </div>
             <button
-              title="Çıkış"
-              className="text-slate-400 hover:text-rose-600 transition-colors p-1 rounded"
+              onClick={handleLogout}
+              title="Güvenli Çıkış Yap"
+              className="text-slate-400 hover:text-rose-600 hover:bg-rose-50 p-1.5 rounded-lg transition-colors"
             >
               <LogOut className="w-4 h-4" />
             </button>
