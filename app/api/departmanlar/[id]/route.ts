@@ -15,7 +15,7 @@ export async function PUT(
   try {
     const { id } = await params;
     const body = await req.json();
-    const { name, description } = body;
+    const { name, description, category } = body;
 
     if (!name || !name.trim()) {
       return NextResponse.json({ error: "Departman adı zorunludur." }, { status: 400 });
@@ -43,6 +43,7 @@ export async function PUT(
       data: {
         name: cleanName,
         description: description ? description.trim() : null,
+        ...(category ? { category } : {}),
       },
       include: {
         _count: {

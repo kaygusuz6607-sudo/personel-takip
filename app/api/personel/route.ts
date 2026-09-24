@@ -6,6 +6,7 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const search = searchParams.get("search") || "";
     const departmentId = searchParams.get("departmentId") || "";
+    const category = searchParams.get("category") || "";
     const status = searchParams.get("status") || "";
 
     const where: any = {};
@@ -27,6 +28,14 @@ export async function GET(request: Request) {
       where.departments = {
         some: {
           departmentId: departmentId,
+        },
+      };
+    } else if (category) {
+      where.departments = {
+        some: {
+          department: {
+            category: category,
+          },
         },
       };
     }

@@ -24,6 +24,7 @@ import { calculateDuration } from "@/lib/date-utils";
 interface Department {
   id: string;
   name: string;
+  category?: string | null;
 }
 
 interface Staff {
@@ -57,6 +58,7 @@ export default function PersonellerPage() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [selectedDept, setSelectedDept] = useState("");
+  const [selectedCategory, setSelectedCategory] = useState("");
   const [selectedStatus, setSelectedStatus] = useState("");
 
   // Modal State
@@ -95,6 +97,7 @@ export default function PersonellerPage() {
       setLoading(true);
       const queryParams = new URLSearchParams();
       if (search) queryParams.set("search", search);
+      if (selectedCategory) queryParams.set("category", selectedCategory);
       if (selectedDept) queryParams.set("departmentId", selectedDept);
       if (selectedStatus) queryParams.set("status", selectedStatus);
 
@@ -117,7 +120,7 @@ export default function PersonellerPage() {
 
   useEffect(() => {
     fetchData();
-  }, [search, selectedDept, selectedStatus]);
+  }, [search, selectedDept, selectedStatus, selectedCategory]);
 
   const openNewModal = () => {
     setEditingStaffId(null);
@@ -251,18 +254,35 @@ export default function PersonellerPage() {
           />
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <select
+            value={selectedCategory}
+            onChange={(e) => {
+              setSelectedCategory(e.target.value);
+              setSelectedDept("");
+            }}
+            className="px-3 py-2 text-sm bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-600/20 focus:border-teal-600 text-slate-800 font-medium"
+          >
+            <option value="">Tüm Kadrolar (Ana Başlıklar)</option>
+            <option value="TEACHER">🎓 Öğretmenler</option>
+            <option value="ADMIN">💼 İdari Personel</option>
+            <option value="STAFF">🧹 Personel (Destek)</option>
+            <option value="BRANCH">📚 Branşlar</option>
+          </select>
+
           <select
             value={selectedDept}
             onChange={(e) => setSelectedDept(e.target.value)}
             className="px-3 py-2 text-sm bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-600/20 focus:border-teal-600 text-slate-700"
           >
             <option value="">Tüm Departmanlar</option>
-            {departments.map((d) => (
-              <option key={d.id} value={d.id}>
-                {d.name}
-              </option>
-            ))}
+            {departments
+              .filter((d) => !selectedCategory || (d.category || "TEACHER") === selectedCategory)
+              .map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.name}
+                </option>
+              ))}
           </select>
 
           <select
@@ -581,9 +601,29 @@ export default function PersonellerPage() {
                       type="text"
                       value={form.title}
                       onChange={(e) => setForm({ ...form, title: e.target.value })}
-                      placeholder="Örn: Matematik Öğretmeni, Muhasebe"
-                      className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-600/20 focus:border-teal-600"
+                      placeholder="Örn: Öğretmen, Hizmetli, Aşçı, Müdür, Muhasebe"
+                      className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-600/20 focus:border-teal-600 font-medium"
                     />
+                    <div className="flex flex-wrap gap-1 mt-1.5">
+                      {[
+                        "Öğretmen",
+                        "Müdür",
+                        "İdari İşler ve Personel Sorumlusu",
+                        "Muhasebe",
+                        "Hizmetli",
+                        "Aşçı",
+                        "Güvenlik",
+                      ].map((presetTitle) => (
+                        <button
+                          key={presetTitle}
+                          type="button"
+                          onClick={() => setForm({ ...form, title: presetTitle })}
+                          className="px-2 py-0.5 text-[10px] bg-slate-100 hover:bg-teal-50 hover:text-teal-800 hover:border-teal-200 border border-slate-200 text-slate-600 rounded-md transition-colors"
+                        >
+                          + {presetTitle}
+                        </button>
+                      ))}
+                    </div>
                   </div>
 
                   <div>
@@ -670,36 +710,64 @@ export default function PersonellerPage() {
                   </div>
                 </div>
 
-                {/* Departman Seçimi */}
-                <div className="mt-3">
-                  <label className="block text-xs font-medium text-slate-700 mb-1">
-                    Bölüm / Departman Seçimi
+                {/* Departman Seçimi - Ana Başlıklara Göre Gruplandırılmış */}
+                <div className="mt-4 space-y-2">
+                  <label className="block text-xs font-semibold text-slate-700">
+                    Bölüm / Departman Seçimi (Ana Başlıklara Göre)
                   </label>
-                  <div className="flex flex-wrap gap-2">
-                    {departments.map((d) => {
-                      const selected = form.departmentIds.includes(d.id);
+                  
+                  <div className="space-y-3 p-3 rounded-xl bg-slate-50/80 border border-slate-200/80">
+                    {[
+                      { key: "TEACHER", label: "🎓 Öğretmen Kadrosu" },
+                      { key: "ADMIN", label: "💼 İdari Personel" },
+                      { key: "STAFF", label: "🧹 Personel & Destek" },
+                      { key: "BRANCH", label: "📚 Branşlar" },
+                    ].map((group) => {
+                      const groupDepts = departments.filter((d) => {
+                        const cat = d.category || (
+                          d.name.toLowerCase().includes("öğretmen") || d.name.toLowerCase().includes("okul öncesi") ? "TEACHER" :
+                          d.name.toLowerCase().includes("müdür") || d.name.toLowerCase().includes("idari") || d.name.toLowerCase().includes("muhasebe") ? "ADMIN" :
+                          d.name.toLowerCase().includes("hizmetli") || d.name.toLowerCase().includes("aşçı") || d.name.toLowerCase().includes("personel") ? "STAFF" : "BRANCH"
+                        );
+                        return cat === group.key;
+                      });
+
+                      if (groupDepts.length === 0) return null;
+
                       return (
-                        <button
-                          key={d.id}
-                          type="button"
-                          onClick={() => {
-                            if (selected) {
-                              setForm({
-                                ...form,
-                                departmentIds: form.departmentIds.filter((id) => id !== d.id),
-                              });
-                            } else {
-                              setForm({ ...form, departmentIds: [...form.departmentIds, d.id] });
-                            }
-                          }}
-                          className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-all ${
-                            selected
-                              ? "bg-teal-700 text-white border-teal-700 shadow-xs"
-                              : "bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100"
-                          }`}
-                        >
-                          {d.name} {selected && "✓"}
-                        </button>
+                        <div key={group.key} className="space-y-1.5">
+                          <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
+                            {group.label}
+                          </span>
+                          <div className="flex flex-wrap gap-1.5">
+                            {groupDepts.map((d) => {
+                              const selected = form.departmentIds.includes(d.id);
+                              return (
+                                <button
+                                  key={d.id}
+                                  type="button"
+                                  onClick={() => {
+                                    if (selected) {
+                                      setForm({
+                                        ...form,
+                                        departmentIds: form.departmentIds.filter((id) => id !== d.id),
+                                      });
+                                    } else {
+                                      setForm({ ...form, departmentIds: [...form.departmentIds, d.id] });
+                                    }
+                                  }}
+                                  className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-all ${
+                                    selected
+                                      ? "bg-teal-700 text-white border-teal-700 shadow-xs font-semibold"
+                                      : "bg-white text-slate-700 border-slate-200 hover:bg-slate-100"
+                                  }`}
+                                >
+                                  {d.name} {selected && "✓"}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
                       );
                     })}
                   </div>

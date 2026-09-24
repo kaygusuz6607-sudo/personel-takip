@@ -31,13 +31,17 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    const { name, description } = await request.json();
+    const { name, description, category } = await request.json();
     if (!name) {
       return NextResponse.json({ error: "Departman adı zorunludur" }, { status: 400 });
     }
 
     const created = await prisma.department.create({
-      data: { name, description },
+      data: {
+        name,
+        description,
+        category: category || "TEACHER",
+      },
     });
     return NextResponse.json(created, { status: 201 });
   } catch (error: any) {

@@ -23,6 +23,7 @@ model Department {
   id          String            @id @default(uuid())
   name        String            @unique
   description String?
+  category    String?           @default("TEACHER") // TEACHER (Öğretmen), ADMIN (İdari Personel), STAFF (Personel), BRANCH (Branşlar)
   staffs      StaffDepartment[]
   createdAt   DateTime          @default(now())
 }
