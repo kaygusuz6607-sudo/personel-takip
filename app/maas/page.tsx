@@ -34,6 +34,9 @@ interface PayrollRow {
   monthlySalary: number;
   hourlyRate: number;
   dailyRate: number;
+  hireDate?: string | null;
+  mebAssignmentDate?: string | null;
+  sgkStartDate?: string | null;
   payroll: {
     id?: string;
     year: number;
@@ -168,6 +171,12 @@ export default function MaasTahakkukPage() {
           monthlySalary: row.monthlySalary,
           hourlyRate: row.hourlyRate,
           dailyRate: row.dailyRate,
+          year,
+          month,
+          hireDate: row.hireDate,
+          mebAssignmentDate: row.mebAssignmentDate,
+          sgkStartDate: row.sgkStartDate,
+          manualUnofficialAmount: field === "unofficialAmount" ? Number(value) : updatedPayroll.unofficialAmount !== undefined ? updatedPayroll.unofficialAmount : null,
           workDays: Number(updatedPayroll.workDays) || 30,
           reportDays: Number(updatedPayroll.reportDays) || 0,
           unpaidLeaveDays: Number(updatedPayroll.unpaidLeaveDays) || 0,
@@ -191,6 +200,7 @@ export default function MaasTahakkukPage() {
           payroll: {
             ...updatedPayroll,
             ...calc,
+            ...(field === "unofficialAmount" ? { unofficialAmount: Number(value), officialAmount: Number((calc.netTotal - Number(value)).toFixed(2)) } : {}),
           },
         };
 
@@ -216,6 +226,12 @@ export default function MaasTahakkukPage() {
           monthlySalary: row.monthlySalary,
           hourlyRate: row.hourlyRate,
           dailyRate: row.dailyRate,
+          year,
+          month,
+          hireDate: row.hireDate,
+          mebAssignmentDate: row.mebAssignmentDate,
+          sgkStartDate: row.sgkStartDate,
+          manualUnofficialAmount: changes.unofficialAmount !== undefined ? Number(changes.unofficialAmount) : updatedPayroll.unofficialAmount !== undefined ? updatedPayroll.unofficialAmount : null,
           workDays: Number(updatedPayroll.workDays) || 30,
           reportDays: Number(updatedPayroll.reportDays) || 0,
           unpaidLeaveDays: Number(updatedPayroll.unpaidLeaveDays) || 0,
@@ -239,6 +255,7 @@ export default function MaasTahakkukPage() {
           payroll: {
             ...updatedPayroll,
             ...calc,
+            ...(changes.unofficialAmount !== undefined ? { unofficialAmount: Number(changes.unofficialAmount), officialAmount: Number((calc.netTotal - Number(changes.unofficialAmount)).toFixed(2)) } : {}),
           },
         };
 
@@ -878,6 +895,49 @@ export default function MaasTahakkukPage() {
                 <span className="text-xl font-black text-teal-800">
                   {formatCurrency(activeModalStaff.payroll.netTotal)}
                 </span>
+              </div>
+
+              {/* Banka & Elden Dağılım Kartı */}
+              <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200 grid grid-cols-1 sm:grid-cols-2 gap-3 items-center">
+                <div className="p-3 bg-white rounded-xl border border-slate-200 space-y-1">
+                  <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">
+                    🏦 Resmî Banka Hesabından
+                  </span>
+                  <span className="text-lg font-black text-slate-800 block">
+                    {formatCurrency(activeModalStaff.payroll.officialAmount)}
+                  </span>
+                  <span className="text-[10px] text-slate-400">
+                    Net ödemeden elden tutar düşüldükten sonra kalan
+                  </span>
+                </div>
+
+                <div className="p-3 bg-amber-50/80 rounded-xl border border-amber-200 space-y-1">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-bold text-amber-900 uppercase tracking-wider block">
+                      💵 Elden / Nakit Ödeme
+                    </span>
+                    <span className="text-[10px] font-bold bg-amber-200 text-amber-900 px-1.5 py-0.2 rounded">
+                      Düzenlenebilir
+                    </span>
+                  </div>
+                  <div className="relative mt-1">
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      max={activeModalStaff.payroll.netTotal}
+                      value={activeModalStaff.payroll.unofficialAmount ?? ""}
+                      onChange={(e) => {
+                        const val = Math.max(0, Math.min(activeModalStaff.payroll.netTotal, Number(e.target.value) || 0));
+                        handleInputChange(activeModalStaff.staffId, "unofficialAmount", val);
+                      }}
+                      className="w-full px-3 py-1.5 bg-white border border-amber-300 rounded-lg text-sm font-black text-amber-950 focus:outline-none focus:ring-2 focus:ring-amber-500/20"
+                    />
+                  </div>
+                  <span className="text-[10px] text-amber-800/80 block">
+                    Atamaya göre otomatik hesaplanır; dilerseniz elden tutarı serbestçe değiştirebilirsiniz.
+                  </span>
+                </div>
               </div>
             </div>
 

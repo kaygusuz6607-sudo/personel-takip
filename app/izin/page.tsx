@@ -61,6 +61,7 @@ interface StaffSummary {
   hireDate: string | null;
   departments: string[];
   seniorityText: string;
+  completedYears?: number;
   annualRate: number;
   annualEntitled: number;
   annualUsed: number;
@@ -340,9 +341,9 @@ export default function IzinPage() {
 
                     {/* Hak Edilen */}
                     <td className="py-3 px-3 text-center">
-                      <span className="font-semibold text-slate-700">{s.annualEntitled} gün</span>
-                      <span className="block text-[10px] text-slate-400">
-                        (Yılda {s.annualRate} gün)
+                      <span className="font-semibold text-slate-800">{s.annualEntitled} gün</span>
+                      <span className="block text-[10px] text-teal-700 font-medium">
+                        {(s.completedYears || 1)} yıl x {s.annualRate} gün
                       </span>
                     </td>
 
@@ -544,8 +545,8 @@ export default function IzinPage() {
                     <p className="text-2xl font-extrabold text-blue-900">
                       {selectedStaff.annualEntitled} <span className="text-xs font-normal text-blue-700">gün</span>
                     </p>
-                    <p className="text-[11px] text-blue-700/80">
-                      Yılda {selectedStaff.annualRate} gün yasal hak
+                    <p className="text-[11px] text-blue-700/80 font-medium">
+                      {(selectedStaff.completedYears || 1)} yıl x {selectedStaff.annualRate} gün hakediş
                     </p>
                   </div>
 

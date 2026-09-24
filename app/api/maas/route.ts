@@ -53,6 +53,9 @@ export async function GET(request: Request) {
           monthlySalary: config?.monthlySalary || 0,
           hourlyRate: config?.hourlyRate || 0,
           dailyRate: config?.dailyRate || 0,
+          hireDate: staff.hireDate,
+          mebAssignmentDate: staff.mebAssignmentDate,
+          sgkStartDate: staff.sgkStartDate,
           payroll: {
             ...existingPayroll,
             reportDays: existingPayroll.reportDays > 0 ? existingPayroll.reportDays : autoReportDays,
@@ -96,6 +99,9 @@ export async function GET(request: Request) {
         monthlySalary: config?.monthlySalary || 0,
         hourlyRate: config?.hourlyRate || 0,
         dailyRate: config?.dailyRate || 0,
+        hireDate: staff.hireDate,
+        mebAssignmentDate: staff.mebAssignmentDate,
+        sgkStartDate: staff.sgkStartDate,
         payroll: {
           year,
           month,
@@ -148,6 +154,7 @@ export async function POST(request: Request) {
       isPaid = false,
       paidDate = null,
       notes = "",
+      unofficialAmount: customUnofficialAmount,
     } = body;
 
     const staff = await prisma.staff.findUnique({
@@ -172,6 +179,7 @@ export async function POST(request: Request) {
       hireDate: staff.hireDate,
       mebAssignmentDate: staff.mebAssignmentDate,
       sgkStartDate: staff.sgkStartDate,
+      manualUnofficialAmount: customUnofficialAmount !== undefined && customUnofficialAmount !== null ? Number(customUnofficialAmount) : null,
       workDays: Number(workDays) || 30,
       reportDays: Number(reportDays) || 0,
       unpaidLeaveDays: Number(unpaidLeaveDays) || 0,

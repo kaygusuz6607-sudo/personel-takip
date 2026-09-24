@@ -46,6 +46,69 @@ export function calculateDuration(
   return parts.join(" ");
 }
 
+export interface AnnualLeaveEntitlementResult {
+  completedYears: number;
+  annualRate: number; // cari yıllık hakediş baremi (14, 20 veya 26 gün)
+  annualEntitled: number; // kıdem süresince tamamlanan her yıl için hak edilen kümülatif toplam gün
+}
+
+/**
+ * 4857 Sayılı İş Kanunu Madde 53'e göre kümülatif yıllık ücretli izin hesabı:
+ * - 1 yıldan 5 yıla kadar (5 yıl dahil): Her yıl için 14 gün
+ * - 5 yıldan fazla 15 yıldan az: Her yıl için 20 gün
+ * - 15 yıl ve daha fazla: Her yıl için 26 gün
+ *
+ * Tamamlanan her tam yıl için hak edilen izin günleri kümülatif toplanır:
+ * Örn: 2 tam yıl çalışmış bir personel için 14 + 14 = 28 gün hak ediş üretilir.
+ * Henüz 1 tam yılı doldurmamış personele en az 1 yıllık hakediş (14 gün) avans/tanımlı olarak verilir.
+ */
+export function calculateAnnualLeaveEntitlement(
+  hireDateStr: string | Date | null | undefined
+): AnnualLeaveEntitlementResult {
+  if (!hireDateStr) {
+    return { completedYears: 0, annualRate: 14, annualEntitled: 14 };
+  }
+
+  const hire = parseSafeDate(hireDateStr);
+  if (!hire) {
+    return { completedYears: 0, annualRate: 14, annualEntitled: 14 };
+  }
+
+  const today = new Date();
+  let completedYears = today.getFullYear() - hire.getFullYear();
+  const mDiff = today.getMonth() - hire.getMonth();
+  const dDiff = today.getDate() - hire.getDate();
+
+  if (mDiff < 0 || (mDiff === 0 && dDiff < 0)) {
+    completedYears -= 1;
+  }
+
+  // Henüz 1 yılı doldurmamış olsa bile kurumsal olarak 1. yıl için 14 gün tanımlanır
+  const yearsToCount = Math.max(1, completedYears);
+
+  let totalEntitled = 0;
+  let currentRate = 14;
+
+  for (let year = 1; year <= yearsToCount; year++) {
+    if (year <= 5) {
+      totalEntitled += 14;
+      currentRate = 14;
+    } else if (year <= 15) {
+      totalEntitled += 20;
+      currentRate = 20;
+    } else {
+      totalEntitled += 26;
+      currentRate = 26;
+    }
+  }
+
+  return {
+    completedYears: Math.max(0, completedYears),
+    annualRate: currentRate,
+    annualEntitled: totalEntitled,
+  };
+}
+
 export interface SgkNotificationResult {
   needsNotification: boolean;
   isMonday: boolean;

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { calculateDuration } from "@/lib/date-utils";
+import { calculateDuration, calculateAnnualLeaveEntitlement } from "@/lib/date-utils";
 import { calculatePayroll } from "@/lib/payroll-calculator";
 
 export async function GET(request: Request) {
@@ -71,23 +71,8 @@ export async function GET(request: Request) {
         .filter((l) => l.leaveType === "UNPAID" && l.status === "APPROVED")
         .reduce((sum, l) => sum + l.daysCount, 0);
 
-      // 6. Hak Edilen Yıllık İzin (Kıdeme göre: 1-5 yıl: 14 gün, 5-15 yıl: 20 gün, 15+ yıl: 26 gün)
-      let annualRate = 14;
-      if (s.hireDate) {
-        const yearsWorked =
-          (new Date().getTime() - new Date(s.hireDate).getTime()) / (1000 * 60 * 60 * 24 * 365.25);
-        if (yearsWorked < 1) {
-          annualRate = 14;
-        } else if (yearsWorked <= 5) {
-          annualRate = 14;
-        } else if (yearsWorked <= 15) {
-          annualRate = 20;
-        } else {
-          annualRate = 26;
-        }
-      }
-
-      const annualEntitled = annualRate;
+      // 6. Hak Edilen Yıllık İzin (Kıdeme göre: tamamlanan her yıl toplanır, örn: 2 yıl için 14+14 = 28 gün)
+      const { completedYears, annualRate, annualEntitled } = calculateAnnualLeaveEntitlement(s.hireDate);
       const annualRemaining = Math.max(0, annualEntitled - annualUsed);
       const totalAvailableDays = annualRemaining + holidayEarned;
       const seniorityText = calculateDuration(s.hireDate, null);
@@ -100,6 +85,7 @@ export async function GET(request: Request) {
         hireDate: s.hireDate,
         departments: s.departments.map((d) => d.department.name),
         seniorityText,
+        completedYears,
         annualRate,
         annualEntitled,
         annualUsed,

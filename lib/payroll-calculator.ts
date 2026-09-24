@@ -33,6 +33,9 @@ export interface SalaryCalculationInput {
   manualUnemployment?: number;
   manualIncomeTax?: number;
   manualStampTax?: number;
+
+  // Elden / Gayriresmî tutarı manuel sabitlemek/ayarlamak istenirse
+  manualUnofficialAmount?: number | null;
 }
 
 export interface SalaryCalculationResult {
@@ -82,6 +85,7 @@ export function calculateOfficialSplit(params: {
   sgkStartDate?: string | Date | null;
   officialSalaryPart?: number;
   reportDays?: number;
+  manualUnofficialAmount?: number | null;
 }): { officialAmount: number; unofficialAmount: number } {
   const {
     netTotal,
@@ -93,10 +97,18 @@ export function calculateOfficialSplit(params: {
     sgkStartDate,
     officialSalaryPart = 0,
     reportDays = 0,
+    manualUnofficialAmount,
   } = params;
 
   if (netTotal <= 0) {
     return { officialAmount: 0, unofficialAmount: 0 };
+  }
+
+  // Eğer muhasebe tarafından manuel elden tutar girilmişse doğrudan uygula
+  if (manualUnofficialAmount !== undefined && manualUnofficialAmount !== null) {
+    const unofficial = Math.min(netTotal, Math.max(0, Number(manualUnofficialAmount)));
+    const official = Number((netTotal - unofficial).toFixed(2));
+    return { officialAmount: official, unofficialAmount: unofficial };
   }
 
   // Atama / resmi SGK başlangıç tarihi
@@ -126,8 +138,8 @@ export function calculateOfficialSplit(params: {
     startDay = hireParsed.day;
   }
 
-  // Atamaya kadar geçen gün sayısı (Elden günleri: örn. 1'inden 24'üne -> 23 gün)
-  const unofficialDays = Math.max(0, assignDay - startDay);
+  // Atamaya kadar geçen gün sayısı (Ayın 1'inden atama gününe kadar olan gün sayısı, örn: ayın 10'una kadar -> 10 gün)
+  const unofficialDays = Math.max(0, assignDay - startDay + 1);
 
   const dailyBase = monthlySalary > 0 ? monthlySalary / 30 : netTotal / 30;
 
@@ -166,6 +178,7 @@ export function calculatePayroll(input: SalaryCalculationInput): SalaryCalculati
     manualUnemployment = 0,
     manualIncomeTax = 0,
     manualStampTax = 0,
+    manualUnofficialAmount,
   } = input;
 
   let baseEarned = 0;
@@ -237,6 +250,7 @@ export function calculatePayroll(input: SalaryCalculationInput): SalaryCalculati
     sgkStartDate,
     officialSalaryPart,
     reportDays,
+    manualUnofficialAmount,
   });
 
   return {
