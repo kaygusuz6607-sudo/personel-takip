@@ -16,6 +16,11 @@ import {
   LogOut,
   ChevronRight,
   ShieldCheck,
+  KeyRound,
+  Lock,
+  User as UserIcon,
+  CheckCircle2,
+  AlertCircle,
 } from "lucide-react";
 
 interface AuthUser {
@@ -31,6 +36,83 @@ export function Sidebar() {
   const router = useRouter();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
+
+  // Profil & Şifre Değiştirme Modalı Durumu
+  const [profileModalOpen, setProfileModalOpen] = useState(false);
+  const [profileForm, setProfileForm] = useState({
+    username: "",
+    name: "",
+    newPassword: "",
+    confirmPassword: "",
+  });
+  const [profileSaving, setProfileSaving] = useState(false);
+  const [profileError, setProfileError] = useState<string | null>(null);
+  const [profileSuccess, setProfileSuccess] = useState<string | null>(null);
+
+  const openProfileModal = () => {
+    if (!currentUser) return;
+    setProfileForm({
+      username: currentUser.username,
+      name: currentUser.name,
+      newPassword: "",
+      confirmPassword: "",
+    });
+    setProfileError(null);
+    setProfileSuccess(null);
+    setProfileModalOpen(true);
+  };
+
+  const handleProfileSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!currentUser) return;
+    setProfileError(null);
+    setProfileSuccess(null);
+
+    if (!profileForm.username.trim() || !profileForm.name.trim()) {
+      setProfileError("Kullanıcı adı ve Ad Soyad zorunludur.");
+      return;
+    }
+
+    if (profileForm.newPassword) {
+      if (profileForm.newPassword.length < 4) {
+        setProfileError("Şifre en az 4 karakter olmalıdır.");
+        return;
+      }
+      if (profileForm.newPassword !== profileForm.confirmPassword) {
+        setProfileError("Girdiğiniz yeni şifreler birbiriyle uyuşmuyor.");
+        return;
+      }
+    }
+
+    try {
+      setProfileSaving(true);
+      const res = await fetch(`/api/users/${currentUser.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          username: profileForm.username.trim(),
+          name: profileForm.name.trim(),
+          password: profileForm.newPassword || undefined,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        setProfileError(data.error || "Güncelleme başarısız.");
+        return;
+      }
+
+      setCurrentUser((prev) => (prev ? { ...prev, username: data.username, name: data.name } : data));
+      setProfileSuccess("Kullanıcı adı ve şifreniz başarıyla güncellendi!");
+      setTimeout(() => {
+        setProfileModalOpen(false);
+      }, 1500);
+    } catch {
+      setProfileError("Sunucu hatası oluştu.");
+    } finally {
+      setProfileSaving(false);
+    }
+  };
 
   useEffect(() => {
     if (pathname === "/login") return;
@@ -175,13 +257,22 @@ export function Sidebar() {
                   </p>
                 </div>
               </div>
-              <button
-                onClick={handleLogout}
-                title="Çıkış Yap"
-                className="p-2 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
-              >
-                <LogOut className="w-5 h-5" />
-              </button>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={openProfileModal}
+                  title="Şifre & Kullanıcı Adı Değiştir"
+                  className="p-2 rounded-lg text-slate-400 hover:text-teal-700 hover:bg-teal-50 transition-colors"
+                >
+                  <KeyRound className="w-5 h-5" />
+                </button>
+                <button
+                  onClick={handleLogout}
+                  title="Çıkış Yap"
+                  className="p-2 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
+                >
+                  <LogOut className="w-5 h-5" />
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -242,16 +333,142 @@ export function Sidebar() {
                 </p>
               </div>
             </div>
-            <button
-              onClick={handleLogout}
-              title="Güvenli Çıkış Yap"
-              className="text-slate-400 hover:text-rose-600 hover:bg-rose-50 p-1.5 rounded-lg transition-colors"
-            >
-              <LogOut className="w-4 h-4" />
-            </button>
+            <div className="flex items-center gap-0.5">
+              <button
+                onClick={openProfileModal}
+                title="Şifre & Kullanıcı Adı Değiştir"
+                className="text-slate-400 hover:text-teal-700 hover:bg-teal-50 p-1.5 rounded-lg transition-colors"
+              >
+                <KeyRound className="w-4 h-4" />
+              </button>
+              <button
+                onClick={handleLogout}
+                title="Güvenli Çıkış Yap"
+                className="text-slate-400 hover:text-rose-600 hover:bg-rose-50 p-1.5 rounded-lg transition-colors"
+              >
+                <LogOut className="w-4 h-4" />
+              </button>
+            </div>
           </div>
         </div>
       </aside>
+
+      {/* Hızlı Şifre & Kullanıcı Adı Değiştirme Modalı */}
+      {profileModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border border-slate-100 animate-in fade-in zoom-in duration-200">
+            <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/80">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-teal-800 text-white flex items-center justify-center font-bold text-xs">
+                  <KeyRound className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-slate-800 text-sm">Şifre & Kullanıcı Adı Değiştir</h3>
+                  <p className="text-[11px] text-slate-500">Kendi giriş bilgilerinizi güncelleyin</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setProfileModalOpen(false)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-200/50"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleProfileSubmit} className="p-6 space-y-4">
+              {profileError && (
+                <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <span>{profileError}</span>
+                </div>
+              )}
+
+              {profileSuccess && (
+                <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 shrink-0" />
+                  <span>{profileSuccess}</span>
+                </div>
+              )}
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Ad Soyad
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={profileForm.name}
+                  onChange={(e) => setProfileForm({ ...profileForm, name: e.target.value })}
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-sm focus:ring-2 focus:ring-teal-600 focus:bg-white focus:outline-none font-medium"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Kullanıcı Adı (Girişte kullanılan)
+                </label>
+                <div className="relative">
+                  <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400 font-mono text-sm">
+                    @
+                  </span>
+                  <input
+                    type="text"
+                    required
+                    value={profileForm.username}
+                    onChange={(e) => setProfileForm({ ...profileForm, username: e.target.value })}
+                    className="w-full pl-8 pr-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-sm focus:ring-2 focus:ring-teal-600 focus:bg-white focus:outline-none font-mono"
+                  />
+                </div>
+              </div>
+
+              <div className="pt-2 border-t border-slate-100">
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Yeni Şifre (Değiştirmek istemiyorsanız boş bırakın)
+                </label>
+                <input
+                  type="password"
+                  placeholder="Yeni şifrenizi girin..."
+                  value={profileForm.newPassword}
+                  onChange={(e) => setProfileForm({ ...profileForm, newPassword: e.target.value })}
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-sm focus:ring-2 focus:ring-teal-600 focus:bg-white focus:outline-none"
+                />
+              </div>
+
+              {profileForm.newPassword && (
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Yeni Şifre Tekrar
+                  </label>
+                  <input
+                    type="password"
+                    placeholder="Şifreyi tekrar girin..."
+                    value={profileForm.confirmPassword}
+                    onChange={(e) => setProfileForm({ ...profileForm, confirmPassword: e.target.value })}
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-sm focus:ring-2 focus:ring-teal-600 focus:bg-white focus:outline-none"
+                  />
+                </div>
+              )}
+
+              <div className="pt-3 flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setProfileModalOpen(false)}
+                  className="px-4 py-2.5 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-100 text-sm font-semibold transition-colors"
+                >
+                  Kapat
+                </button>
+                <button
+                  type="submit"
+                  disabled={profileSaving}
+                  className="px-5 py-2.5 rounded-xl bg-teal-700 hover:bg-teal-800 text-white text-sm font-semibold shadow-sm transition-all disabled:opacity-50"
+                >
+                  {profileSaving ? "Kaydediliyor..." : "Kaydet ve Güncelle"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </>
   );
 }

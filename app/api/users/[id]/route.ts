@@ -29,7 +29,23 @@ export async function PUT(
       password?: string;
     } = {};
 
-    if (username) updateData.username = String(username).trim();
+    if (username && String(username).trim() !== user.username) {
+      const cleanUsername = String(username).trim();
+      const existing = await prisma.user.findFirst({
+        where: {
+          username: cleanUsername,
+          NOT: { id },
+        },
+      });
+      if (existing) {
+        return NextResponse.json(
+          { error: "Bu kullanıcı adı zaten başka bir yetkili tarafından kullanılıyor." },
+          { status: 400 }
+        );
+      }
+      updateData.username = cleanUsername;
+    }
+
     if (name) updateData.name = String(name).trim();
     if (role) updateData.role = role;
     if (email !== undefined) updateData.email = email ? String(email).trim() : null;
@@ -52,7 +68,31 @@ export async function PUT(
       },
     });
 
-    return NextResponse.json(updatedUser);
+    const response = NextResponse.json(updatedUser);
+
+    // Eğer kullanıcı kendi bilgilerini güncellediyse oturum çerezini de anında tazele
+    if (currentUser.id === id) {
+      const { createSessionToken, SESSION_COOKIE_NAME } = await import("@/lib/auth");
+      const newToken = await createSessionToken({
+        id: updatedUser.id,
+        username: updatedUser.username || currentUser.username,
+        name: updatedUser.name,
+        role: updatedUser.role,
+        email: updatedUser.email,
+      });
+      const isHttps = req.nextUrl.protocol === "https:" || req.headers.get("x-forwarded-proto") === "https";
+      response.cookies.set({
+        name: SESSION_COOKIE_NAME,
+        value: newToken,
+        httpOnly: true,
+        secure: isHttps,
+        sameSite: "lax",
+        maxAge: 7 * 24 * 60 * 60,
+        path: "/",
+      });
+    }
+
+    return response;
   } catch (error) {
     console.error("Kullanıcı güncelleme hatası:", error);
     return NextResponse.json(
