@@ -27,6 +27,9 @@ import {
   Sparkles,
   ArrowUpDown,
   Filter,
+  FileSpreadsheet,
+  Download,
+  X,
 } from "lucide-react";
 import { calculateDuration } from "@/lib/date-utils";
 
@@ -147,12 +150,13 @@ function CariContent() {
   const [selectedStatus, setSelectedStatus] = useState<string>("ALL"); // ALL, PAID, PENDING
   const [copiedIban, setCopiedIban] = useState(false);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
+  const [exportModalOpen, setExportModalOpen] = useState(false);
 
   const fetchCariData = async (targetId?: string) => {
     try {
       setLoading(true);
       const url = targetId ? `/api/cari?staffId=${targetId}` : "/api/cari";
-      const res = await fetch(url);
+      const res = await fetch(url, { cache: "no-store" });
       const data = await res.json();
 
       if (data.staffSummaries) setStaffSummaries(data.staffSummaries);
@@ -258,6 +262,15 @@ function CariContent() {
         </div>
 
         <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setExportModalOpen(true)}
+            className="inline-flex items-center gap-2 px-4 py-2.5 bg-emerald-700 hover:bg-emerald-800 active:bg-emerald-900 text-white text-xs font-bold rounded-xl shadow-xs transition-all"
+          >
+            <FileSpreadsheet className="w-4 h-4" />
+            <span>Excel İndir (.xlsx)</span>
+          </button>
+
           <button
             type="button"
             onClick={handlePrint}
@@ -781,6 +794,125 @@ function CariContent() {
           )}
         </div>
       </div>
+
+      {/* Excel İndirme Seçenekleri Modalı */}
+      {exportModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-lg w-full shadow-2xl p-6 relative border border-slate-100 animate-in fade-in zoom-in duration-200">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2.5">
+                <div className="w-10 h-10 rounded-2xl bg-emerald-100 text-emerald-800 flex items-center justify-center font-bold">
+                  <FileSpreadsheet className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-slate-900 text-base">Excel Raporu & Döküm İndir</h3>
+                  <p className="text-xs text-slate-500">
+                    {selectedStaff ? selectedStaff.fullName : "Tüm Personeller"}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setExportModalOpen(false)}
+                className="text-slate-400 hover:text-slate-600 p-1.5 rounded-xl hover:bg-slate-100 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="mt-4 space-y-2.5">
+              {selectedStaff && (
+                <>
+                  {/* 1. Seçili Personel Hesap Dökümü */}
+                  <a
+                    href={`/api/export?type=cari&staffId=${selectedStaff.id}`}
+                    download
+                    onClick={() => setExportModalOpen(false)}
+                    className="p-3.5 rounded-2xl border border-slate-200 hover:border-emerald-500 hover:bg-emerald-50/50 transition-all flex items-center justify-between group block"
+                  >
+                    <div className="space-y-0.5">
+                      <span className="text-xs font-bold text-slate-800 group-hover:text-emerald-900 flex items-center gap-1.5">
+                        <Banknote className="w-4 h-4 text-emerald-600" />
+                        <span>1. Personel Hesap Dökümü (.xlsx)</span>
+                      </span>
+                      <p className="text-[11px] text-slate-500">
+                        {selectedStaff.fullName} personelinin işe başladığı günden bugüne tüm hakediş, elden nakit, banka ve kesinti dökümü.
+                      </p>
+                    </div>
+                    <Download className="w-4 h-4 text-slate-400 group-hover:text-emerald-600 shrink-0 ml-2" />
+                  </a>
+
+                  {/* 2. Seçili Personel İzin Dökümü */}
+                  <a
+                    href={`/api/export?type=leave&staffId=${selectedStaff.id}`}
+                    download
+                    onClick={() => setExportModalOpen(false)}
+                    className="p-3.5 rounded-2xl border border-slate-200 hover:border-sky-500 hover:bg-sky-50/50 transition-all flex items-center justify-between group block"
+                  >
+                    <div className="space-y-0.5">
+                      <span className="text-xs font-bold text-slate-800 group-hover:text-sky-900 flex items-center gap-1.5">
+                        <Calendar className="w-4 h-4 text-sky-600" />
+                        <span>2. Personel İzin & Rapor Dökümü (.xlsx)</span>
+                      </span>
+                      <p className="text-[11px] text-slate-500">
+                        Yıllık izin, mazeret ve hastalık raporu günlerinin tarih aralıkları ve onay durumları.
+                      </p>
+                    </div>
+                    <Download className="w-4 h-4 text-slate-400 group-hover:text-sky-600 shrink-0 ml-2" />
+                  </a>
+
+                  {/* 3. Tam Kapsamlı Personel Dosyası (Hepsi) */}
+                  <a
+                    href={`/api/export?type=full&staffId=${selectedStaff.id}`}
+                    download
+                    onClick={() => setExportModalOpen(false)}
+                    className="p-3.5 rounded-2xl border-2 border-emerald-300 bg-gradient-to-r from-emerald-50/60 to-teal-50/60 hover:border-emerald-600 transition-all flex items-center justify-between group block"
+                  >
+                    <div className="space-y-0.5">
+                      <span className="text-xs font-bold text-emerald-950 flex items-center gap-1.5">
+                        <Sparkles className="w-4 h-4 text-emerald-600" />
+                        <span>3. Tam Personel Dosyası (Hepsi - Tek Excelde 3 Sayfa)</span>
+                      </span>
+                      <p className="text-[11px] text-emerald-800 font-medium">
+                        Personel Künyesi & Özeti + Cari Hesap Dökümü + İzin Dökümü tek Excel kitabında 3 ayrı sekme.
+                      </p>
+                    </div>
+                    <Download className="w-4 h-4 text-emerald-700 shrink-0 ml-2" />
+                  </a>
+                </>
+              )}
+
+              {/* 4. Tüm Personellerin Genel Cari Dökümü */}
+              <a
+                href="/api/export?type=all_cari"
+                download
+                onClick={() => setExportModalOpen(false)}
+                className="p-3.5 rounded-2xl border border-slate-200 hover:border-teal-500 hover:bg-teal-50/50 transition-all flex items-center justify-between group block"
+              >
+                <div className="space-y-0.5">
+                  <span className="text-xs font-bold text-slate-800 group-hover:text-teal-900 flex items-center gap-1.5">
+                    <Users className="w-4 h-4 text-teal-600" />
+                    <span>4. Tüm Personellerin Cari Dökümü (.xlsx) (Kurum Geneli)</span>
+                  </span>
+                  <p className="text-[11px] text-slate-500">
+                    Kurumdaki bütün personellerin genel hakediş, bankadan yatan, elden ödenen ve kalan bakiye tablosu.
+                  </p>
+                </div>
+                <Download className="w-4 h-4 text-slate-400 group-hover:text-teal-600 shrink-0 ml-2" />
+              </a>
+            </div>
+
+            <div className="mt-5 pt-3 border-t border-slate-100 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setExportModalOpen(false)}
+                className="px-5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-colors"
+              >
+                Kapat
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
