@@ -128,6 +128,7 @@ export default function MaasTahakkukPage() {
   const [rows, setRows] = useState<PayrollRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [savingId, setSavingId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [savedSuccessId, setSavedSuccessId] = useState<string | null>(null);
   const [activeModalStaff, setActiveModalStaff] = useState<PayrollRow | null>(null);
   const [statusFilter, setStatusFilter] = useState<"ALL" | "SAVED" | "PENDING">("ALL");
@@ -501,6 +502,29 @@ export default function MaasTahakkukPage() {
     }
   };
 
+  const handleCancelPayroll = async (row: PayrollRow) => {
+    const confirmMsg = `${row.fullName} personeli için ${year}/${month} dönemi tahakkuk kaydını iptal etmek ve kaydı "Bekleyen / Taslak" durumuna geri döndürmek istediğinize emin misiniz?\n\nBu işlem tahakkuku iptal eder ve varsayılan taslak haline getirir.`;
+    if (!window.confirm(confirmMsg)) return;
+
+    try {
+      setDeletingId(row.staffId);
+      const res = await fetch(`/api/maas?staffId=${row.staffId}&year=${year}&month=${month}`, {
+        method: "DELETE",
+      });
+
+      if (res.ok) {
+        await fetchPayrolls();
+      } else {
+        const data = await res.json().catch(() => ({}));
+        alert(data.error || "Tahakkuk iptal edilemedi");
+      }
+    } catch (err) {
+      alert("Tahakkuk iptal edilirken bir hata oluştu");
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
   const formatCurrency = (val: number) => {
     return new Intl.NumberFormat("tr-TR", {
       style: "currency",
@@ -828,38 +852,53 @@ export default function MaasTahakkukPage() {
                         </div>
                       </td>
 
-                      {/* Kaydet İşlemi */}
-                      <td className="py-3 px-3 text-center">
-                        <button
-                          type="button"
-                          onClick={() => handleSavePayroll(row)}
-                          disabled={savingId === row.staffId}
-                          className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold transition-all shadow-2xs ${
-                            savedSuccessId === row.staffId
-                              ? "bg-emerald-600 text-white"
-                              : row.isSaved
-                              ? "bg-emerald-100 hover:bg-emerald-200 text-emerald-900 border border-emerald-300"
-                              : "bg-teal-700 hover:bg-teal-800 text-white shadow-teal-700/20"
-                          }`}
-                          title={row.isSaved ? "Tahakkuk kaydedilmiş. Güncellemek için tıklayın." : "Tahakkuku kaydet"}
-                        >
-                          {savedSuccessId === row.staffId ? (
-                            <>
-                              <CheckCircle2 className="w-3.5 h-3.5 text-white" />
-                              <span>Kaydedildi</span>
-                            </>
-                          ) : row.isSaved ? (
-                            <>
-                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-700" />
-                              <span>{savingId === row.staffId ? "..." : "Güncelle"}</span>
-                            </>
-                          ) : (
-                            <>
-                              <Save className="w-3.5 h-3.5" />
-                              <span>{savingId === row.staffId ? "..." : "Kaydet"}</span>
-                            </>
+                      {/* Kaydet & İptal İşlemi */}
+                      <td className="py-3 px-3 text-center min-w-[130px]">
+                        <div className="flex items-center justify-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => handleSavePayroll(row)}
+                            disabled={savingId === row.staffId || deletingId === row.staffId}
+                            className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold transition-all shadow-2xs ${
+                              savedSuccessId === row.staffId
+                                ? "bg-emerald-600 text-white"
+                                : row.isSaved
+                                ? "bg-emerald-100 hover:bg-emerald-200 text-emerald-900 border border-emerald-300"
+                                : "bg-teal-700 hover:bg-teal-800 text-white shadow-teal-700/20"
+                            }`}
+                            title={row.isSaved ? "Tahakkuk kaydedilmiş. Güncellemek için tıklayın." : "Tahakkuku kaydet"}
+                          >
+                            {savedSuccessId === row.staffId ? (
+                              <>
+                                <CheckCircle2 className="w-3.5 h-3.5 text-white" />
+                                <span>Kaydedildi</span>
+                              </>
+                            ) : row.isSaved ? (
+                              <>
+                                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-700" />
+                                <span>{savingId === row.staffId ? "..." : "Güncelle"}</span>
+                              </>
+                            ) : (
+                              <>
+                                <Save className="w-3.5 h-3.5" />
+                                <span>{savingId === row.staffId ? "..." : "Kaydet"}</span>
+                              </>
+                            )}
+                          </button>
+
+                          {row.isSaved && (
+                            <button
+                              type="button"
+                              onClick={() => handleCancelPayroll(row)}
+                              disabled={deletingId === row.staffId || savingId === row.staffId}
+                              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold text-rose-700 hover:text-rose-900 bg-rose-50 hover:bg-rose-100 border border-rose-200 transition-colors shadow-2xs"
+                              title="Yanlışlıkla yapılan tahakkuku iptal et (Bekleyen/Taslak durumuna geri al)"
+                            >
+                              <RotateCcw className="w-3 h-3 text-rose-600" />
+                              <span>{deletingId === row.staffId ? "..." : "İptal"}</span>
+                            </button>
                           )}
-                        </button>
+                        </div>
                       </td>
                     </tr>
                   );

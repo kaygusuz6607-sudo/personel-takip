@@ -314,3 +314,49 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: error?.message || "Bordro kaydedilemedi" }, { status: 500 });
   }
 }
+
+export async function DELETE(request: Request) {
+  try {
+    const { searchParams } = new URL(request.url);
+    const staffId = searchParams.get("staffId");
+    const year = searchParams.get("year");
+    const month = searchParams.get("month");
+
+    if (!staffId || !year || !month) {
+      return NextResponse.json(
+        { error: "staffId, year ve month parametreleri zorunludur" },
+        { status: 400 }
+      );
+    }
+
+    const yearNum = Number(year);
+    const monthNum = Number(month);
+
+    // İlgili dönemin tahakkuk kaydını veritabanından sil
+    await prisma.payroll.deleteMany({
+      where: {
+        staffId,
+        year: yearNum,
+        month: monthNum,
+      },
+    });
+
+    // Varsa bu tahakkuk sırasında oluşturulmuş resmi tatil telafi izin kaydını da temizle
+    const holidayDescPrefix = `${yearNum}/${monthNum} dönemi`;
+    await prisma.leaveRecord.deleteMany({
+      where: {
+        staffId,
+        leaveType: "HOLIDAY_COMPENSATION",
+        description: { startsWith: holidayDescPrefix },
+      },
+    });
+
+    return NextResponse.json({ success: true, message: "Tahakkuk başarıyla iptal edildi" });
+  } catch (error: any) {
+    console.error("Tahakkuk iptal hatası:", error);
+    return NextResponse.json(
+      { error: error?.message || "Tahakkuk iptal edilemedi" },
+      { status: 500 }
+    );
+  }
+}
