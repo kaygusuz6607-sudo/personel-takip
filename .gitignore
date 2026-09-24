@@ -6,3 +6,4 @@ out
 dev.db-journal
 *.log
 cloudflared.exe
+sqlite_migration_dump.json
