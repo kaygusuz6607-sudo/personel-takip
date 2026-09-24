@@ -212,6 +212,114 @@ async function main() {
       },
     });
 
+    // Örnek Geçmiş İzin Kayıtları
+    await prisma.leaveRecord.deleteMany({ where: { staffId: staff.id } });
+    if (s.fullName === "Akif Sancak") {
+      const akifLeaves = [
+        {
+          leaveType: "ANNUAL",
+          startDate: new Date("2026-07-13"),
+          endDate: new Date("2026-07-17"),
+          daysCount: 5,
+          description: "Yaz dönemi yıllık izin kullanımı",
+          status: "APPROVED",
+        },
+        {
+          leaveType: "SICK",
+          startDate: new Date("2026-05-11"),
+          endDate: new Date("2026-05-12"),
+          daysCount: 2,
+          description: "Mevsimsel grip hekim istirahat raporu",
+          status: "APPROVED",
+        },
+        {
+          leaveType: "HOLIDAY_COMPENSATION",
+          startDate: new Date("2026-04-23"),
+          endDate: new Date("2026-04-23"),
+          daysCount: 1,
+          description: "23 Nisan nöbet çalışması karşılığı 1'e 1 telafi izni hakkı",
+          status: "APPROVED",
+        },
+        {
+          leaveType: "EXCUSE",
+          startDate: new Date("2026-02-18"),
+          endDate: new Date("2026-02-18"),
+          daysCount: 1,
+          description: "Resmi kurum mazeret izni",
+          status: "APPROVED",
+        },
+      ];
+      for (const l of akifLeaves) {
+        await prisma.leaveRecord.create({ data: { staffId: staff.id, ...l } });
+      }
+    } else if (s.fullName === "Ayşen Yalavuz") {
+      const aysenLeaves = [
+        {
+          leaveType: "ANNUAL",
+          startDate: new Date("2026-08-03"),
+          endDate: new Date("2026-08-09"),
+          daysCount: 7,
+          description: "Ağustos dönemi yıllık izin",
+          status: "APPROVED",
+        },
+        {
+          leaveType: "HOLIDAY_COMPENSATION",
+          startDate: new Date("2026-05-19"),
+          endDate: new Date("2026-05-19"),
+          daysCount: 1,
+          description: "19 Mayıs resmi tatil nöbeti 1'e 1 telafi hakkı",
+          status: "APPROVED",
+        },
+      ];
+      for (const l of aysenLeaves) {
+        await prisma.leaveRecord.create({ data: { staffId: staff.id, ...l } });
+      }
+    } else if (s.fullName === "Betül Tokatlıoğlu") {
+      const betulLeaves = [
+        {
+          leaveType: "ANNUAL",
+          startDate: new Date("2026-06-15"),
+          endDate: new Date("2026-06-18"),
+          daysCount: 4,
+          description: "Yıllık izin dinlenme",
+          status: "APPROVED",
+        },
+        {
+          leaveType: "SICK",
+          startDate: new Date("2026-03-02"),
+          endDate: new Date("2026-03-03"),
+          daysCount: 2,
+          description: "Sağlık ocağı istirahat raporu",
+          status: "APPROVED",
+        },
+      ];
+      for (const l of betulLeaves) {
+        await prisma.leaveRecord.create({ data: { staffId: staff.id, ...l } });
+      }
+    } else if (s.fullName === "Duygu Köse") {
+      const duyguLeaves = [
+        {
+          leaveType: "ANNUAL",
+          startDate: new Date("2026-07-20"),
+          endDate: new Date("2026-07-29"),
+          daysCount: 10,
+          description: "Yaz yıllık izni",
+          status: "APPROVED",
+        },
+        {
+          leaveType: "HOLIDAY_COMPENSATION",
+          startDate: new Date("2026-01-01"),
+          endDate: new Date("2026-01-01"),
+          daysCount: 1,
+          description: "1 Ocak Yılbaşı nöbet çalışması karşılığı telafi izni",
+          status: "APPROVED",
+        },
+      ];
+      for (const l of duyguLeaves) {
+        await prisma.leaveRecord.create({ data: { staffId: staff.id, ...l } });
+      }
+    }
+
     // Bordro hesabı
     const reportDays = s.reportDays || 0;
     const workDays = 30;
