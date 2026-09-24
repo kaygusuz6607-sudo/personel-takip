@@ -77,6 +77,8 @@ export async function POST(request: Request) {
       hireDate,
       terminationDate,
       mebAssignmentDate,
+      mebAssignmentEndDate,
+      isMebPermanent = true,
       unofficialWorkPeriod,
       sgkStartDate,
       notes,
@@ -109,6 +111,8 @@ export async function POST(request: Request) {
       );
     }
 
+    const isPermanent = isMebPermanent === true || isMebPermanent === "true";
+
     const newStaff = await prisma.staff.create({
       data: {
         tcNo,
@@ -122,6 +126,9 @@ export async function POST(request: Request) {
         hireDate: hireDate ? new Date(hireDate) : new Date(),
         terminationDate: terminationDate ? new Date(terminationDate) : null,
         mebAssignmentDate: mebAssignmentDate ? new Date(mebAssignmentDate) : null,
+        mebAssignmentEndDate: !isPermanent && mebAssignmentEndDate ? new Date(mebAssignmentEndDate) : null,
+        isMebPermanent: isPermanent,
+        isMebEndNotified: false,
         unofficialWorkPeriod,
         sgkStartDate: sgkStartDate ? new Date(sgkStartDate) : null,
         notes,

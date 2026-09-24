@@ -134,6 +134,8 @@ export async function GET(request: Request) {
         status: staff.status,
         hireDate: staff.hireDate,
         mebAssignmentDate: staff.mebAssignmentDate,
+        mebAssignmentEndDate: staff.mebAssignmentEndDate,
+        isMebPermanent: staff.isMebPermanent,
         sgkStartDate: staff.sgkStartDate,
         unofficialWorkPeriod: staff.unofficialWorkPeriod,
         departments: staff.departments.map((d) => d.department.name),

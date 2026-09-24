@@ -50,6 +50,9 @@ model Staff {
   hireDate             DateTime?
   terminationDate      DateTime?
   mebAssignmentDate    DateTime?
+  mebAssignmentEndDate DateTime? // MEB Atama Bitiş Tarihi (Süreli ise)
+  isMebPermanent       Boolean           @default(true) // Süresiz atama mı? (true = Süresiz, false = Tarihli)
+  isMebEndNotified     Boolean           @default(false) // Bitiş uyarısı kapatıldı/yenilendi mi?
   unofficialWorkPeriod String? // "3 ay 12 gün" vb.
   sgkStartDate         DateTime?
   notes                String?

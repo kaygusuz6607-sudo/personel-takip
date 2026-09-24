@@ -60,6 +60,8 @@ interface SelectedStaff {
   status: string;
   hireDate: string | null;
   mebAssignmentDate: string | null;
+  mebAssignmentEndDate?: string | null;
+  isMebPermanent?: boolean;
   sgkStartDate: string | null;
   unofficialWorkPeriod: string | null;
   departments: string[];
@@ -411,10 +413,27 @@ function CariContent() {
                     <div className="h-6 w-px bg-slate-200" />
 
                     <div>
-                      <span className="text-[10px] text-slate-400 block font-medium">SGK / Atama:</span>
+                      <span className="text-[10px] text-slate-400 block font-medium">MEB Atama:</span>
                       <span className="font-bold text-slate-800">
-                        {selectedStaff.sgkStartDate || selectedStaff.mebAssignmentDate
-                          ? new Date(selectedStaff.sgkStartDate || selectedStaff.mebAssignmentDate!).toLocaleDateString("tr-TR")
+                        {selectedStaff.isMebPermanent !== false ? (
+                          <span className="text-teal-700">♾️ Süresiz</span>
+                        ) : selectedStaff.mebAssignmentEndDate ? (
+                          <span className="text-amber-700">
+                            📅 Bitiş: {new Date(selectedStaff.mebAssignmentEndDate).toLocaleDateString("tr-TR")}
+                          </span>
+                        ) : (
+                          "Belirli Süreli"
+                        )}
+                      </span>
+                    </div>
+
+                    <div className="h-6 w-px bg-slate-200" />
+
+                    <div>
+                      <span className="text-[10px] text-slate-400 block font-medium">SGK Başlangıç:</span>
+                      <span className="font-bold text-slate-800">
+                        {selectedStaff.sgkStartDate
+                          ? new Date(selectedStaff.sgkStartDate).toLocaleDateString("tr-TR")
                           : "Elden / Kayıtsız"}
                       </span>
                     </div>

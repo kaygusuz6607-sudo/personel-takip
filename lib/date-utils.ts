@@ -129,3 +129,81 @@ export function checkMebSgkNotification(
 
   return { needsNotification: false, isMonday, message: "", urgency: "NONE" };
 }
+
+export interface MebEndNotificationResult {
+  needsNotification: boolean;
+  daysRemaining: number;
+  isExpired: boolean;
+  message: string;
+  urgency: "HIGH" | "MEDIUM" | "NONE";
+}
+
+/**
+ * MEB Atama Bitiş Tarihine göre hatırlatma kontrolü:
+ * - Süresiz atama ise (isMebPermanent = true) -> Bildirim gerekmez
+ * - Belirli süreli ise ve bitiş tarihine 7 gün (1 hafta) veya daha az kaldıysa (veya geçmişse) -> Bildirim üretilir
+ * - Bildirim onaylanmış/kapatılmış ise (isMebEndNotified = true) -> Bildirim gerekmez
+ */
+export function checkMebEndNotification(
+  mebAssignmentEndDateStr: string | Date | null | undefined,
+  isMebPermanent: boolean = true,
+  isMebEndNotified: boolean = false
+): MebEndNotificationResult {
+  if (isMebPermanent || isMebEndNotified || !mebAssignmentEndDateStr) {
+    return { needsNotification: false, daysRemaining: 0, isExpired: false, message: "", urgency: "NONE" };
+  }
+
+  const endDate = parseSafeDate(mebAssignmentEndDateStr);
+  if (!endDate) {
+    return { needsNotification: false, daysRemaining: 0, isExpired: false, message: "", urgency: "NONE" };
+  }
+
+  const today = new Date();
+  const dToday = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  const dEnd = new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate());
+
+  const diffTime = dEnd.getTime() - dToday.getTime();
+  const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
+  const dateFormatted = dEnd.toLocaleDateString("tr-TR");
+
+  // 1 hafta (7 gün) veya daha az kaldıysa veya süre dolmuşsa
+  if (diffDays <= 7) {
+    if (diffDays < 0) {
+      const pastDays = Math.abs(diffDays);
+      return {
+        needsNotification: true,
+        daysRemaining: diffDays,
+        isExpired: true,
+        urgency: "HIGH",
+        message: `DİKKAT! MEB atama süresi ${pastDays} gün önce DOLDU! (Bitiş: ${dateFormatted}). Lütfen atamayı yenileyiniz veya süresiz yapınız.`,
+      };
+    } else if (diffDays === 0) {
+      return {
+        needsNotification: true,
+        daysRemaining: 0,
+        isExpired: false,
+        urgency: "HIGH",
+        message: `DİKKAT! MEB atama süresi BUGÜN DOLUYOR! (Bitiş: ${dateFormatted}). Atama yenileme işlemlerini tamamlayınız.`,
+      };
+    } else if (diffDays === 1) {
+      return {
+        needsNotification: true,
+        daysRemaining: 1,
+        isExpired: false,
+        urgency: "HIGH",
+        message: `DİKKAT! MEB atama süresi YARIN DOLUYOR! (Bitiş: ${dateFormatted}). 1 gün kaldı.`,
+      };
+    } else {
+      return {
+        needsNotification: true,
+        daysRemaining: diffDays,
+        isExpired: false,
+        urgency: "HIGH",
+        message: `HATIRLATMA: MEB atama süresinin dolmasına ${diffDays} gün kaldı! (Bitiş: ${dateFormatted}).`,
+      };
+    }
+  }
+
+  return { needsNotification: false, daysRemaining: diffDays, isExpired: false, message: "", urgency: "NONE" };
+}
+

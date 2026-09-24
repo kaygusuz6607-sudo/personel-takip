@@ -21,7 +21,7 @@ import {
   Briefcase,
   ReceiptText,
 } from "lucide-react";
-import { calculateDuration } from "@/lib/date-utils";
+import { calculateDuration, parseSafeDate } from "@/lib/date-utils";
 
 interface Department {
   id: string;
@@ -41,6 +41,9 @@ interface Staff {
   title: string | null;
   hireDate: string | null;
   mebAssignmentDate: string | null;
+  mebAssignmentEndDate: string | null;
+  isMebPermanent: boolean;
+  isMebEndNotified: boolean;
   sgkStartDate: string | null;
   unofficialWorkPeriod: string | null;
   status: string;
@@ -81,6 +84,8 @@ export default function PersonellerPage() {
     title: "",
     hireDate: "",
     mebAssignmentDate: "",
+    mebAssignmentEndDate: "",
+    isMebPermanent: true,
     sgkStartDate: "",
     unofficialWorkPeriod: "",
     notes: "",
@@ -137,6 +142,8 @@ export default function PersonellerPage() {
       title: "",
       hireDate: new Date().toISOString().split("T")[0],
       mebAssignmentDate: "",
+      mebAssignmentEndDate: "",
+      isMebPermanent: true,
       sgkStartDate: "",
       unofficialWorkPeriod: "",
       notes: "",
@@ -165,6 +172,8 @@ export default function PersonellerPage() {
       title: staff.title || "",
       hireDate: staff.hireDate ? staff.hireDate.split("T")[0] : "",
       mebAssignmentDate: staff.mebAssignmentDate ? staff.mebAssignmentDate.split("T")[0] : "",
+      mebAssignmentEndDate: staff.mebAssignmentEndDate ? staff.mebAssignmentEndDate.split("T")[0] : "",
+      isMebPermanent: staff.isMebPermanent ?? true,
       sgkStartDate: staff.sgkStartDate ? staff.sgkStartDate.split("T")[0] : "",
       unofficialWorkPeriod: staff.unofficialWorkPeriod || "",
       notes: "",
@@ -336,14 +345,62 @@ export default function PersonellerPage() {
 
                     <td className="py-3.5 px-4">
                       <p className="text-slate-800 font-medium">{staff.title || "—"}</p>
-                      {calculateDuration(staff.hireDate, staff.sgkStartDate) !== "—" &&
-                        calculateDuration(staff.hireDate, staff.sgkStartDate) !== "0 gün" && (
-                          <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-amber-800 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded mt-0.5">
-                            <Briefcase className="w-2.5 h-2.5 text-amber-600" />
-                            Gayriresmî: {calculateDuration(staff.hireDate, staff.sgkStartDate)}
+                      
+                      <div className="flex flex-wrap items-center gap-1.5 mt-1">
+                        {calculateDuration(staff.hireDate, staff.sgkStartDate) !== "—" &&
+                          calculateDuration(staff.hireDate, staff.sgkStartDate) !== "0 gün" && (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-amber-800 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded">
+                              <Briefcase className="w-2.5 h-2.5 text-amber-600" />
+                              Gayriresmî: {calculateDuration(staff.hireDate, staff.sgkStartDate)}
+                            </span>
+                          )}
+
+                        {/* MEB Atama Durumu */}
+                        {staff.isMebPermanent ? (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-teal-800 bg-teal-50 border border-teal-200 px-1.5 py-0.5 rounded">
+                            ♾️ MEB: Süresiz
+                          </span>
+                        ) : staff.mebAssignmentEndDate ? (
+                          (() => {
+                            const endD = parseSafeDate(staff.mebAssignmentEndDate);
+                            const today = new Date();
+                            const dToday = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+                            const diffDays = endD
+                              ? Math.round(
+                                  (new Date(endD.getFullYear(), endD.getMonth(), endD.getDate()).getTime() -
+                                    dToday.getTime()) /
+                                    (1000 * 60 * 60 * 24)
+                                )
+                              : null;
+
+                            if (diffDays !== null && diffDays < 0) {
+                              return (
+                                <span className="inline-flex items-center gap-1 text-[10px] font-bold text-rose-700 bg-rose-50 border border-rose-300 px-1.5 py-0.5 rounded animate-pulse">
+                                  🚨 MEB Bitti ({Math.abs(diffDays)} gün önce)
+                                </span>
+                              );
+                            }
+                            if (diffDays !== null && diffDays <= 7) {
+                              return (
+                                <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-900 bg-amber-100 border border-amber-300 px-1.5 py-0.5 rounded">
+                                  ⚠️ MEB Bitiş: {diffDays === 0 ? "Bugün" : diffDays === 1 ? "Yarın" : `${diffDays} gün kaldı`}
+                                </span>
+                              );
+                            }
+                            return (
+                              <span className="inline-flex items-center gap-1 text-[10px] font-medium text-slate-700 bg-slate-100 border border-slate-200 px-1.5 py-0.5 rounded">
+                                📅 MEB Bitiş: {new Date(staff.mebAssignmentEndDate).toLocaleDateString("tr-TR")}
+                              </span>
+                            );
+                          })()
+                        ) : (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-medium text-slate-500 bg-slate-50 border border-slate-200 px-1.5 py-0.5 rounded">
+                            📅 MEB: Belirli Süreli
                           </span>
                         )}
-                      <div className="flex flex-wrap gap-1 mt-1">
+                      </div>
+
+                      <div className="flex flex-wrap gap-1 mt-1.5">
                         {staff.departments.map((d) => (
                           <span
                             key={d.department.id}
@@ -672,7 +729,7 @@ export default function PersonellerPage() {
 
                   <div>
                     <label className="block text-xs font-medium text-slate-700 mb-1">
-                      MEB Atama Tarihi
+                      MEB Atama Başlangıç Tarihi
                     </label>
                     <input
                       type="date"
@@ -702,7 +759,7 @@ export default function PersonellerPage() {
                     />
                   </div>
 
-                  <div>
+                  <div className="sm:col-span-2">
                     <label className="block text-xs font-medium text-slate-700 mb-1 flex items-center justify-between">
                       <span>Gayriresmî Çalışma Süresi</span>
                       <span className="text-[10px] text-teal-700 font-semibold bg-teal-50 px-1.5 py-0.5 rounded">
@@ -716,6 +773,68 @@ export default function PersonellerPage() {
                       placeholder="Örn: 3 yıl 9 gün"
                       className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-600/20 focus:border-teal-600 font-semibold text-amber-900 bg-amber-50/40"
                     />
+                  </div>
+
+                  {/* MEB Atama Bitiş & Süresiz Seçeneği Kartı */}
+                  <div className="sm:col-span-2 p-3.5 bg-gradient-to-r from-teal-50/70 to-slate-50 border border-teal-200/80 rounded-xl space-y-3">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                      <div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-teal-700 font-bold text-xs">🏛️ MEB Atama Süre Türü:</span>
+                        </div>
+                        <p className="text-[11px] text-slate-500 mt-0.5">
+                          Atama süresiz mi yoksa belirli bir bitiş tarihine mi tabi?
+                        </p>
+                      </div>
+
+                      <div className="flex items-center gap-1 bg-white p-1 rounded-lg border border-slate-200 shadow-2xs">
+                        <button
+                          type="button"
+                          onClick={() => setForm({ ...form, isMebPermanent: true, mebAssignmentEndDate: "" })}
+                          className={`px-3 py-1.5 text-xs font-bold rounded-md transition-all flex items-center gap-1.5 ${
+                            form.isMebPermanent
+                              ? "bg-teal-700 text-white shadow-xs"
+                              : "text-slate-600 hover:text-slate-900 hover:bg-slate-100"
+                          }`}
+                        >
+                          <span>♾️</span>
+                          <span>Süresiz Atama</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setForm({ ...form, isMebPermanent: false })}
+                          className={`px-3 py-1.5 text-xs font-bold rounded-md transition-all flex items-center gap-1.5 ${
+                            !form.isMebPermanent
+                              ? "bg-teal-700 text-white shadow-xs"
+                              : "text-slate-600 hover:text-slate-900 hover:bg-slate-100"
+                          }`}
+                        >
+                          <span>📅</span>
+                          <span>Tarihli Atama</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    {!form.isMebPermanent && (
+                      <div className="pt-3 border-t border-teal-200/60 grid grid-cols-1 sm:grid-cols-2 gap-3 items-center">
+                        <div>
+                          <label className="block text-xs font-bold text-slate-800 mb-1">
+                            MEB Atama Bitiş Tarihi *
+                          </label>
+                          <input
+                            type="date"
+                            required={!form.isMebPermanent}
+                            value={form.mebAssignmentEndDate}
+                            onChange={(e) => setForm({ ...form, mebAssignmentEndDate: e.target.value })}
+                            className="w-full px-3 py-2 text-sm bg-white border border-teal-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-600/20 focus:border-teal-600 font-semibold text-slate-900"
+                          />
+                        </div>
+                        <div className="p-2.5 rounded-lg bg-amber-50/90 border border-amber-200 text-[11px] text-amber-900 leading-snug">
+                          <span className="font-bold text-amber-950 block mb-0.5">🔔 1 Hafta Önce Hatırlatma Aktif</span>
+                          Atama bitişine <strong>7 gün (1 hafta)</strong> kala ve süre dolduğunda sistem ana sayfada bildirim çubuğunda hatırlatacaktır.
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
 

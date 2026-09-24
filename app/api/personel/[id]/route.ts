@@ -51,6 +51,9 @@ export async function PUT(
       hireDate,
       terminationDate,
       mebAssignmentDate,
+      mebAssignmentEndDate,
+      isMebPermanent,
+      isMebEndNotified,
       unofficialWorkPeriod,
       sgkStartDate,
       notes,
@@ -69,24 +72,39 @@ export async function PUT(
       where: { staffId: id },
     });
 
+    const isPermanent = isMebPermanent === undefined ? true : (isMebPermanent === true || isMebPermanent === "true");
+
+    const updateData: any = {
+      tcNo,
+      fullName,
+      birthDate: birthDate ? new Date(birthDate) : null,
+      phone,
+      email,
+      iban,
+      accountNumber,
+      title,
+      hireDate: hireDate ? new Date(hireDate) : null,
+      terminationDate: terminationDate ? new Date(terminationDate) : null,
+      mebAssignmentDate: mebAssignmentDate ? new Date(mebAssignmentDate) : null,
+      mebAssignmentEndDate: !isPermanent && mebAssignmentEndDate ? new Date(mebAssignmentEndDate) : null,
+      isMebPermanent: isPermanent,
+      unofficialWorkPeriod,
+      sgkStartDate: sgkStartDate ? new Date(sgkStartDate) : null,
+      notes,
+      status,
+    };
+
+    if (isMebEndNotified !== undefined) {
+      updateData.isMebEndNotified = Boolean(isMebEndNotified);
+    } else if (mebAssignmentEndDate !== undefined) {
+      // Bitiş tarihi değiştirildiyse bildirimi yeniden aç
+      updateData.isMebEndNotified = false;
+    }
+
     const updated = await prisma.staff.update({
       where: { id },
       data: {
-        tcNo,
-        fullName,
-        birthDate: birthDate ? new Date(birthDate) : null,
-        phone,
-        email,
-        iban,
-        accountNumber,
-        title,
-        hireDate: hireDate ? new Date(hireDate) : null,
-        terminationDate: terminationDate ? new Date(terminationDate) : null,
-        mebAssignmentDate: mebAssignmentDate ? new Date(mebAssignmentDate) : null,
-        unofficialWorkPeriod,
-        sgkStartDate: sgkStartDate ? new Date(sgkStartDate) : null,
-        notes,
-        status,
+        ...updateData,
         salaryConfig: {
           upsert: {
             create: {
