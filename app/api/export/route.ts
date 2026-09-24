@@ -48,6 +48,7 @@ export async function GET(request: Request) {
         "Gayriresmi / Elden": p.unofficialAmount,
         Durum: p.isPaid ? "ÖDENDİ" : "BEKLİYOR",
         "IBAN Numarası": p.staff.iban || "-",
+        "Banka Hesap Numarası": p.staff.accountNumber || "-",
       }));
 
       const worksheet = XLSX.utils.json_to_sheet(data);
@@ -81,6 +82,7 @@ export async function GET(request: Request) {
         Telefon: s.phone || "-",
         "E-Posta": s.email || "-",
         IBAN: s.iban || "-",
+        "Banka Hesap Numarası": s.accountNumber || "-",
         Ünvan: s.title || "-",
         Departman: s.departments.map((d) => d.department.name).join(", "),
         "İşe Giriş": s.hireDate ? s.hireDate.toISOString().split("T")[0] : "-",

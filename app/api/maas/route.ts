@@ -18,6 +18,13 @@ export async function GET(request: Request) {
         payrolls: {
           where: { year, month },
         },
+        leaves: {
+          where: {
+            status: "APPROVED",
+            startDate: { lte: new Date(year, month, 0, 23, 59, 59) },
+            endDate: { gte: new Date(year, month - 1, 1) },
+          },
+        },
       },
       orderBy: { fullName: "asc" },
     });
@@ -25,6 +32,15 @@ export async function GET(request: Request) {
     const result = staffs.map((staff) => {
       const existingPayroll = staff.payrolls[0];
       const config = staff.salaryConfig;
+
+      // İzin kayıtlarından otomatik gelen rapor ve ücretsiz izin günleri
+      const autoReportDays = staff.leaves
+        .filter((l) => l.leaveType === "SICK")
+        .reduce((sum, l) => sum + l.daysCount, 0);
+
+      const autoUnpaidDays = staff.leaves
+        .filter((l) => l.leaveType === "UNPAID")
+        .reduce((sum, l) => sum + l.daysCount, 0);
 
       if (existingPayroll) {
         return {
@@ -37,7 +53,11 @@ export async function GET(request: Request) {
           monthlySalary: config?.monthlySalary || 0,
           hourlyRate: config?.hourlyRate || 0,
           dailyRate: config?.dailyRate || 0,
-          payroll: existingPayroll,
+          payroll: {
+            ...existingPayroll,
+            reportDays: existingPayroll.reportDays > 0 ? existingPayroll.reportDays : autoReportDays,
+            unpaidLeaveDays: existingPayroll.unpaidLeaveDays > 0 ? existingPayroll.unpaidLeaveDays : autoUnpaidDays,
+          },
         };
       }
 
@@ -48,8 +68,8 @@ export async function GET(request: Request) {
         hourlyRate: config?.hourlyRate || 0,
         dailyRate: config?.dailyRate || 0,
         workDays: 30,
-        reportDays: 0,
-        unpaidLeaveDays: 0,
+        reportDays: autoReportDays,
+        unpaidLeaveDays: autoUnpaidDays,
         lessonHours: 0,
         dailyWorkDays: 0,
         holidayWorkDays: 0,

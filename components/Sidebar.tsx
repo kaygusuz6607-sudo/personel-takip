@@ -51,8 +51,8 @@ export function Sidebar() {
             <Menu className="w-6 h-6" />
           </button>
           <div className="flex items-center gap-2">
-            <span className="font-bold text-lg tracking-tight">edutime</span>
-            <span className="text-xs bg-teal-600 px-2 py-0.5 rounded text-teal-100 font-medium">Personel</span>
+            <span className="font-extrabold text-lg tracking-wider">COSMOS</span>
+            <span className="text-xs bg-teal-600 px-2 py-0.5 rounded text-teal-100 font-medium">Personel Takip</span>
           </div>
         </div>
 
@@ -75,10 +75,13 @@ export function Sidebar() {
           >
             <div className="p-4 bg-teal-800 text-white flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded bg-teal-600 flex items-center justify-center font-bold">
-                  PT
+                <div className="w-8 h-8 rounded bg-teal-600 flex items-center justify-center font-bold text-xs tracking-wider">
+                  CS
                 </div>
-                <span className="font-bold text-lg">Personel Takip</span>
+                <div>
+                  <span className="font-bold text-lg block leading-tight">COSMOS</span>
+                  <span className="text-xs text-teal-200">Personel Takip</span>
+                </div>
               </div>
               <button
                 onClick={() => setMobileOpen(false)}
@@ -136,12 +139,12 @@ export function Sidebar() {
       <aside className="hidden lg:flex w-64 bg-white border-r border-slate-200 flex-col h-screen sticky top-0 shrink-0 select-none">
         {/* Brand Header */}
         <div className="h-16 flex items-center px-6 gap-3 border-b border-slate-100">
-          <div className="w-9 h-9 rounded-lg bg-teal-800 text-white font-bold flex items-center justify-center text-sm shadow-sm">
-            PT
+          <div className="w-9 h-9 rounded-lg bg-teal-800 text-white font-bold flex items-center justify-center text-sm shadow-sm tracking-wider">
+            CS
           </div>
           <div>
-            <h1 className="font-bold text-slate-800 leading-tight">PersonelTakip</h1>
-            <p className="text-[11px] text-teal-700 font-medium">Özel Okul & Dershane</p>
+            <h1 className="font-extrabold text-slate-800 leading-tight tracking-wide text-base">COSMOS</h1>
+            <p className="text-[11px] text-teal-700 font-medium">Personel Takip</p>
           </div>
         </div>
 

@@ -4,8 +4,8 @@ import { Sidebar } from "@/components/Sidebar";
 import { NotificationBanner } from "@/components/NotificationBanner";
 
 export const metadata: Metadata = {
-  title: "Personel Takip Sistemi - Özel Okul & Dershane",
-  description: "Personel, Bordro, İzin ve SGK Takip Sistemi",
+  title: "COSMOS | Personel Takip Sistemi",
+  description: "COSMOS - Özel Okul ve Dershane Personel Takip, Bordro ve Ödeme Sistemi",
 };
 
 export default function RootLayout({

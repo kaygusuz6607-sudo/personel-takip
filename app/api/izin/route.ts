@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { calculateDuration } from "@/lib/date-utils";
+import { calculatePayroll } from "@/lib/payroll-calculator";
 
 export async function GET(request: Request) {
   try {
@@ -120,6 +121,113 @@ export async function GET(request: Request) {
   }
 }
 
+async function syncLeaveWithPayroll(staffId: string, date: Date) {
+  try {
+    const year = date.getFullYear();
+    const month = date.getMonth() + 1;
+
+    const monthStart = new Date(year, month - 1, 1);
+    const monthEnd = new Date(year, month, 0, 23, 59, 59);
+
+    const leaves = await prisma.leaveRecord.findMany({
+      where: {
+        staffId,
+        status: "APPROVED",
+        startDate: { lte: monthEnd },
+        endDate: { gte: monthStart },
+      },
+    });
+
+    const reportDays = leaves
+      .filter((l) => l.leaveType === "SICK")
+      .reduce((sum, l) => sum + l.daysCount, 0);
+
+    const unpaidLeaveDays = leaves
+      .filter((l) => l.leaveType === "UNPAID")
+      .reduce((sum, l) => sum + l.daysCount, 0);
+
+    const staff = await prisma.staff.findUnique({
+      where: { id: staffId },
+      include: { salaryConfig: true },
+    });
+
+    if (!staff || !staff.salaryConfig) return;
+
+    const existing = await prisma.payroll.findUnique({
+      where: {
+        staffId_year_month: { staffId, year, month },
+      },
+    });
+
+    const config = staff.salaryConfig;
+    const calc = calculatePayroll({
+      salaryType: config.salaryType,
+      monthlySalary: config.monthlySalary,
+      hourlyRate: config.hourlyRate,
+      dailyRate: config.dailyRate,
+      officialSalaryPart: config.officialSalaryPart,
+      year,
+      month,
+      hireDate: staff.hireDate,
+      mebAssignmentDate: staff.mebAssignmentDate,
+      sgkStartDate: staff.sgkStartDate,
+      workDays: existing?.workDays || 30,
+      reportDays,
+      unpaidLeaveDays,
+      lessonHours: existing?.lessonHours || 0,
+      dailyWorkDays: existing?.dailyWorkDays || 0,
+      holidayWorkDays: existing?.holidayWorkDays || 0,
+      holidayChoice: existing?.holidayChoice || "LEAVE_1_TO_1",
+      bonusAmount: existing?.bonusAmount || 0,
+      bonusDescription: existing?.bonusDescription || "",
+      deductionAmount: existing?.deductionAmount || 0,
+      deductionDescription: existing?.deductionDescription || "",
+    });
+
+    await prisma.payroll.upsert({
+      where: {
+        staffId_year_month: { staffId, year, month },
+      },
+      update: {
+        reportDays,
+        unpaidLeaveDays,
+        baseEarned: calc.baseEarned,
+        grossTotal: calc.grossTotal,
+        totalDeductions: calc.totalDeductions,
+        netTotal: calc.netTotal,
+        officialAmount: calc.officialAmount,
+        unofficialAmount: calc.unofficialAmount,
+      },
+      create: {
+        staffId,
+        year,
+        month,
+        workDays: 30,
+        reportDays,
+        unpaidLeaveDays,
+        lessonHours: 0,
+        dailyWorkDays: 0,
+        holidayWorkDays: 0,
+        holidayChoice: "LEAVE_1_TO_1",
+        baseEarned: calc.baseEarned,
+        hourlyEarned: calc.hourlyEarned,
+        dailyEarned: calc.dailyEarned,
+        holidayEarned: calc.holidayEarned,
+        bonusAmount: 0,
+        deductionAmount: 0,
+        grossTotal: calc.grossTotal,
+        totalDeductions: calc.totalDeductions,
+        netTotal: calc.netTotal,
+        officialAmount: calc.officialAmount,
+        unofficialAmount: calc.unofficialAmount,
+        isPaid: false,
+      },
+    });
+  } catch (err) {
+    console.error("syncLeaveWithPayroll error:", err);
+  }
+}
+
 export async function POST(request: Request) {
   try {
     const body = await request.json();
@@ -149,6 +257,9 @@ export async function POST(request: Request) {
       },
     });
 
+    // Otomatik Bordro & Ödeme Senkronizasyonu
+    await syncLeaveWithPayroll(staffId, new Date(startDate));
+
     return NextResponse.json(created, { status: 201 });
   } catch (error: any) {
     console.error("İzin kaydı hatası:", error);
@@ -162,7 +273,14 @@ export async function DELETE(request: Request) {
     const id = searchParams.get("id");
     if (!id) return NextResponse.json({ error: "ID gerekli" }, { status: 400 });
 
+    const existingLeave = await prisma.leaveRecord.findUnique({ where: { id } });
+    if (!existingLeave) return NextResponse.json({ error: "İzin bulunamadı" }, { status: 404 });
+
     await prisma.leaveRecord.delete({ where: { id } });
+
+    // Otomatik Bordro & Ödeme Senkronizasyonu
+    await syncLeaveWithPayroll(existingLeave.staffId, existingLeave.startDate);
+
     return NextResponse.json({ success: true });
   } catch (error) {
     return NextResponse.json({ error: "İzin silinemedi" }, { status: 500 });

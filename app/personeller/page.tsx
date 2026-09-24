@@ -34,6 +34,7 @@ interface Staff {
   phone: string | null;
   email: string | null;
   iban: string | null;
+  accountNumber: string | null;
   title: string | null;
   hireDate: string | null;
   mebAssignmentDate: string | null;
@@ -72,6 +73,7 @@ export default function PersonellerPage() {
     phone: "",
     email: "",
     iban: "",
+    accountNumber: "",
     title: "",
     hireDate: "",
     mebAssignmentDate: "",
@@ -126,6 +128,7 @@ export default function PersonellerPage() {
       phone: "",
       email: "",
       iban: "",
+      accountNumber: "",
       title: "",
       hireDate: new Date().toISOString().split("T")[0],
       mebAssignmentDate: "",
@@ -153,6 +156,7 @@ export default function PersonellerPage() {
       phone: staff.phone || "",
       email: staff.email || "",
       iban: staff.iban || "",
+      accountNumber: staff.accountNumber || "",
       title: staff.title || "",
       hireDate: staff.hireDate ? staff.hireDate.split("T")[0] : "",
       mebAssignmentDate: staff.mebAssignmentDate ? staff.mebAssignmentDate.split("T")[0] : "",
@@ -329,7 +333,7 @@ export default function PersonellerPage() {
                       </div>
                     </td>
 
-                    <td className="py-3.5 px-4 space-y-0.5">
+                    <td className="py-3.5 px-4 space-y-1">
                       {staff.phone && (
                         <p className="text-xs text-slate-600 flex items-center gap-1.5">
                           <Phone className="w-3.5 h-3.5 text-slate-400" />
@@ -340,6 +344,17 @@ export default function PersonellerPage() {
                         <p className="text-xs text-slate-500 flex items-center gap-1.5">
                           <Mail className="w-3.5 h-3.5 text-slate-400" />
                           {staff.email}
+                        </p>
+                      )}
+                      {staff.iban && (
+                        <p className="text-[11px] text-slate-500 font-mono flex items-center gap-1">
+                          <CreditCard className="w-3 h-3 text-slate-400" />
+                          <span title={staff.iban}>{staff.iban.substring(0, 14)}...</span>
+                        </p>
+                      )}
+                      {staff.accountNumber && (
+                        <p className="text-[11px] text-teal-800 font-mono font-medium">
+                          Hesap No: {staff.accountNumber}
                         </p>
                       )}
                     </td>
@@ -533,6 +548,19 @@ export default function PersonellerPage() {
                       value={form.iban}
                       onChange={(e) => setForm({ ...form, iban: e.target.value })}
                       placeholder="TR00 0000 0000 0000 0000 0000 00"
+                      className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-600/20 focus:border-teal-600 font-mono"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-slate-700 mb-1">
+                      Banka Hesap Numarası
+                    </label>
+                    <input
+                      type="text"
+                      value={form.accountNumber}
+                      onChange={(e) => setForm({ ...form, accountNumber: e.target.value })}
+                      placeholder="Örn: 6200-1234567"
                       className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-600/20 focus:border-teal-600 font-mono"
                     />
                   </div>

@@ -42,6 +42,7 @@ model Staff {
   phone                String?
   email                String?
   iban                 String?
+  accountNumber        String? // Banka Hesap Numarası
   title                String? // Öğretmen, İdari Personel, vb.
   hireDate             DateTime?
   terminationDate      DateTime?

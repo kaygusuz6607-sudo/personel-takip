@@ -33,6 +33,7 @@ interface PayrollItem {
     fullName: string;
     tcNo: string;
     iban: string | null;
+    accountNumber: string | null;
     title: string | null;
     phone: string | null;
     hireDate: string | null;
@@ -300,12 +301,27 @@ export default function PersonelOdemePage() {
                         {item.staff.iban && (
                           <button
                             onClick={() => copyIban(item.staff.iban!, item.id)}
-                            className="inline-flex items-center gap-1 text-[11px] text-slate-400 hover:text-teal-700 font-mono"
+                            className="inline-flex items-center gap-1 text-[11px] text-slate-500 hover:text-teal-700 font-mono bg-slate-100 hover:bg-teal-50 px-2 py-0.5 rounded transition-all"
                             title="IBAN Kopyala"
                           >
-                            <Copy className="w-3 h-3" />
-                            <span>{item.staff.iban.substring(0, 14)}...</span>
+                            <Copy className="w-3 h-3 text-slate-400" />
+                            <span>IBAN: {item.staff.iban.substring(0, 14)}...</span>
                             {copiedId === item.id && (
+                              <span className="text-emerald-600 font-bold ml-1">Kopyalandı!</span>
+                            )}
+                          </button>
+                        )}
+
+                        {/* Banka Hesap No Kopyalama */}
+                        {item.staff.accountNumber && (
+                          <button
+                            onClick={() => copyIban(item.staff.accountNumber!, `acc-${item.id}`)}
+                            className="inline-flex items-center gap-1 text-[11px] text-teal-800 hover:text-teal-950 font-mono bg-teal-50 hover:bg-teal-100 px-2 py-0.5 rounded transition-all font-medium border border-teal-200"
+                            title="Banka Hesap Numarasını Kopyala"
+                          >
+                            <Copy className="w-3 h-3 text-teal-600" />
+                            <span>Hesap: {item.staff.accountNumber}</span>
+                            {copiedId === `acc-${item.id}` && (
                               <span className="text-emerald-600 font-bold ml-1">Kopyalandı!</span>
                             )}
                           </button>
