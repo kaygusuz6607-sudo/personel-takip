@@ -136,8 +136,10 @@ export async function POST(request: Request) {
       holidayChoice = "LEAVE_1_TO_1",
       bonusAmount = 0,
       bonusDescription = "",
+      bonusItems = null,
       deductionAmount = 0,
       deductionDescription = "",
+      deductionItems = null,
       isManualTax = false,
       manualSgkEmployee = 0,
       manualUnemployment = 0,
@@ -188,6 +190,9 @@ export async function POST(request: Request) {
       manualStampTax: Number(manualStampTax) || 0,
     });
 
+    const bonusItemsStr = typeof bonusItems === "string" ? bonusItems : bonusItems ? JSON.stringify(bonusItems) : null;
+    const deductionItemsStr = typeof deductionItems === "string" ? deductionItems : deductionItems ? JSON.stringify(deductionItems) : null;
+
     const payroll = await prisma.payroll.upsert({
       where: {
         staffId_year_month: {
@@ -206,8 +211,10 @@ export async function POST(request: Request) {
         holidayChoice,
         bonusAmount: calc.bonusAmount,
         bonusDescription: calc.bonusDescription,
+        bonusItems: bonusItemsStr,
         deductionAmount: calc.deductionAmount,
         deductionDescription: calc.deductionDescription,
+        deductionItems: deductionItemsStr,
         baseEarned: calc.baseEarned,
         hourlyEarned: calc.hourlyEarned,
         dailyEarned: calc.dailyEarned,
@@ -239,8 +246,10 @@ export async function POST(request: Request) {
         holidayChoice,
         bonusAmount: calc.bonusAmount,
         bonusDescription: calc.bonusDescription,
+        bonusItems: bonusItemsStr,
         deductionAmount: calc.deductionAmount,
         deductionDescription: calc.deductionDescription,
+        deductionItems: deductionItemsStr,
         baseEarned: calc.baseEarned,
         hourlyEarned: calc.hourlyEarned,
         dailyEarned: calc.dailyEarned,

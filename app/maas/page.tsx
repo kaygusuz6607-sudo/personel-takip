@@ -11,8 +11,18 @@ import {
   Sliders,
   DollarSign,
   TrendingUp,
+  Plus,
+  Trash2,
+  X,
+  Sparkles,
 } from "lucide-react";
 import { calculatePayroll } from "@/lib/payroll-calculator";
+
+export interface AdjustmentItem {
+  id: string;
+  amount: number;
+  description: string;
+}
 
 interface PayrollRow {
   staffId: string;
@@ -37,8 +47,10 @@ interface PayrollRow {
     holidayChoice: string;
     bonusAmount: number;
     bonusDescription: string;
+    bonusItems?: string | null;
     deductionAmount: number;
     deductionDescription: string;
+    deductionItems?: string | null;
     baseEarned: number;
     hourlyEarned: number;
     dailyEarned: number;
@@ -58,6 +70,43 @@ interface PayrollRow {
   };
 }
 
+function parseAdjustmentItems(
+  raw: string | null | undefined,
+  fallbackAmount: number,
+  fallbackDesc: string | null | undefined
+): AdjustmentItem[] {
+  if (raw) {
+    try {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return parsed.map((item, idx) => ({
+          id: item.id || `item_${idx}_${Date.now()}`,
+          amount: Number(item.amount) || 0,
+          description: item.description || "",
+        }));
+      }
+    } catch (e) {
+      // ignore JSON parse error
+    }
+  }
+  if (fallbackAmount > 0 || (fallbackDesc && fallbackDesc.trim())) {
+    return [
+      {
+        id: "default_1",
+        amount: fallbackAmount,
+        description: fallbackDesc || "",
+      },
+    ];
+  }
+  return [
+    {
+      id: "default_1",
+      amount: 0,
+      description: "",
+    },
+  ];
+}
+
 export default function MaasTahakkukPage() {
   const [year, setYear] = useState(() => new Date().getFullYear());
   const [month, setMonth] = useState(() => new Date().getMonth() + 1);
@@ -66,6 +115,10 @@ export default function MaasTahakkukPage() {
   const [savingId, setSavingId] = useState<string | null>(null);
   const [savedSuccessId, setSavedSuccessId] = useState<string | null>(null);
   const [activeModalStaff, setActiveModalStaff] = useState<PayrollRow | null>(null);
+
+  // Çoklu Ek Ücret ve Kesinti Kalemleri
+  const [bonusList, setBonusList] = useState<AdjustmentItem[]>([]);
+  const [deductionList, setDeductionList] = useState<AdjustmentItem[]>([]);
 
   const months = [
     { num: 1, name: "Ocak" },
@@ -150,6 +203,161 @@ export default function MaasTahakkukPage() {
     );
   };
 
+  // Çoklu kalem değişikliklerini hem satıra hem modal state'ine anında uygula
+  const handleMultiFieldChange = (staffId: string, changes: Record<string, any>) => {
+    setRows((prev) =>
+      prev.map((row) => {
+        if (row.staffId !== staffId) return row;
+
+        const updatedPayroll = { ...row.payroll, ...changes };
+
+        const calc = calculatePayroll({
+          salaryType: row.salaryType,
+          monthlySalary: row.monthlySalary,
+          hourlyRate: row.hourlyRate,
+          dailyRate: row.dailyRate,
+          workDays: Number(updatedPayroll.workDays) || 30,
+          reportDays: Number(updatedPayroll.reportDays) || 0,
+          unpaidLeaveDays: Number(updatedPayroll.unpaidLeaveDays) || 0,
+          lessonHours: Number(updatedPayroll.lessonHours) || 0,
+          dailyWorkDays: Number(updatedPayroll.dailyWorkDays) || 0,
+          holidayWorkDays: Number(updatedPayroll.holidayWorkDays) || 0,
+          holidayChoice: updatedPayroll.holidayChoice || "LEAVE_1_TO_1",
+          bonusAmount: Number(updatedPayroll.bonusAmount) || 0,
+          bonusDescription: updatedPayroll.bonusDescription || "",
+          deductionAmount: Number(updatedPayroll.deductionAmount) || 0,
+          deductionDescription: updatedPayroll.deductionDescription || "",
+          isManualTax: updatedPayroll.isManualTax,
+          manualSgkEmployee: updatedPayroll.sgkEmployee,
+          manualUnemployment: updatedPayroll.unemploymentEmployee,
+          manualIncomeTax: updatedPayroll.incomeTax,
+          manualStampTax: updatedPayroll.stampTax,
+        });
+
+        const newRow = {
+          ...row,
+          payroll: {
+            ...updatedPayroll,
+            ...calc,
+          },
+        };
+
+        if (activeModalStaff && activeModalStaff.staffId === staffId) {
+          setActiveModalStaff(newRow);
+        }
+
+        return newRow;
+      })
+    );
+  };
+
+  // Modalı Aç ve Kalemleri Yükle
+  const openAdjustmentModal = (row: PayrollRow) => {
+    const bonuses = parseAdjustmentItems(
+      row.payroll.bonusItems,
+      row.payroll.bonusAmount || 0,
+      row.payroll.bonusDescription
+    );
+    const deductions = parseAdjustmentItems(
+      row.payroll.deductionItems,
+      row.payroll.deductionAmount || 0,
+      row.payroll.deductionDescription
+    );
+    setBonusList(bonuses);
+    setDeductionList(deductions);
+    setActiveModalStaff(row);
+  };
+
+  // Ek Ücret Kalemi Ekle
+  const addBonusItem = (presetDesc?: string) => {
+    const newItem: AdjustmentItem = {
+      id: `bonus_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+      amount: 0,
+      description: presetDesc || "",
+    };
+    const updated = [...bonusList, newItem];
+    setBonusList(updated);
+    updateBonusState(updated);
+  };
+
+  // Ek Ücret Kalemi Güncelle
+  const updateBonusItem = (id: string, field: "amount" | "description", val: any) => {
+    const updated = bonusList.map((item) =>
+      item.id === id ? { ...item, [field]: field === "amount" ? (parseFloat(val) || 0) : val } : item
+    );
+    setBonusList(updated);
+    updateBonusState(updated);
+  };
+
+  // Ek Ücret Kalemi Sil
+  const removeBonusItem = (id: string) => {
+    const updated = bonusList.filter((item) => item.id !== id);
+    const finalList = updated.length > 0 ? updated : [{ id: `bonus_${Date.now()}`, amount: 0, description: "" }];
+    setBonusList(finalList);
+    updateBonusState(finalList);
+  };
+
+  // Ek Ücret Hesaplamasını Satıra Yansıt
+  const updateBonusState = (items: AdjustmentItem[]) => {
+    if (!activeModalStaff) return;
+    const total = items.reduce((sum, i) => sum + (Number(i.amount) || 0), 0);
+    const desc = items
+      .filter((i) => i.description.trim())
+      .map((i) => (i.amount > 0 ? `${i.description} (₺${i.amount})` : i.description))
+      .join(" + ");
+
+    handleMultiFieldChange(activeModalStaff.staffId, {
+      bonusAmount: total,
+      bonusDescription: desc,
+      bonusItems: JSON.stringify(items),
+    });
+  };
+
+  // Kesinti Kalemi Ekle
+  const addDeductionItem = (presetDesc?: string) => {
+    const newItem: AdjustmentItem = {
+      id: `ded_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+      amount: 0,
+      description: presetDesc || "",
+    };
+    const updated = [...deductionList, newItem];
+    setDeductionList(updated);
+    updateDeductionState(updated);
+  };
+
+  // Kesinti Kalemi Güncelle
+  const updateDeductionItem = (id: string, field: "amount" | "description", val: any) => {
+    const updated = deductionList.map((item) =>
+      item.id === id ? { ...item, [field]: field === "amount" ? (parseFloat(val) || 0) : val } : item
+    );
+    setDeductionList(updated);
+    updateDeductionState(updated);
+  };
+
+  // Kesinti Kalemi Sil
+  const removeDeductionItem = (id: string) => {
+    const updated = deductionList.filter((item) => item.id !== id);
+    const finalList = updated.length > 0 ? updated : [{ id: `ded_${Date.now()}`, amount: 0, description: "" }];
+    setDeductionList(finalList);
+    updateDeductionState(finalList);
+  };
+
+  // Kesinti Hesaplamasını Satıra Yansıt
+  const updateDeductionState = (items: AdjustmentItem[]) => {
+    if (!activeModalStaff) return;
+    const total = items.reduce((sum, i) => sum + (Number(i.amount) || 0), 0);
+    const desc = items
+      .filter((i) => i.description.trim())
+      .map((i) => (i.amount > 0 ? `${i.description} (₺${i.amount})` : i.description))
+      .join(" + ");
+
+    handleMultiFieldChange(activeModalStaff.staffId, {
+      deductionAmount: total,
+      deductionDescription: desc,
+      deductionItems: JSON.stringify(items),
+    });
+  };
+
   const handleSavePayroll = async (row: PayrollRow) => {
     try {
       setSavingId(row.staffId);
@@ -191,7 +399,7 @@ export default function MaasTahakkukPage() {
         <div>
           <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Maaş & Tahakkuk</h1>
           <p className="text-sm text-slate-500 mt-0.5">
-            Ders saati, 30 gün standardı, rapor düşüşü, esnek ek ücretler ve kesintiler
+            Ders saati, 30 gün standardı, rapor düşüşü, sınırsız esnek ek ücretler ve kesintiler
           </p>
         </div>
 
@@ -200,20 +408,19 @@ export default function MaasTahakkukPage() {
           <select
             value={year}
             onChange={(e) => setYear(parseInt(e.target.value))}
-            className="px-3 py-1.5 text-sm font-semibold bg-transparent text-slate-800 focus:outline-none cursor-pointer"
+            className="px-3 py-1.5 text-sm bg-slate-50 border border-slate-200 rounded-lg font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-teal-600/20"
           >
-            <option value={2023}>2023</option>
-            <option value={2024}>2024</option>
-            <option value={2025}>2025</option>
-            <option value={2026}>2026</option>
+            {[2024, 2025, 2026, 2027].map((y) => (
+              <option key={y} value={y}>
+                {y}
+              </option>
+            ))}
           </select>
-
-          <span className="text-slate-300">|</span>
 
           <select
             value={month}
             onChange={(e) => setMonth(parseInt(e.target.value))}
-            className="px-3 py-1.5 text-sm font-semibold bg-transparent text-teal-800 focus:outline-none cursor-pointer"
+            className="px-3 py-1.5 text-sm bg-slate-50 border border-slate-200 rounded-lg font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-teal-600/20"
           >
             {months.map((m) => (
               <option key={m.num} value={m.num}>
@@ -224,220 +431,168 @@ export default function MaasTahakkukPage() {
         </div>
       </div>
 
-      {/* Bilgilendirme Kartı */}
-      <div className="bg-teal-50/70 border border-teal-200/60 rounded-xl p-4 flex items-start gap-3 text-teal-900 text-xs">
-        <HelpCircle className="w-5 h-5 text-teal-700 shrink-0 mt-0.5" />
-        <div className="space-y-1">
-          <p className="font-semibold text-teal-950">
-            Hesaplama Kuralları & Otomasyonlar:
-          </p>
-          <ul className="list-disc pl-4 space-y-0.5 text-teal-800">
-            <li>
-              <strong>Aylık Maaşlı:</strong> SGK kuralı gereği ay 30 gün kabul edilir. Günlük yevmiye = Maaş / 30. Girilen rapor günleri bu tutardan otomatik düşülür.
-            </li>
-            <li>
-              <strong>Ders Saatli:</strong> Girilen ders saati $\times$ Saat ücreti anında hesaplanır.
-            </li>
-            <li>
-              <strong>Ek Ücretler (+) & Kesintiler (-):</strong> Prim, avans, yol vb. kalemler için açıklama ve tutar girildiğinde <strong>Net Ödeme otomatik hesaplanır</strong>.
-            </li>
-            <li>
-              <strong>Resmi Tatilde Çalışma:</strong> &ldquo;1&apos;e 1 İzin&rdquo; seçilirse personele izin havuzunda +1 gün eklenir; &ldquo;Çift Yevmiye&rdquo; seçilirse bordroya eklenir.
-            </li>
-          </ul>
-        </div>
-      </div>
-
-      {/* Tahakkuk Tablosu */}
-      <div className="bg-white rounded-2xl border border-slate-100 shadow-xs overflow-hidden">
+      {/* Bordro Tablosu */}
+      <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">
         {loading ? (
-          <div className="p-12 text-center text-slate-400">Tahakkuk kayıtları yükleniyor...</div>
+          <div className="p-12 text-center text-slate-400">Tahakkuk verileri hesaplanıyor...</div>
         ) : rows.length === 0 ? (
-          <div className="p-12 text-center text-slate-400">Aktif personel bulunamadı.</div>
+          <div className="p-12 text-center text-slate-400">Personel bulunamadı.</div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse text-xs">
               <thead>
-                <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold uppercase tracking-wider">
+                <tr className="bg-slate-50/80 border-b border-slate-200 text-slate-600 font-bold uppercase tracking-wider">
                   <th className="py-3 px-3">Personel</th>
-                  <th className="py-3 px-3">Ücret Modeli</th>
-                  <th className="py-3 px-2 text-center">Çalışma Günü</th>
-                  <th className="py-3 px-2 text-center">Rapor Günü</th>
-                  <th className="py-3 px-2 text-center">Ders Saati</th>
-                  <th className="py-3 px-2 text-center">Resmi Tatil</th>
-                  <th className="py-3 px-3 text-right">Brüt Hakediş</th>
-                  <th className="py-3 px-3 text-center">Ek Ücret / Kesinti</th>
-                  <th className="py-3 px-3 text-right font-bold text-teal-900">Net Ödeme</th>
+                  <th className="py-3 px-3">Model</th>
+                  <th className="py-3 px-3 text-center">Çalışma Gün / Saat</th>
+                  <th className="py-3 px-3 text-center">Rapor / Ücretsiz</th>
+                  <th className="py-3 px-3 text-right">Temel Hakediş</th>
+                  <th className="py-3 px-3 text-center">Ek Ücret & Kesinti</th>
+                  <th className="py-3 px-3 text-right">Net Ödenecek</th>
                   <th className="py-3 px-3 text-center">İşlem</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {rows.map((row) => {
                   const p = row.payroll;
-                  const isMonthly = row.salaryType === "MONTHLY" || row.salaryType === "HYBRID";
-                  const isHourly = row.salaryType === "HOURLY" || row.salaryType === "HYBRID";
-                  const isDaily = row.salaryType === "DAILY";
-
                   return (
-                    <tr key={row.staffId} className="hover:bg-slate-50/80 transition-colors">
-                      {/* Personel Bilgisi */}
-                      <td className="py-3 px-3 min-w-[160px]">
-                        <p className="font-bold text-slate-800 text-sm">{row.fullName}</p>
-                        <p className="text-[11px] text-slate-400">{row.title || row.departments[0]}</p>
+                    <tr key={row.staffId} className="hover:bg-slate-50/60 transition-colors">
+                      {/* Personel */}
+                      <td className="py-3 px-3">
+                        <span className="font-bold text-slate-900 block text-sm">{row.fullName}</span>
+                        <span className="text-[11px] text-slate-400 block">{row.title || row.departments[0] || "Personel"}</span>
                       </td>
 
-                      {/* Ücret Tipi */}
-                      <td className="py-3 px-3 min-w-[130px]">
-                        {isMonthly && (
-                          <span className="font-semibold text-teal-800 block">
-                            {formatCurrency(row.monthlySalary)} / ay
-                          </span>
-                        )}
-                        {isHourly && (
-                          <span className="text-blue-700 font-semibold block">
-                            {row.hourlyRate} TL / saat
-                          </span>
-                        )}
-                        {isDaily && (
-                          <span className="text-purple-700 font-semibold block">
-                            {row.dailyRate} TL / gün
-                          </span>
-                        )}
-                        <span className="text-[10px] text-slate-400">
+                      {/* Ücret Modeli */}
+                      <td className="py-3 px-3">
+                        <span className="font-semibold text-slate-700 block">
                           {row.salaryType === "MONTHLY"
-                            ? "Aylık Sabit"
+                            ? "Aylık Maaş"
                             : row.salaryType === "HOURLY"
                             ? "Ders Saatli"
                             : row.salaryType === "DAILY"
                             ? "Günlük"
                             : "Karma"}
                         </span>
+                        <span className="text-[11px] text-teal-700 font-medium">
+                          {row.salaryType === "MONTHLY"
+                            ? formatCurrency(row.monthlySalary)
+                            : row.salaryType === "HOURLY"
+                            ? `${row.hourlyRate} TL/saat`
+                            : row.salaryType === "DAILY"
+                            ? `${row.dailyRate} TL/gün`
+                            : `${formatCurrency(row.monthlySalary)} + ${row.hourlyRate} TL/saat`}
+                        </span>
                       </td>
 
-                      {/* Çalışma Günü (SGK Standardı 30) */}
-                      <td className="py-3 px-2 text-center">
-                        {isMonthly ? (
-                          <input
-                            type="number"
-                            min="0"
-                            max="31"
-                            value={p.workDays}
-                            onChange={(e) =>
-                              handleInputChange(row.staffId, "workDays", parseInt(e.target.value) || 0)
-                            }
-                            className="w-14 text-center py-1 px-1 bg-slate-50 border border-slate-200 rounded font-semibold focus:outline-none focus:ring-1 focus:ring-teal-600"
-                            title="Standart 30 gün"
-                          />
-                        ) : isDaily ? (
-                          <input
-                            type="number"
-                            min="0"
-                            value={p.dailyWorkDays}
-                            onChange={(e) =>
-                              handleInputChange(row.staffId, "dailyWorkDays", parseInt(e.target.value) || 0)
-                            }
-                            placeholder="Gün"
-                            className="w-14 text-center py-1 px-1 bg-slate-50 border border-slate-200 rounded font-semibold focus:outline-none focus:ring-1 focus:ring-teal-600"
-                          />
-                        ) : (
-                          <span className="text-slate-300">—</span>
-                        )}
-                      </td>
-
-                      {/* Rapor Günü (Maaştan Düşüş) */}
-                      <td className="py-3 px-2 text-center">
-                        {isMonthly ? (
-                          <input
-                            type="number"
-                            min="0"
-                            value={p.reportDays}
-                            onChange={(e) =>
-                              handleInputChange(row.staffId, "reportDays", parseInt(e.target.value) || 0)
-                            }
-                            className="w-12 text-center py-1 px-1 bg-rose-50 border border-rose-200 text-rose-700 font-bold rounded focus:outline-none focus:ring-1 focus:ring-rose-500"
-                            title="Raporlu gün sayısı (Maaştan otomatik düşer)"
-                          />
-                        ) : (
-                          <span className="text-slate-300">—</span>
-                        )}
-                      </td>
-
-                      {/* Ders Saati */}
-                      <td className="py-3 px-2 text-center">
-                        {isHourly ? (
-                          <input
-                            type="number"
-                            step="0.5"
-                            min="0"
-                            value={p.lessonHours}
-                            onChange={(e) =>
-                              handleInputChange(row.staffId, "lessonHours", parseFloat(e.target.value) || 0)
-                            }
-                            className="w-14 text-center py-1 px-1 bg-blue-50 border border-blue-200 text-blue-800 font-bold rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
-                            placeholder="Saat"
-                          />
-                        ) : (
-                          <span className="text-slate-300">—</span>
-                        )}
-                      </td>
-
-                      {/* Resmi Tatil Mesaisi */}
-                      <td className="py-3 px-2 text-center">
-                        <div className="flex items-center justify-center gap-1">
-                          <input
-                            type="number"
-                            min="0"
-                            value={p.holidayWorkDays}
-                            onChange={(e) =>
-                              handleInputChange(row.staffId, "holidayWorkDays", parseInt(e.target.value) || 0)
-                            }
-                            placeholder="0"
-                            className="w-10 text-center py-1 px-1 bg-amber-50 border border-amber-200 text-amber-900 font-bold rounded focus:outline-none"
-                            title="Resmi tatil çalışılan gün"
-                          />
-                          {p.holidayWorkDays > 0 && (
-                            <select
-                              value={p.holidayChoice}
+                      {/* Çalışma / Saat Girişi */}
+                      <td className="py-3 px-3 text-center">
+                        {row.salaryType === "HOURLY" ? (
+                          <div className="flex items-center justify-center gap-1">
+                            <input
+                              type="number"
+                              min="0"
+                              value={p.lessonHours}
                               onChange={(e) =>
-                                handleInputChange(row.staffId, "holidayChoice", e.target.value)
+                                handleInputChange(
+                                  row.staffId,
+                                  "lessonHours",
+                                  parseFloat(e.target.value) || 0
+                                )
                               }
-                              className="text-[10px] bg-amber-100/70 border border-amber-300 text-amber-900 py-1 px-1 rounded font-medium"
-                            >
-                              <option value="LEAVE_1_TO_1">1&apos;e 1 İzin</option>
-                              <option value="DOUBLE_PAY">Çift Yevmiye</option>
-                            </select>
-                          )}
+                              className="w-16 px-2 py-1 bg-teal-50/50 border border-teal-200 rounded text-center font-bold text-teal-900"
+                            />
+                            <span className="text-slate-500">saat</span>
+                          </div>
+                        ) : row.salaryType === "DAILY" ? (
+                          <div className="flex items-center justify-center gap-1">
+                            <input
+                              type="number"
+                              min="0"
+                              max="31"
+                              value={p.dailyWorkDays}
+                              onChange={(e) =>
+                                handleInputChange(
+                                  row.staffId,
+                                  "dailyWorkDays",
+                                  parseInt(e.target.value) || 0
+                                )
+                              }
+                              className="w-14 px-2 py-1 bg-teal-50/50 border border-teal-200 rounded text-center font-bold text-teal-900"
+                            />
+                            <span className="text-slate-500">gün</span>
+                          </div>
+                        ) : (
+                          <div className="flex items-center justify-center gap-1">
+                            <input
+                              type="number"
+                              min="0"
+                              max="31"
+                              value={p.workDays}
+                              onChange={(e) =>
+                                handleInputChange(
+                                  row.staffId,
+                                  "workDays",
+                                  parseInt(e.target.value) || 0
+                                )
+                              }
+                              className="w-14 px-2 py-1 bg-slate-50 border border-slate-200 rounded text-center font-bold text-slate-800"
+                            />
+                            <span className="text-slate-500">gün</span>
+                          </div>
+                        )}
+                      </td>
+
+                      {/* Rapor / Ücretsiz İzin */}
+                      <td className="py-3 px-3 text-center">
+                        <div className="flex items-center justify-center gap-1.5">
+                          <span
+                            className={`px-2 py-0.5 rounded text-[11px] font-bold ${
+                              p.reportDays > 0 ? "bg-amber-100 text-amber-900" : "text-slate-400"
+                            }`}
+                            title="Rapor Gün Sayısı"
+                          >
+                            {p.reportDays}g rapor
+                          </span>
+                          <span
+                            className={`px-2 py-0.5 rounded text-[11px] font-bold ${
+                              p.unpaidLeaveDays > 0 ? "bg-rose-100 text-rose-900" : "text-slate-400"
+                            }`}
+                            title="Ücretsiz İzin Sayısı"
+                          >
+                            {p.unpaidLeaveDays}g ü.izin
+                          </span>
                         </div>
                       </td>
 
-                      {/* Brüt Hakediş (Rapor düşüşü yansımış) */}
-                      <td className="py-3 px-3 text-right font-semibold text-slate-800 min-w-[100px]">
+                      {/* Temel Hakediş */}
+                      <td className="py-3 px-3 text-right font-bold text-slate-800 min-w-[110px]">
                         {formatCurrency(p.grossTotal)}
                       </td>
 
                       {/* Ek Ücret (+) & Kesinti (-) Giriş / Düzenleme Butonu */}
-                      <td className="py-3 px-3 text-center min-w-[140px]">
+                      <td className="py-3 px-3 text-center min-w-[150px]">
                         <button
                           type="button"
-                          onClick={() => setActiveModalStaff(row)}
-                          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-slate-200 hover:border-teal-600 bg-white hover:bg-teal-50 transition-all text-slate-700 hover:text-teal-800 shadow-xs"
-                          title="Açıklama ve Tutar Gir"
+                          onClick={() => openAdjustmentModal(row)}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 hover:border-teal-600 bg-white hover:bg-teal-50 transition-all text-slate-700 hover:text-teal-800 shadow-2xs group"
+                          title="Çoklu Ek Ücret ve Kesinti Girişi Yap"
                         >
-                          <Sliders className="w-3.5 h-3.5 text-teal-600" />
+                          <Sliders className="w-3.5 h-3.5 text-teal-600 group-hover:scale-110 transition-transform" />
                           <div className="text-left leading-tight">
                             {p.bonusAmount > 0 && (
-                              <span className="text-[11px] text-emerald-600 font-bold block">
+                              <span className="text-[11px] text-emerald-600 font-extrabold block">
                                 +{formatCurrency(p.bonusAmount)}
                               </span>
                             )}
                             {p.totalDeductions > 0 && (
-                              <span className="text-[11px] text-rose-600 font-bold block">
+                              <span className="text-[11px] text-rose-600 font-extrabold block">
                                 -{formatCurrency(p.totalDeductions)}
                               </span>
                             )}
                             {p.bonusAmount === 0 && p.totalDeductions === 0 && (
-                              <span className="text-[11px] text-slate-400 font-medium">
-                                Düzenle
+                              <span className="text-[11px] text-slate-500 font-semibold flex items-center gap-1">
+                                <Plus className="w-3 h-3" /> Ekle / Düzenle
                               </span>
                             )}
                           </div>
@@ -445,31 +600,30 @@ export default function MaasTahakkukPage() {
                       </td>
 
                       {/* Net Ödeme */}
-                      <td className="py-3 px-3 text-right min-w-[120px]">
+                      <td className="py-3 px-3 text-right min-w-[130px]">
                         <span className="font-extrabold text-teal-800 text-sm block">
                           {formatCurrency(p.netTotal)}
                         </span>
                         {p.unofficialAmount > 0 && (
-                          <span className="text-[10px] text-amber-900 bg-amber-100/80 border border-amber-300 px-1.5 py-0.5 rounded font-bold inline-block mt-0.5" title="Elden Ödenecek Gayriresmî Tutar">
+                          <span
+                            className="text-[10px] text-amber-900 bg-amber-100/80 border border-amber-300 px-1.5 py-0.5 rounded font-bold inline-block mt-0.5"
+                            title="Elden Ödenecek Gayriresmî Tutar"
+                          >
                             💵 Elden: {formatCurrency(p.unofficialAmount)}
-                          </span>
-                        )}
-                        {p.officialAmount > 0 && (
-                          <span className="text-[10px] text-teal-800 bg-teal-50 border border-teal-200 px-1.5 py-0.5 rounded font-semibold inline-block mt-0.5 ml-1" title="Banka Üzerinden Ödenecek Resmî Tutar">
-                            🏛️ Banka: {formatCurrency(p.officialAmount)}
                           </span>
                         )}
                       </td>
 
-                      {/* Kaydet Butonu */}
+                      {/* Kaydet İşlemi */}
                       <td className="py-3 px-3 text-center">
                         <button
+                          type="button"
                           onClick={() => handleSavePayroll(row)}
                           disabled={savingId === row.staffId}
-                          className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                          className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold transition-all shadow-2xs ${
                             savedSuccessId === row.staffId
                               ? "bg-emerald-600 text-white"
-                              : "bg-teal-700 hover:bg-teal-800 text-white shadow-xs"
+                              : "bg-teal-700 hover:bg-teal-800 text-white"
                           }`}
                         >
                           {savedSuccessId === row.staffId ? (
@@ -494,30 +648,36 @@ export default function MaasTahakkukPage() {
         )}
       </div>
 
-      {/* Ek Ücret & Kesinti Düzenleme Modalı (Açıklama + Tutar) */}
+      {/* Sınırsız Çoklu Ek Ücret & Kesinti Düzenleme Modalı */}
       {activeModalStaff && (
-        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-lg w-full shadow-2xl p-6 relative">
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white rounded-3xl max-w-xl w-full max-h-[92vh] overflow-y-auto shadow-2xl p-6 relative border border-slate-100 animate-in fade-in zoom-in duration-200">
+            {/* Modal Başlığı */}
             <div className="flex items-center justify-between pb-3 border-b border-slate-100">
               <div>
-                <h3 className="font-bold text-slate-900 text-base">Ek Ücret & Kesinti Girişi</h3>
-                <p className="text-xs text-slate-500">
-                  {activeModalStaff.fullName} — {year}/{month}
+                <h3 className="font-bold text-slate-900 text-base flex items-center gap-2">
+                  <span>Ek Ücret & Kesinti Girişi</span>
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-teal-100 text-teal-800">
+                    Çoklu Kalem
+                  </span>
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  {activeModalStaff.fullName} — {year}/{month} Dönemi
                 </p>
               </div>
               <button
                 onClick={() => setActiveModalStaff(null)}
-                className="text-slate-400 hover:text-slate-600 text-sm font-bold p-1"
+                className="text-slate-400 hover:text-slate-600 text-sm font-bold p-1 rounded-lg"
               >
-                ✕
+                <X className="w-5 h-5" />
               </button>
             </div>
 
             <div className="mt-4 space-y-4 text-xs">
               {/* Brüt Hakediş Özeti */}
-              <div className="bg-slate-50 p-3 rounded-xl flex items-center justify-between">
-                <span className="text-slate-600 font-medium">Temel Çalışma Hakedişi:</span>
-                <span className="font-bold text-slate-900 text-sm">
+              <div className="bg-slate-50 p-3.5 rounded-2xl flex items-center justify-between border border-slate-100">
+                <span className="text-slate-600 font-semibold">Temel Çalışma Hakedişi:</span>
+                <span className="font-extrabold text-slate-900 text-sm">
                   {formatCurrency(
                     activeModalStaff.payroll.baseEarned +
                       activeModalStaff.payroll.hourlyEarned +
@@ -527,119 +687,206 @@ export default function MaasTahakkukPage() {
                 </span>
               </div>
 
-              {/* 1. Ek Ücret (+) Bölümü (Prim, Yol, İkramiye vb.) */}
-              <div className="p-3.5 bg-emerald-50/60 rounded-xl border border-emerald-200/70 space-y-2">
-                <div className="flex items-center gap-1.5 font-bold text-emerald-800 text-xs">
-                  <PlusCircle className="w-4 h-4 text-emerald-600" />
-                  <span>Ek Ücret / Prim / Yol Yardımı (+)</span>
+              {/* 1. Ek Ücret (+) Bölümü (Sınırsız Çoklu Kalem) */}
+              <div className="p-4 bg-emerald-50/60 rounded-2xl border border-emerald-200/80 space-y-3">
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <div className="flex items-center gap-2 font-bold text-emerald-900 text-xs">
+                    <PlusCircle className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <span>Ek Ücret / Prim / Yol Yardımı (+)</span>
+                    {bonusList.reduce((s, i) => s + (Number(i.amount) || 0), 0) > 0 && (
+                      <span className="px-2 py-0.5 rounded-full text-[11px] font-extrabold bg-emerald-100 text-emerald-800">
+                        +{formatCurrency(bonusList.reduce((s, i) => s + (Number(i.amount) || 0), 0))}
+                      </span>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => addBonusItem()}
+                    className="inline-flex items-center gap-1 px-3 py-1.5 bg-emerald-700 hover:bg-emerald-800 active:bg-emerald-900 text-white rounded-xl text-xs font-bold shadow-2xs transition-all"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>+ Yeni Ek Ücret Ekle</span>
+                  </button>
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  <div>
-                    <label className="block text-[11px] font-medium text-emerald-900 mb-1">
-                      Ek Ücret Tutarı (TL)
-                    </label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      value={activeModalStaff.payroll.bonusAmount || ""}
-                      onChange={(e) =>
-                        handleInputChange(
-                          activeModalStaff.staffId,
-                          "bonusAmount",
-                          parseFloat(e.target.value) || 0
-                        )
-                      }
-                      placeholder="0.00"
-                      className="w-full px-3 py-1.5 bg-white border border-emerald-300 rounded-lg text-sm font-bold text-emerald-700 focus:outline-none focus:ring-1 focus:ring-emerald-500"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[11px] font-medium text-emerald-900 mb-1">
-                      Açıklama
-                    </label>
-                    <input
-                      type="text"
-                      value={activeModalStaff.payroll.bonusDescription || ""}
-                      onChange={(e) =>
-                        handleInputChange(
-                          activeModalStaff.staffId,
-                          "bonusDescription",
-                          e.target.value
-                        )
-                      }
-                      placeholder="Örn: Başarı Primi, Yol Desteği"
-                      className="w-full px-3 py-1.5 bg-white border border-emerald-300 rounded-lg text-xs"
-                    />
-                  </div>
+
+                {/* Hızlı Öneri Etiketleri */}
+                <div className="flex flex-wrap gap-1 items-center pt-0.5">
+                  <span className="text-[10px] text-emerald-800 font-semibold">Hızlı Şablon:</span>
+                  {[
+                    "Başarı Primi",
+                    "Yol Yardımı",
+                    "Yemek Desteği",
+                    "Nöbet / Etüt Ücreti",
+                    "Bayram İkramiyesi",
+                  ].map((preset) => (
+                    <button
+                      key={preset}
+                      type="button"
+                      onClick={() => addBonusItem(preset)}
+                      className="px-2 py-0.5 text-[10px] bg-white hover:bg-emerald-100 text-emerald-900 border border-emerald-200 rounded-md font-medium transition-colors"
+                    >
+                      + {preset}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Ek Ücret Kalemleri Listesi */}
+                <div className="space-y-2">
+                  {bonusList.map((item, idx) => (
+                    <div
+                      key={item.id}
+                      className="flex items-center gap-2 bg-white p-2 rounded-xl border border-emerald-200/70 shadow-2xs"
+                    >
+                      <div className="w-28 sm:w-36 shrink-0">
+                        <label className="block text-[10px] font-bold text-emerald-900 mb-0.5">
+                          Tutar (TL)
+                        </label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          value={item.amount || ""}
+                          onChange={(e) => updateBonusItem(item.id, "amount", e.target.value)}
+                          placeholder="0.00"
+                          className="w-full px-2.5 py-1.5 bg-emerald-50/40 border border-emerald-300 rounded-lg text-xs font-extrabold text-emerald-800 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                        />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <label className="block text-[10px] font-bold text-emerald-900 mb-0.5">
+                          Açıklama / Sebep
+                        </label>
+                        <input
+                          type="text"
+                          value={item.description}
+                          onChange={(e) => updateBonusItem(item.id, "description", e.target.value)}
+                          placeholder="Örn: Başarı Primi, Yol Desteği"
+                          className="w-full px-2.5 py-1.5 bg-white border border-emerald-300 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                        />
+                      </div>
+                      {bonusList.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => removeBonusItem(item.id)}
+                          title="Bu ek ücreti sil"
+                          className="self-end p-2 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded-lg transition-colors shrink-0"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
+                  ))}
                 </div>
               </div>
 
-              {/* 2. Kesinti (-) Bölümü (Avans, Ceza, Eksik Gün vb.) */}
-              <div className="p-3.5 bg-rose-50/60 rounded-xl border border-rose-200/70 space-y-2">
-                <div className="flex items-center gap-1.5 font-bold text-rose-800 text-xs">
-                  <MinusCircle className="w-4 h-4 text-rose-600" />
-                  <span>Kesinti / Avans / Ceza (-)</span>
+              {/* 2. Kesinti (-) Bölümü (Sınırsız Çoklu Kalem) */}
+              <div className="p-4 bg-rose-50/60 rounded-2xl border border-rose-200/80 space-y-3">
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <div className="flex items-center gap-2 font-bold text-rose-900 text-xs">
+                    <MinusCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                    <span>Kesinti / Avans / Ceza (-)</span>
+                    {deductionList.reduce((s, i) => s + (Number(i.amount) || 0), 0) > 0 && (
+                      <span className="px-2 py-0.5 rounded-full text-[11px] font-extrabold bg-rose-100 text-rose-800">
+                        -{formatCurrency(deductionList.reduce((s, i) => s + (Number(i.amount) || 0), 0))}
+                      </span>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => addDeductionItem()}
+                    className="inline-flex items-center gap-1 px-3 py-1.5 bg-rose-700 hover:bg-rose-800 active:bg-rose-900 text-white rounded-xl text-xs font-bold shadow-2xs transition-all"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>+ Yeni Kesinti Ekle</span>
+                  </button>
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  <div>
-                    <label className="block text-[11px] font-medium text-rose-900 mb-1">
-                      Kesinti Tutarı (TL)
-                    </label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      value={activeModalStaff.payroll.deductionAmount || ""}
-                      onChange={(e) =>
-                        handleInputChange(
-                          activeModalStaff.staffId,
-                          "deductionAmount",
-                          parseFloat(e.target.value) || 0
-                        )
-                      }
-                      placeholder="0.00"
-                      className="w-full px-3 py-1.5 bg-white border border-rose-300 rounded-lg text-sm font-bold text-rose-700 focus:outline-none focus:ring-1 focus:ring-rose-500"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[11px] font-medium text-rose-900 mb-1">
-                      Açıklama
-                    </label>
-                    <input
-                      type="text"
-                      value={activeModalStaff.payroll.deductionDescription || ""}
-                      onChange={(e) =>
-                        handleInputChange(
-                          activeModalStaff.staffId,
-                          "deductionDescription",
-                          e.target.value
-                        )
-                      }
-                      placeholder="Örn: Maaş Avansı, Ceza Kesintisi"
-                      className="w-full px-3 py-1.5 bg-white border border-rose-300 rounded-lg text-xs"
-                    />
-                  </div>
+
+                {/* Hızlı Öneri Etiketleri */}
+                <div className="flex flex-wrap gap-1 items-center pt-0.5">
+                  <span className="text-[10px] text-rose-800 font-semibold">Hızlı Şablon:</span>
+                  {[
+                    "Rezidans Ücreti",
+                    "Nakit Avans",
+                    "Kira / Lojman",
+                    "Eksik Gün Kesintisi",
+                    "Ceza Kesintisi",
+                  ].map((preset) => (
+                    <button
+                      key={preset}
+                      type="button"
+                      onClick={() => addDeductionItem(preset)}
+                      className="px-2 py-0.5 text-[10px] bg-white hover:bg-rose-100 text-rose-900 border border-rose-200 rounded-md font-medium transition-colors"
+                    >
+                      + {preset}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Kesinti Kalemleri Listesi */}
+                <div className="space-y-2">
+                  {deductionList.map((item, idx) => (
+                    <div
+                      key={item.id}
+                      className="flex items-center gap-2 bg-white p-2 rounded-xl border border-rose-200/70 shadow-2xs"
+                    >
+                      <div className="w-28 sm:w-36 shrink-0">
+                        <label className="block text-[10px] font-bold text-rose-900 mb-0.5">
+                          Kesinti Tutarı (TL)
+                        </label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          value={item.amount || ""}
+                          onChange={(e) => updateDeductionItem(item.id, "amount", e.target.value)}
+                          placeholder="0.00"
+                          className="w-full px-2.5 py-1.5 bg-rose-50/40 border border-rose-300 rounded-lg text-xs font-extrabold text-rose-800 focus:outline-none focus:ring-1 focus:ring-rose-500"
+                        />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <label className="block text-[10px] font-bold text-rose-900 mb-0.5">
+                          Açıklama / Sebep
+                        </label>
+                        <input
+                          type="text"
+                          value={item.description}
+                          onChange={(e) => updateDeductionItem(item.id, "description", e.target.value)}
+                          placeholder="Örn: 9. Ay Rezidans Ücreti, Maaş Avansı"
+                          className="w-full px-2.5 py-1.5 bg-white border border-rose-300 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-rose-500"
+                        />
+                      </div>
+                      {deductionList.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => removeDeductionItem(item.id)}
+                          title="Bu kesintiyi sil"
+                          className="self-end p-2 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded-lg transition-colors shrink-0"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
+                  ))}
                 </div>
               </div>
 
               {/* Net Ödeme Özeti */}
-              <div className="p-3 bg-teal-50 rounded-xl border border-teal-200 flex items-center justify-between">
+              <div className="p-3.5 bg-teal-50/90 rounded-2xl border border-teal-200 flex items-center justify-between">
                 <div>
                   <span className="font-bold text-teal-950 text-sm block">Hesaplanan Net Ödeme:</span>
-                  <span className="text-[10px] text-teal-700">Tutar ve açıklama değiştikçe anında güncellenir</span>
+                  <span className="text-[10px] text-teal-700">Tüm ek ücret ve kesintiler anında güncellenir</span>
                 </div>
-                <span className="text-lg font-extrabold text-teal-800">
+                <span className="text-xl font-black text-teal-800">
                   {formatCurrency(activeModalStaff.payroll.netTotal)}
                 </span>
               </div>
             </div>
 
+            {/* Modal Aksiyon Butonları */}
             <div className="mt-5 flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
               <button
                 type="button"
                 onClick={() => setActiveModalStaff(null)}
-                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold"
+                className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold transition-all"
               >
                 Kapat
               </button>
@@ -649,7 +896,7 @@ export default function MaasTahakkukPage() {
                   handleSavePayroll(activeModalStaff);
                   setActiveModalStaff(null);
                 }}
-                className="px-5 py-2 bg-teal-800 hover:bg-teal-900 text-white rounded-lg text-xs font-bold shadow-xs"
+                className="px-6 py-2.5 bg-teal-800 hover:bg-teal-900 active:bg-teal-950 text-white rounded-xl text-xs font-bold shadow-sm transition-all"
               >
                 Kaydet ve Uygula
               </button>

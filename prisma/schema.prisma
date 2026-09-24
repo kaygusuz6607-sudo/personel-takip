@@ -97,11 +97,13 @@ model Payroll {
   dailyEarned          Float     @default(0)
   holidayEarned        Float     @default(0)
   
-  // Ek Ücret (+) ve Manuel Kesinti (-) (Kullanıcının talep ettiği esnek sistem)
+  // Ek Ücret (+) ve Manuel Kesinti (-) (Kullanıcının talep ettiği çoklu esnek sistem)
   bonusAmount          Float     @default(0) // Prim, Yol vb. (+)
   bonusDescription     String?
+  bonusItems           String?   // JSON formatında çoklu kalemler: [{ id, amount, description }]
   deductionAmount      Float     @default(0) // Avans, Ceza vb. (-)
   deductionDescription String?
+  deductionItems       String?   // JSON formatında çoklu kalemler: [{ id, amount, description }]
   
   grossTotal           Float     @default(0)
   
