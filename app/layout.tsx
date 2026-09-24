@@ -6,6 +6,19 @@ import { NotificationBanner } from "@/components/NotificationBanner";
 export const metadata: Metadata = {
   title: "COSMOS | Personel Takip Sistemi",
   description: "COSMOS - Özel Okul ve Dershane Personel Takip, Bordro ve Ödeme Sistemi",
+  manifest: "/manifest.json",
+  icons: {
+    icon: [
+      { url: "/icon.svg", type: "image/svg+xml" },
+      { url: "/favicon-32x32.png", sizes: "32x32", type: "image/png" },
+    ],
+    apple: "/apple-touch-icon.png",
+  },
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "default",
+    title: "COSMOS",
+  },
 };
 
 export default function RootLayout({

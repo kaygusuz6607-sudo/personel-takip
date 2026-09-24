@@ -23,6 +23,7 @@ import {
   AlertCircle,
   HardDrive,
 } from "lucide-react";
+import { PWAInstallButton } from "@/components/PWAInstallButton";
 
 interface AuthUser {
   id: string;
@@ -245,6 +246,8 @@ export function Sidebar() {
               })}
             </nav>
 
+            <PWAInstallButton />
+
             <div className="p-4 border-t border-slate-100 bg-slate-50 flex items-center justify-between">
               <div className="flex items-center gap-3 min-w-0">
                 <div className="w-9 h-9 rounded-full bg-teal-700 text-white flex items-center justify-center font-bold text-xs shrink-0">
@@ -318,6 +321,8 @@ export function Sidebar() {
             );
           })}
         </nav>
+
+        <PWAInstallButton />
 
         {/* User Footer Card */}
         <div className="p-4 border-t border-slate-100 bg-slate-50/50">
