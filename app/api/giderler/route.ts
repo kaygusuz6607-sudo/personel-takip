@@ -57,9 +57,14 @@ export async function GET(request: Request) {
       where.installmentInfo = { not: null };
     }
 
+    const commitmentsOnly = searchParams.get("commitmentsOnly") === "true";
+    if (commitmentsOnly) {
+      where.isCommitment = true;
+    }
+
     const expenses = await prisma.schoolExpense.findMany({
       where,
-      orderBy: [{ status: "asc" }, { createdAt: "desc" }],
+      orderBy: [{ status: "asc" }, { dueDate: "asc" }, { createdAt: "desc" }],
     });
 
     // İstatistikler (Tüm kayıtlar üzerinden)
@@ -72,6 +77,7 @@ export async function GET(request: Request) {
       countPending: allExpenses.filter((e) => e.status === "PENDING").length,
       countPartial: allExpenses.filter((e) => e.status === "PARTIAL").length,
       countPaid: allExpenses.filter((e) => e.status === "PAID").length,
+      countCommitments: allExpenses.filter((e) => e.isCommitment).length,
     };
 
     return NextResponse.json({ expenses, stats });
@@ -79,6 +85,27 @@ export async function GET(request: Request) {
     console.error("Giderler listesi hatası:", error);
     return NextResponse.json({ error: "Gider kayıtları alınamadı" }, { status: 500 });
   }
+}
+
+function formatTurkishDate(date: Date): string {
+  const months = [
+    "Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran",
+    "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"
+  ];
+  const day = date.getDate();
+  const month = months[date.getMonth()];
+  const year = date.getFullYear();
+  return `${day} ${month} ${year}`;
+}
+
+function addMonthsPreservingDay(baseDate: Date, monthsToAdd: number): Date {
+  const d = new Date(baseDate.getTime());
+  const targetDay = d.getDate();
+  d.setDate(1);
+  d.setMonth(d.getMonth() + monthsToAdd);
+  const daysInTargetMonth = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+  d.setDate(Math.min(targetDay, daysInTargetMonth));
+  return d;
 }
 
 export async function POST(request: Request) {
@@ -94,10 +121,13 @@ export async function POST(request: Request) {
       amountDue = 0,
       periodStatus = "Cari Dönem",
       description = "",
-      // Taksit seçeneği
+      // Taksit & Taahhüt Seçenekleri
       isInstallment = false,
       installmentCount = 1,
       currentInstallment = 1,
+      isCommitment = false,
+      commitmentMonths = 12,
+      amountMode = "TOTAL", // "TOTAL" veya "MONTHLY"
     } = body;
 
     if (!title || Number(amountDue) <= 0) {
@@ -105,28 +135,70 @@ export async function POST(request: Request) {
     }
 
     const numAmount = Number(amountDue);
+    const baseDate = dueDate ? new Date(dueDate) : new Date();
 
-    // Eğer çoklu taksit oluşturulması istenmişse (örn: 6 taksit)
-    if (isInstallment && installmentCount > 1) {
+    // 1. TAAHHÜTLÜ ABONELİK (Telefon, İnternet, TV vb.) ÇOKLU AYLIK PLAN
+    if (isCommitment && Number(commitmentMonths) > 1) {
+      const N = Number(commitmentMonths);
+      const monthlyAmount = amountMode === "TOTAL" ? Number((numAmount / N).toFixed(2)) : numAmount;
+      const finalEndDate = addMonthsPreservingDay(baseDate, N - 1);
       const createdItems = [];
-      const installmentAmount = Number((numAmount / installmentCount).toFixed(2));
 
-      for (let i = 1; i <= installmentCount; i++) {
+      for (let i = 1; i <= N; i++) {
+        const itemDate = addMonthsPreservingDay(baseDate, i - 1);
+        const itemDateStr = formatTurkishDate(itemDate);
+        const item = await prisma.schoolExpense.create({
+          data: {
+            title,
+            category: category || "INVOICE",
+            subCategory: subCategory || "Taahhütlü Abonelik",
+            period: `${i}.Ay (${i}/${N})`,
+            installmentInfo: `${i}t/${N}t`,
+            dueDate: itemDate,
+            dueDateStr: itemDateStr,
+            amountDue: monthlyAmount,
+            amountPaid: 0,
+            amountRemaining: monthlyAmount,
+            status: "PENDING",
+            periodStatus: i === 1 ? "Cari Dönem" : "Gelecek Dönem",
+            description: `${description ? description + " - " : ""}${i}/${N} Taahhütlü Fatura (Taahhüt Sonu: ${formatTurkishDate(finalEndDate)})`.trim(),
+            isCommitment: true,
+            commitmentMonths: N,
+            commitmentEndDate: finalEndDate,
+          },
+        });
+        createdItems.push(item);
+      }
+
+      return NextResponse.json({ success: true, count: createdItems.length, items: createdItems }, { status: 201 });
+    }
+
+    // 2. ÇOKLU TAKSİTLİ ÖDEME (Veli İadesi, Kredi vb. her aya 1'er ay ilerleyerek)
+    if (isInstallment && installmentCount > 1) {
+      const count = Number(installmentCount);
+      const installmentAmount = amountMode === "MONTHLY" ? numAmount : Number((numAmount / count).toFixed(2));
+      const createdItems = [];
+
+      for (let i = 1; i <= count; i++) {
+        const itemDate = addMonthsPreservingDay(baseDate, i - 1);
+        const itemDateStr = dueDateStr && !dueDate ? `${dueDateStr} (${i}. Taksit)` : formatTurkishDate(itemDate);
+
         const item = await prisma.schoolExpense.create({
           data: {
             title,
             category,
             subCategory,
-            period: `${i}t/${installmentCount}t`,
-            installmentInfo: `${i}t/${installmentCount}t`,
-            dueDateStr: dueDateStr ? `${dueDateStr} (${i}. Taksit)` : undefined,
-            dueDate: dueDate ? new Date(dueDate) : null,
+            period: `${i}t/${count}t`,
+            installmentInfo: `${i}t/${count}t`,
+            dueDateStr: itemDateStr,
+            dueDate: itemDate,
             amountDue: installmentAmount,
             amountPaid: 0,
             amountRemaining: installmentAmount,
             status: "PENDING",
-            periodStatus,
-            description: `${description} (${i}/${installmentCount} Taksit)`.trim(),
+            periodStatus: i === 1 ? "Cari Dönem" : "Gelecek Dönem",
+            description: `${description ? description + " - " : ""}(${i}/${count} Taksit)`.trim(),
+            isCommitment: false,
           },
         });
         createdItems.push(item);
@@ -134,8 +206,9 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: true, count: createdItems.length, items: createdItems }, { status: 201 });
     }
 
-    // Tekli kayıt
+    // 3. TEKLİ STANDART GİDER KAYDI
     const installmentInfo = isInstallment && installmentCount ? `${currentInstallment}t/${installmentCount}t` : null;
+    const finalDueDateStr = dueDateStr || (dueDate ? formatTurkishDate(new Date(dueDate)) : "");
 
     const newExpense = await prisma.schoolExpense.create({
       data: {
@@ -144,7 +217,7 @@ export async function POST(request: Request) {
         subCategory,
         period: installmentInfo || period,
         installmentInfo,
-        dueDateStr,
+        dueDateStr: finalDueDateStr,
         dueDate: dueDate ? new Date(dueDate) : null,
         amountDue: numAmount,
         amountPaid: 0,
@@ -152,6 +225,9 @@ export async function POST(request: Request) {
         status: "PENDING",
         periodStatus,
         description,
+        isCommitment: Boolean(isCommitment),
+        commitmentMonths: isCommitment ? Number(commitmentMonths) || 12 : null,
+        commitmentEndDate: isCommitment ? (dueDate ? addMonthsPreservingDay(new Date(dueDate), (Number(commitmentMonths) || 12) - 1) : null) : null,
       },
     });
 

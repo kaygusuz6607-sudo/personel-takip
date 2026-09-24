@@ -29,6 +29,9 @@ import {
   ArrowUpDown,
   History,
   Coins,
+  Smartphone,
+  Tv,
+  BellRing,
 } from "lucide-react";
 
 interface PaymentHistoryItem {
@@ -53,6 +56,9 @@ interface SchoolExpense {
   periodStatus: string | null;
   description: string | null;
   paymentHistory: string | null;
+  isCommitment?: boolean;
+  commitmentEndDate?: string | null;
+  commitmentMonths?: number | null;
   createdAt: string;
 }
 
@@ -76,6 +82,7 @@ export default function GiderlerPage() {
   const [selectedCategory, setSelectedCategory] = useState("ALL");
   const [selectedStatus, setSelectedStatus] = useState("ALL");
   const [installmentOnly, setInstallmentOnly] = useState(false);
+  const [commitmentsOnly, setCommitmentsOnly] = useState(false);
 
   // Yeni / Düzenle Modal
   const [modalOpen, setModalOpen] = useState(false);
@@ -87,12 +94,17 @@ export default function GiderlerPage() {
     subCategory: "",
     period: "",
     dueDateStr: "",
+    dueDate: "",
     amountDue: "",
     periodStatus: "Cari Dönem",
     description: "",
+    entryType: "SINGLE", // "SINGLE" | "INSTALLMENT" | "COMMITMENT"
     isInstallment: false,
-    installmentCount: 1,
+    installmentCount: 12,
     currentInstallment: 1,
+    amountMode: "TOTAL", // "TOTAL" | "MONTHLY"
+    isCommitment: false,
+    commitmentMonths: 12,
   });
 
   // Parçalı Ödeme Modalı
@@ -110,6 +122,7 @@ export default function GiderlerPage() {
       if (selectedCategory && selectedCategory !== "ALL") params.set("category", selectedCategory);
       if (selectedStatus && selectedStatus !== "ALL") params.set("status", selectedStatus);
       if (installmentOnly) params.set("installmentOnly", "true");
+      if (commitmentsOnly) params.set("commitmentsOnly", "true");
 
       const res = await fetch(`/api/giderler?${params.toString()}`);
       const data = await res.json();
@@ -125,7 +138,7 @@ export default function GiderlerPage() {
 
   useEffect(() => {
     fetchExpenses();
-  }, [search, selectedCategory, selectedStatus, installmentOnly]);
+  }, [search, selectedCategory, selectedStatus, installmentOnly, commitmentsOnly]);
 
   const stats = useMemo(() => {
     const totalDue = expenses.reduce((sum, e) => sum + e.amountDue, 0);
@@ -135,23 +148,48 @@ export default function GiderlerPage() {
     const countPartial = expenses.filter((e) => e.status === "PARTIAL").length;
     const countPaid = expenses.filter((e) => e.status === "PAID").length;
     const countInstallment = expenses.filter((e) => Boolean(e.installmentInfo)).length;
-    return { totalDue, totalPaid, totalRemaining, countPending, countPartial, countPaid, countInstallment };
+    const countCommitment = expenses.filter((e) => Boolean(e.isCommitment)).length;
+    return { totalDue, totalPaid, totalRemaining, countPending, countPartial, countPaid, countInstallment, countCommitment };
+  }, [expenses]);
+
+  // Taahhüt Bitişi Yaklaşanlar (Son 45 gün)
+  const expiringCommitments = useMemo(() => {
+    const now = new Date();
+    const map = new Map<string, { exp: SchoolExpense; daysLeft: number }>();
+    expenses.forEach((e) => {
+      if (e.isCommitment && e.commitmentEndDate) {
+        const end = new Date(e.commitmentEndDate);
+        const diffDays = Math.ceil((end.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+        if (diffDays <= 45) {
+          if (!map.has(e.title)) {
+            map.set(e.title, { exp: e, daysLeft: diffDays });
+          }
+        }
+      }
+    });
+    return Array.from(map.values());
   }, [expenses]);
 
   const openNewModal = () => {
     setEditingExpense(null);
+    const todayStr = new Date().toISOString().split("T")[0];
     setForm({
       title: "",
       category: "INVOICE",
       subCategory: "",
       period: "8.Ay",
       dueDateStr: "",
+      dueDate: todayStr,
       amountDue: "",
       periodStatus: "Cari Dönem",
       description: "",
+      entryType: "SINGLE",
       isInstallment: false,
-      installmentCount: 1,
+      installmentCount: 12,
       currentInstallment: 1,
+      amountMode: "TOTAL",
+      isCommitment: false,
+      commitmentMonths: 12,
     });
     setModalOpen(true);
   };
@@ -164,12 +202,17 @@ export default function GiderlerPage() {
       subCategory: expense.subCategory || "",
       period: expense.period || "",
       dueDateStr: expense.dueDateStr || "",
+      dueDate: expense.dueDate ? new Date(expense.dueDate).toISOString().split("T")[0] : "",
       amountDue: String(expense.amountDue),
       periodStatus: expense.periodStatus || "Cari Dönem",
       description: expense.description || "",
+      entryType: expense.isCommitment ? "COMMITMENT" : expense.installmentInfo ? "INSTALLMENT" : "SINGLE",
       isInstallment: Boolean(expense.installmentInfo),
       installmentCount: 1,
       currentInstallment: 1,
+      amountMode: "TOTAL",
+      isCommitment: Boolean(expense.isCommitment),
+      commitmentMonths: expense.commitmentMonths || 12,
     });
     setModalOpen(true);
   };
@@ -181,11 +224,16 @@ export default function GiderlerPage() {
       const url = editingExpense ? `/api/giderler/${editingExpense.id}` : "/api/giderler";
       const method = editingExpense ? "PUT" : "POST";
 
+      const isCommitment = form.entryType === "COMMITMENT";
+      const isInstallment = form.entryType === "INSTALLMENT";
+
       const res = await fetch(url, {
         method,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           ...form,
+          isCommitment,
+          isInstallment,
           amountDue: Number(form.amountDue) || 0,
         }),
       });
@@ -362,6 +410,50 @@ export default function GiderlerPage() {
         </div>
       </div>
 
+      {/* Taahhüt Bitişi Yaklaşanlar Erken Uyarı Bildirimi */}
+      {expiringCommitments.length > 0 && (
+        <div className="bg-amber-50 border-2 border-amber-300 rounded-2xl p-4 flex items-start gap-3.5 text-amber-900 shadow-sm animate-in fade-in slide-in-from-top-2 duration-300">
+          <div className="w-9 h-9 rounded-xl bg-amber-200/80 text-amber-800 flex items-center justify-center shrink-0">
+            <BellRing className="w-5 h-5 text-amber-700 animate-bounce" />
+          </div>
+          <div className="flex-1">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h4 className="font-extrabold text-sm text-amber-950">
+                ⚠️ Dikkat: Taahhüt Süresi Dolan / Yaklaşan Abonelikler ({expiringCommitments.length} Kurum)
+              </h4>
+              <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-amber-200 text-amber-900">
+                Fatura Katlanma Riski
+              </span>
+            </div>
+            <p className="text-xs text-amber-800 mt-1 leading-relaxed">
+              Taahhüdü biten telefon, internet veya TV aboneliklerinde indirimler sona erer ve faturalar katlanır. Lütfen yenileme veya cayma hakkı için kontrol sağlayınız:
+            </p>
+            <div className="mt-2.5 flex flex-wrap gap-2">
+              {expiringCommitments.map(({ exp, daysLeft }) => (
+                <div
+                  key={exp.id}
+                  className="inline-flex items-center gap-2 px-3 py-1.5 bg-white border border-amber-300 rounded-xl text-xs font-bold text-amber-950 shadow-2xs"
+                >
+                  <Smartphone className="w-3.5 h-3.5 text-amber-600" />
+                  <span>{exp.title}</span>
+                  <span
+                    className={`text-[10px] font-black px-2 py-0.5 rounded-md ${
+                      daysLeft <= 0
+                        ? "bg-rose-100 text-rose-800"
+                        : daysLeft <= 15
+                        ? "bg-rose-50 text-rose-700 border border-rose-200"
+                        : "bg-amber-100 text-amber-900"
+                    }`}
+                  >
+                    {daysLeft <= 0 ? "Süre Doldu!" : `${daysLeft} Gün Kaldı`}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* 4 Özet Finans Kartı */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs flex items-center justify-between">
@@ -399,9 +491,11 @@ export default function GiderlerPage() {
 
         <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs flex items-center justify-between">
           <div>
-            <p className="text-xs font-semibold text-purple-700">Taksitli İşlemler</p>
-            <p className="text-2xl font-extrabold text-purple-700 mt-1">{stats.countInstallment} Kalem</p>
-            <p className="text-[11px] text-purple-600 mt-0.5">Veli iadesi & Krediler</p>
+            <p className="text-xs font-semibold text-purple-700">Taksit & Taahhüt</p>
+            <p className="text-2xl font-extrabold text-purple-700 mt-1">{stats.countInstallment + stats.countCommitment} Kalem</p>
+            <p className="text-[11px] text-purple-600 mt-0.5">
+              {stats.countInstallment} Taksit • {stats.countCommitment} Taahhütlü
+            </p>
           </div>
           <div className="w-12 h-12 rounded-xl bg-purple-50 text-purple-700 flex items-center justify-center">
             <Layers className="w-6 h-6" />
@@ -409,7 +503,7 @@ export default function GiderlerPage() {
         </div>
       </div>
 
-      {/* Arama, Kategori Filtreleri & Taksit Seçeneği */}
+      {/* Arama, Kategori Filtreleri & Taksit/Taahhüt Seçenekleri */}
       <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-xs space-y-3">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
           <div className="relative flex-1">
@@ -418,7 +512,7 @@ export default function GiderlerPage() {
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Cari adı, veli, elektrik, doğalgaz, kredi kartı veya açıklama ara..."
+              placeholder="Cari adı, veli, elektrik, doğalgaz, telefon, TV veya açıklama ara..."
               className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium focus:outline-none focus:ring-2 focus:ring-teal-600/20 focus:border-teal-600"
             />
           </div>
@@ -427,7 +521,10 @@ export default function GiderlerPage() {
             {/* Taksitli Olanlar Butonu */}
             <button
               type="button"
-              onClick={() => setInstallmentOnly(!installmentOnly)}
+              onClick={() => {
+                setInstallmentOnly(!installmentOnly);
+                if (!installmentOnly) setCommitmentsOnly(false);
+              }}
               className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition-all flex items-center gap-1.5 ${
                 installmentOnly
                   ? "bg-purple-700 text-white border-purple-700 shadow-2xs"
@@ -435,7 +532,24 @@ export default function GiderlerPage() {
               }`}
             >
               <Layers className="w-3.5 h-3.5" />
-              <span>Sadece Taksitli Olanlar ({stats.countInstallment})</span>
+              <span>Taksitliler ({stats.countInstallment})</span>
+            </button>
+
+            {/* Taahhütlüler Butonu */}
+            <button
+              type="button"
+              onClick={() => {
+                setCommitmentsOnly(!commitmentsOnly);
+                if (!commitmentsOnly) setInstallmentOnly(false);
+              }}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition-all flex items-center gap-1.5 ${
+                commitmentsOnly
+                  ? "bg-blue-700 text-white border-blue-700 shadow-2xs"
+                  : "bg-blue-50 hover:bg-blue-100 text-blue-800 border-blue-200"
+              }`}
+            >
+              <Smartphone className="w-3.5 h-3.5" />
+              <span>Taahhütlüler ({stats.countCommitment})</span>
             </button>
 
             {/* Durum Filtreleri */}
@@ -544,8 +658,14 @@ export default function GiderlerPage() {
                     >
                       {/* Cari Başlığı */}
                       <td className="py-3 px-3">
-                        <div className="font-bold text-slate-900 text-sm leading-tight flex items-center gap-1.5">
+                        <div className="font-bold text-slate-900 text-sm leading-tight flex items-center gap-1.5 flex-wrap">
                           <span>{exp.title}</span>
+                          {exp.isCommitment && (
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-black bg-blue-100 text-blue-800 border border-blue-200">
+                              <Smartphone className="w-2.5 h-2.5 text-blue-700" />
+                              <span>Taahhütlü</span>
+                            </span>
+                          )}
                           {exp.periodStatus && (
                             <span className="text-[10px] px-1.5 py-0.5 rounded font-bold bg-slate-100 text-slate-600 border border-slate-200">
                               {exp.periodStatus}
@@ -555,6 +675,30 @@ export default function GiderlerPage() {
                         {exp.description && (
                           <span className="text-[11px] text-slate-500 block mt-0.5">{exp.description}</span>
                         )}
+                        {exp.isCommitment && exp.commitmentEndDate && (() => {
+                          const end = new Date(exp.commitmentEndDate);
+                          const diffDays = Math.ceil((end.getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24));
+                          if (diffDays <= 45 && diffDays >= 0) {
+                            return (
+                              <div className="mt-1">
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-black bg-amber-100 text-amber-900 border border-amber-300">
+                                  <AlertCircle className="w-3 h-3 text-amber-700" />
+                                  <span>Taahhüt Bitiyor ({diffDays} gün kaldı)</span>
+                                </span>
+                              </div>
+                            );
+                          } else if (diffDays < 0) {
+                            return (
+                              <div className="mt-1">
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-black bg-rose-100 text-rose-900 border border-rose-300">
+                                  <AlertCircle className="w-3 h-3 text-rose-700" />
+                                  <span>Taahhüt Süresi Doldu!</span>
+                                </span>
+                              </div>
+                            );
+                          }
+                          return null;
+                        })()}
                       </td>
 
                       {/* Tür / Kategori */}
@@ -697,6 +841,61 @@ export default function GiderlerPage() {
             </div>
 
             <form onSubmit={handleFormSubmit} className="mt-4 space-y-3.5 text-xs">
+              {/* İşlem Türü Seçimi */}
+              {!editingExpense && (
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1.5">Ödeme / Plan Tipi</label>
+                  <div className="grid grid-cols-3 gap-2 p-1 bg-slate-100 rounded-xl">
+                    <button
+                      type="button"
+                      onClick={() => setForm({ ...form, entryType: "SINGLE", isInstallment: false, isCommitment: false })}
+                      className={`py-2 px-2 rounded-lg font-bold text-xs flex flex-col items-center justify-center gap-1 transition-all ${
+                        form.entryType === "SINGLE"
+                          ? "bg-white text-slate-900 shadow-2xs"
+                          : "text-slate-600 hover:text-slate-900"
+                      }`}
+                    >
+                      <ReceiptText className="w-4 h-4 text-slate-600" />
+                      <span>Tek Seferlik</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setForm({ ...form, entryType: "INSTALLMENT", isInstallment: true, isCommitment: false })}
+                      className={`py-2 px-2 rounded-lg font-bold text-xs flex flex-col items-center justify-center gap-1 transition-all ${
+                        form.entryType === "INSTALLMENT"
+                          ? "bg-purple-700 text-white shadow-2xs"
+                          : "text-purple-800 hover:bg-purple-100/50"
+                      }`}
+                    >
+                      <Layers className="w-4 h-4" />
+                      <span>Taksitli Borç</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setForm({
+                          ...form,
+                          entryType: "COMMITMENT",
+                          isCommitment: true,
+                          isInstallment: false,
+                          category: "INVOICE",
+                          subCategory: form.subCategory || "Haberleşme & TV",
+                          amountMode: "MONTHLY",
+                        })
+                      }
+                      className={`py-2 px-2 rounded-lg font-bold text-xs flex flex-col items-center justify-center gap-1 transition-all ${
+                        form.entryType === "COMMITMENT"
+                          ? "bg-blue-700 text-white shadow-2xs"
+                          : "text-blue-800 hover:bg-blue-100/50"
+                      }`}
+                    >
+                      <Smartphone className="w-4 h-4" />
+                      <span>Taahhütlü Abonelik</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+
               <div>
                 <label className="block font-bold text-slate-700 mb-1">
                   Cari / Kurum / Kişi Adı *
@@ -706,7 +905,11 @@ export default function GiderlerPage() {
                   required
                   value={form.title}
                   onChange={(e) => setForm({ ...form, title: e.target.value })}
-                  placeholder="Örn: Kayseri Elektrik, İlyas Yılmaz, Alp Tuğrul Karaman"
+                  placeholder={
+                    form.entryType === "COMMITMENT"
+                      ? "Örn: Türk Telekom, Turkcell Superonline, Digiturk"
+                      : "Örn: Kayseri Elektrik, İlyas Yılmaz, Alp Tuğrul Karaman"
+                  }
                   className="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-teal-600/20"
                 />
               </div>
@@ -733,67 +936,98 @@ export default function GiderlerPage() {
                     type="text"
                     value={form.subCategory}
                     onChange={(e) => setForm({ ...form, subCategory: e.target.value })}
-                    placeholder="Örn: F-Elektrik, Bina Kirası"
+                    placeholder={
+                      form.entryType === "COMMITMENT"
+                        ? "Örn: Fiber İnternet, Kurumsal Hat, TV Paketi"
+                        : "Örn: F-Elektrik, Bina Kirası"
+                    }
                     className="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs font-medium focus:outline-none focus:ring-2 focus:ring-teal-600/20"
                   />
                 </div>
               </div>
 
-              {/* Taksit Seçeneği */}
-              {!editingExpense && (
-                <div className="p-3 bg-purple-50/70 border border-purple-200 rounded-xl space-y-2">
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={form.isInstallment}
-                      onChange={(e) => setForm({ ...form, isInstallment: e.target.checked })}
-                      className="rounded text-purple-700 focus:ring-purple-600"
-                    />
-                    <span className="font-bold text-purple-900 text-xs">
-                      Bu ödeme taksitli bir ödemedir (Örn: Veli İadesi, Kredi vb.)
-                    </span>
-                  </label>
-
-                  {form.isInstallment && (
-                    <div className="grid grid-cols-2 gap-3 pt-1">
-                      <div>
-                        <label className="block text-[11px] font-bold text-purple-900 mb-0.5">
-                          Toplam Taksit Sayısı
-                        </label>
-                        <input
-                          type="number"
-                          min="1"
-                          max="36"
-                          value={form.installmentCount}
-                          onChange={(e) => setForm({ ...form, installmentCount: parseInt(e.target.value) || 1 })}
-                          className="w-full px-2.5 py-1.5 bg-white border border-purple-300 rounded-lg text-xs font-bold text-purple-950"
-                        />
-                        <span className="text-[10px] text-purple-700 block mt-0.5">
-                          Tutar taksit sayısına eşit bölünerek sıralı taksitler üretilir.
-                        </span>
-                      </div>
-                      <div>
-                        <label className="block text-[11px] font-bold text-purple-900 mb-0.5">
-                          Şu Anki Taksit (Tekli ise)
-                        </label>
-                        <input
-                          type="number"
-                          min="1"
-                          max={form.installmentCount}
-                          value={form.currentInstallment}
-                          onChange={(e) => setForm({ ...form, currentInstallment: parseInt(e.target.value) || 1 })}
-                          className="w-full px-2.5 py-1.5 bg-white border border-purple-300 rounded-lg text-xs font-bold text-purple-950"
-                        />
-                      </div>
+              {/* TAAHHÜTLÜ ABONELİK AYARLARI */}
+              {form.entryType === "COMMITMENT" && !editingExpense && (
+                <div className="p-3.5 bg-blue-50/80 border border-blue-200 rounded-2xl space-y-3 animate-in fade-in duration-200">
+                  <div className="flex items-center gap-2 text-blue-950 font-bold text-xs">
+                    <Smartphone className="w-4 h-4 text-blue-700" />
+                    <span>Taahhütlü Abonelik Planı (Telefon, İnternet, TV vb.)</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-[11px] font-bold text-blue-900 mb-1">Taahhüt Süresi</label>
+                      <select
+                        value={form.commitmentMonths}
+                        onChange={(e) => setForm({ ...form, commitmentMonths: parseInt(e.target.value) || 12 })}
+                        className="w-full px-2.5 py-2 bg-white border border-blue-300 rounded-xl text-xs font-bold text-blue-950 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                      >
+                        <option value={6}>6 Ay Taahhüt</option>
+                        <option value={12}>12 Ay (1 Yıl) Taahhüt</option>
+                        <option value={24}>24 Ay (2 Yıl) Taahhüt</option>
+                        <option value={36}>36 Ay Taahhüt</option>
+                      </select>
                     </div>
-                  )}
+                    <div>
+                      <label className="block text-[11px] font-bold text-blue-900 mb-1">Tutar Şekli</label>
+                      <select
+                        value={form.amountMode}
+                        onChange={(e) => setForm({ ...form, amountMode: e.target.value as any })}
+                        className="w-full px-2.5 py-2 bg-white border border-blue-300 rounded-xl text-xs font-bold text-blue-950 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                      >
+                        <option value="MONTHLY">Aylık Fatura Tutarı (Her Ay)</option>
+                        <option value="TOTAL">Toplam Taahhüt Tutarını Böl</option>
+                      </select>
+                    </div>
+                  </div>
+                  <p className="text-[11px] text-blue-700 bg-blue-100/70 p-2 rounded-xl">
+                    💡 <strong>Otomatik Plan:</strong> Sistem {form.commitmentMonths} ay boyunca her ayın faturasını otomatik takvime yerleştirir. Taahhüt bitimine 45 gün kala erken uyarı verir.
+                  </p>
+                </div>
+              )}
+
+              {/* TAKSİTLİ BORÇ AYARLARI */}
+              {form.entryType === "INSTALLMENT" && !editingExpense && (
+                <div className="p-3.5 bg-purple-50/80 border border-purple-200 rounded-2xl space-y-3 animate-in fade-in duration-200">
+                  <div className="flex items-center gap-2 text-purple-950 font-bold text-xs">
+                    <Layers className="w-4 h-4 text-purple-700" />
+                    <span>Taksitli Borç Planı (Veli İadesi, Kredi vb.)</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-[11px] font-bold text-purple-900 mb-1">Toplam Taksit Sayısı</label>
+                      <input
+                        type="number"
+                        min="2"
+                        max="60"
+                        value={form.installmentCount}
+                        onChange={(e) => setForm({ ...form, installmentCount: parseInt(e.target.value) || 2 })}
+                        className="w-full px-2.5 py-2 bg-white border border-purple-300 rounded-xl text-xs font-bold text-purple-950 focus:outline-none focus:ring-2 focus:ring-purple-500/20"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-bold text-purple-900 mb-1">Tutar Şekli</label>
+                      <select
+                        value={form.amountMode}
+                        onChange={(e) => setForm({ ...form, amountMode: e.target.value as any })}
+                        className="w-full px-2.5 py-2 bg-white border border-purple-300 rounded-xl text-xs font-bold text-purple-950 focus:outline-none focus:ring-2 focus:ring-purple-500/20"
+                      >
+                        <option value="TOTAL">Toplam Borcu Taksitlere Böl</option>
+                        <option value="MONTHLY">Girilen Tutar Aylık Taksittir</option>
+                      </select>
+                    </div>
+                  </div>
+                  <p className="text-[11px] text-purple-700 bg-purple-100/70 p-2 rounded-xl">
+                    💡 <strong>Otomatik İlerleme:</strong> Sistem seçtiğiniz ilk tarihten itibaren her aya sırayla {form.installmentCount} taksiti otomatik oluşturur. Her ay elle girmenize gerek kalmaz.
+                  </p>
                 </div>
               )}
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block font-bold text-slate-700 mb-1">
-                    Ödenecek Tutar (TL) *
+                    {form.entryType === "COMMITMENT" || form.amountMode === "MONTHLY"
+                      ? "Aylık Tutar (TL) *"
+                      : "Ödenecek Tutar (TL) *"}
                   </label>
                   <input
                     type="number"
@@ -808,12 +1042,13 @@ export default function GiderlerPage() {
                 </div>
 
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">Vade / Tarih</label>
+                  <label className="block font-bold text-slate-700 mb-1">
+                    {form.entryType === "SINGLE" ? "Vade Tarihi" : "İlk Vade / Başlangıç Tarihi"}
+                  </label>
                   <input
-                    type="text"
-                    value={form.dueDateStr}
-                    onChange={(e) => setForm({ ...form, dueDateStr: e.target.value })}
-                    placeholder="Örn: 15 Ağustos 2026 Cumartesi"
+                    type="date"
+                    value={form.dueDate}
+                    onChange={(e) => setForm({ ...form, dueDate: e.target.value })}
                     className="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs font-medium focus:outline-none focus:ring-2 focus:ring-teal-600/20"
                   />
                 </div>

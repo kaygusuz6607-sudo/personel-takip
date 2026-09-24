@@ -163,6 +163,9 @@ model SchoolExpense {
   periodStatus    String?   // Cari Dönem, Geçmiş Dönem, vb.
   description     String?   // Açıklama / Not
   paymentHistory  String?   // JSON parçalı ödemeler listesi
+  isCommitment    Boolean   @default(false) // Taahhütlü abonelik mi? (Telefon, İnternet, TV)
+  commitmentEndDate DateTime? // Taahhüt Bitiş Tarihi
+  commitmentMonths  Int?      // Taahhüt Süresi (örn: 12 veya 24 ay)
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 }

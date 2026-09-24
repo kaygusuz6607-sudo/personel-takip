@@ -93,6 +93,9 @@ export async function PUT(
       amountDue,
       periodStatus,
       description,
+      isCommitment,
+      commitmentEndDate,
+      commitmentMonths,
     } = body;
 
     const numAmountDue = amountDue !== undefined ? Number(amountDue) : existing.amountDue;
@@ -115,6 +118,9 @@ export async function PUT(
         status,
         periodStatus: periodStatus ?? existing.periodStatus,
         description: description ?? existing.description,
+        isCommitment: isCommitment !== undefined ? Boolean(isCommitment) : existing.isCommitment,
+        commitmentEndDate: commitmentEndDate ? new Date(commitmentEndDate) : existing.commitmentEndDate,
+        commitmentMonths: commitmentMonths !== undefined ? Number(commitmentMonths) : existing.commitmentMonths,
       },
     });
 
