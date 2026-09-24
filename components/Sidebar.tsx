@@ -22,6 +22,7 @@ import {
   CheckCircle2,
   AlertCircle,
   HardDrive,
+  ReceiptText,
 } from "lucide-react";
 import { PWAInstallButton } from "@/components/PWAInstallButton";
 
@@ -145,6 +146,7 @@ export function Sidebar() {
     { href: "/departmanlar", label: "Departmanlar", icon: Building2 },
     { href: "/maas", label: "Maaş / Tahakkuk", icon: Calculator },
     { href: "/odeme", label: "Personel Ödeme", icon: CreditCard },
+    { href: "/cari", label: "Muhasebe & Cari", icon: ReceiptText },
     { href: "/izin", label: "İzin Girişi & Takip", icon: CalendarCheck },
     { href: "/raporlar", label: "Raporlar & Excel", icon: FileSpreadsheet },
     { href: "/kullanicilar", label: "Yetkili Kullanıcılar", icon: ShieldCheck },

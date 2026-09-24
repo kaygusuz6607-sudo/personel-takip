@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import Link from "next/link";
 import {
   Users,
   Search,
@@ -18,6 +19,7 @@ import {
   AlertCircle,
   FileText,
   Briefcase,
+  ReceiptText,
 } from "lucide-react";
 import { calculateDuration } from "@/lib/date-utils";
 
@@ -437,7 +439,14 @@ export default function PersonellerPage() {
                     </td>
 
                     <td className="py-3.5 px-4 text-right">
-                      <div className="flex items-center justify-end gap-2">
+                      <div className="flex items-center justify-end gap-1.5">
+                        <Link
+                          href={`/cari?staffId=${staff.id}`}
+                          className="p-1.5 text-slate-500 hover:text-teal-700 hover:bg-teal-50 rounded-lg transition-colors"
+                          title="Cari Hesap Ekstresi (Banka & Elden Tüm Hareketler)"
+                        >
+                          <ReceiptText className="w-4 h-4 text-teal-700" />
+                        </Link>
                         <button
                           onClick={() => openEditModal(staff)}
                           className="p-1.5 text-slate-500 hover:text-teal-700 hover:bg-slate-100 rounded-lg transition-colors"
