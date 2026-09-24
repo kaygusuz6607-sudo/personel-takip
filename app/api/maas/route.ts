@@ -56,6 +56,7 @@ export async function GET(request: Request) {
           hireDate: staff.hireDate,
           mebAssignmentDate: staff.mebAssignmentDate,
           sgkStartDate: staff.sgkStartDate,
+          isSaved: true,
           payroll: {
             ...existingPayroll,
             reportDays: existingPayroll.reportDays > 0 ? existingPayroll.reportDays : autoReportDays,
@@ -102,6 +103,7 @@ export async function GET(request: Request) {
         hireDate: staff.hireDate,
         mebAssignmentDate: staff.mebAssignmentDate,
         sgkStartDate: staff.sgkStartDate,
+        isSaved: false,
         payroll: {
           year,
           month,

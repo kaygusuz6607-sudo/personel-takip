@@ -19,6 +19,7 @@ import {
   RotateCcw,
   Building2,
   Coins,
+  Clock,
 } from "lucide-react";
 import { calculatePayroll } from "@/lib/payroll-calculator";
 
@@ -41,6 +42,7 @@ interface PayrollRow {
   hireDate?: string | null;
   mebAssignmentDate?: string | null;
   sgkStartDate?: string | null;
+  isSaved?: boolean;
   payroll: {
     id?: string;
     year: number;
@@ -122,6 +124,7 @@ export default function MaasTahakkukPage() {
   const [savingId, setSavingId] = useState<string | null>(null);
   const [savedSuccessId, setSavedSuccessId] = useState<string | null>(null);
   const [activeModalStaff, setActiveModalStaff] = useState<PayrollRow | null>(null);
+  const [statusFilter, setStatusFilter] = useState<"ALL" | "SAVED" | "PENDING">("ALL");
 
   // Çoklu Ek Ücret ve Kesinti Kalemleri
   const [bonusList, setBonusList] = useState<AdjustmentItem[]>([]);
@@ -163,6 +166,11 @@ export default function MaasTahakkukPage() {
       if (res.ok) {
         setSavedSuccessId(eldenModalStaff.staffId);
         setTimeout(() => setSavedSuccessId(null), 3000);
+        setRows((prev) =>
+          prev.map((r) =>
+            r.staffId === eldenModalStaff.staffId ? { ...r, isSaved: true } : r
+          )
+        );
         setEldenModalStaff(null);
       }
     } catch (err) {
@@ -474,6 +482,9 @@ export default function MaasTahakkukPage() {
       if (res.ok) {
         setSavedSuccessId(row.staffId);
         setTimeout(() => setSavedSuccessId(null), 2500);
+        setRows((prev) =>
+          prev.map((r) => (r.staffId === row.staffId ? { ...r, isSaved: true } : r))
+        );
       } else {
         alert("Kaydedilemedi");
       }
@@ -530,6 +541,69 @@ export default function MaasTahakkukPage() {
         </div>
       </div>
 
+      {/* Tahakkuk Durum Özeti & Filtreler */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-3 rounded-2xl border border-slate-200/80 shadow-xs">
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setStatusFilter("ALL")}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+              statusFilter === "ALL"
+                ? "bg-slate-800 text-white shadow-xs"
+                : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+            }`}
+          >
+            <span>Tümü</span>
+            <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${statusFilter === "ALL" ? "bg-slate-700 text-white" : "bg-slate-200 text-slate-700"}`}>
+              {rows.length}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setStatusFilter("SAVED")}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+              statusFilter === "SAVED"
+                ? "bg-emerald-700 text-white shadow-xs"
+                : "bg-emerald-50 text-emerald-800 border border-emerald-200 hover:bg-emerald-100"
+            }`}
+          >
+            <CheckCircle2 className="w-3.5 h-3.5" />
+            <span>Tahakkuku Yapılanlar</span>
+            <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${statusFilter === "SAVED" ? "bg-emerald-800 text-white" : "bg-emerald-200 text-emerald-900"}`}>
+              {rows.filter((r) => r.isSaved).length}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setStatusFilter("PENDING")}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+              statusFilter === "PENDING"
+                ? "bg-amber-600 text-white shadow-xs"
+                : "bg-amber-50 text-amber-800 border border-amber-200 hover:bg-amber-100"
+            }`}
+          >
+            <Clock className="w-3.5 h-3.5" />
+            <span>Bekleyenler / Taslak</span>
+            <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${statusFilter === "PENDING" ? "bg-amber-700 text-white" : "bg-amber-200 text-amber-900"}`}>
+              {rows.filter((r) => !r.isSaved).length}
+            </span>
+          </button>
+        </div>
+
+        <div className="text-xs text-slate-500 flex items-center gap-3">
+          <div className="flex items-center gap-1.5">
+            <span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
+            <span>Yeşil: <strong>Kaydedildi</strong></span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="w-2.5 h-2.5 rounded-full bg-slate-300"></span>
+            <span>Beyaz: <strong>Kayıt Bekliyor</strong></span>
+          </div>
+        </div>
+      </div>
+
       {/* Bordro Tablosu */}
       <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">
         {loading ? (
@@ -552,14 +626,40 @@ export default function MaasTahakkukPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {rows.map((row) => {
+                {rows
+                  .filter((r) => {
+                    if (statusFilter === "SAVED") return r.isSaved;
+                    if (statusFilter === "PENDING") return !r.isSaved;
+                    return true;
+                  })
+                  .map((row) => {
                   const p = row.payroll;
                   return (
-                    <tr key={row.staffId} className="hover:bg-slate-50/60 transition-colors">
+                    <tr
+                      key={row.staffId}
+                      className={`transition-colors ${
+                        row.isSaved
+                          ? "bg-emerald-50/50 hover:bg-emerald-50/80 border-l-4 border-l-emerald-500"
+                          : "hover:bg-slate-50/60 border-l-4 border-l-transparent"
+                      }`}
+                    >
                       {/* Personel */}
                       <td className="py-3 px-3">
-                        <span className="font-bold text-slate-900 block text-sm">{row.fullName}</span>
-                        <span className="text-[11px] text-slate-400 block">{row.title || row.departments[0] || "Personel"}</span>
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-bold text-slate-900 block text-sm">{row.fullName}</span>
+                          {row.isSaved ? (
+                            <span className="inline-flex items-center gap-0.5 text-[9px] font-bold text-emerald-800 bg-emerald-100 border border-emerald-300 px-1.5 py-0.5 rounded-md">
+                              <CheckCircle2 className="w-2.5 h-2.5 text-emerald-700" />
+                              Kaydedildi
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-0.5 text-[9px] font-medium text-amber-800 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded-md">
+                              <Clock className="w-2.5 h-2.5 text-amber-600" />
+                              Bekliyor
+                            </span>
+                          )}
+                        </div>
+                        <span className="text-[11px] text-slate-400 block mt-0.5">{row.title || row.departments[0] || "Personel"}</span>
                       </td>
 
                       {/* Ücret Modeli */}
@@ -731,13 +831,21 @@ export default function MaasTahakkukPage() {
                           className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold transition-all shadow-2xs ${
                             savedSuccessId === row.staffId
                               ? "bg-emerald-600 text-white"
-                              : "bg-teal-700 hover:bg-teal-800 text-white"
+                              : row.isSaved
+                              ? "bg-emerald-100 hover:bg-emerald-200 text-emerald-900 border border-emerald-300"
+                              : "bg-teal-700 hover:bg-teal-800 text-white shadow-teal-700/20"
                           }`}
+                          title={row.isSaved ? "Tahakkuk kaydedilmiş. Güncellemek için tıklayın." : "Tahakkuku kaydet"}
                         >
                           {savedSuccessId === row.staffId ? (
                             <>
-                              <CheckCircle2 className="w-3.5 h-3.5" />
+                              <CheckCircle2 className="w-3.5 h-3.5 text-white" />
                               <span>Kaydedildi</span>
+                            </>
+                          ) : row.isSaved ? (
+                            <>
+                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-700" />
+                              <span>{savingId === row.staffId ? "..." : "Güncelle"}</span>
                             </>
                           ) : (
                             <>
