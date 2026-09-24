@@ -116,6 +116,12 @@ function parseAdjustmentItems(
   ];
 }
 
+function parseWorkDays(val: any, fallback = 30): number {
+  if (val === null || val === undefined || val === "") return fallback;
+  const n = Number(val);
+  return Number.isFinite(n) ? n : fallback;
+}
+
 export default function MaasTahakkukPage() {
   const [year, setYear] = useState(() => new Date().getFullYear());
   const [month, setMonth] = useState(() => new Date().getMonth() + 1);
@@ -192,7 +198,7 @@ export default function MaasTahakkukPage() {
       mebAssignmentDate: row.mebAssignmentDate,
       sgkStartDate: row.sgkStartDate,
       manualUnofficialAmount: null,
-      workDays: Number(row.payroll.workDays) || 30,
+      workDays: parseWorkDays(row.payroll.workDays),
       reportDays: Number(row.payroll.reportDays) || 0,
       unpaidLeaveDays: Number(row.payroll.unpaidLeaveDays) || 0,
       lessonHours: Number(row.payroll.lessonHours) || 0,
@@ -267,7 +273,7 @@ export default function MaasTahakkukPage() {
           mebAssignmentDate: row.mebAssignmentDate,
           sgkStartDate: row.sgkStartDate,
           manualUnofficialAmount: field === "unofficialAmount" ? Number(value) : updatedPayroll.unofficialAmount !== undefined ? updatedPayroll.unofficialAmount : null,
-          workDays: Number(updatedPayroll.workDays) || 30,
+          workDays: parseWorkDays(updatedPayroll.workDays),
           reportDays: Number(updatedPayroll.reportDays) || 0,
           unpaidLeaveDays: Number(updatedPayroll.unpaidLeaveDays) || 0,
           lessonHours: Number(updatedPayroll.lessonHours) || 0,
@@ -322,7 +328,7 @@ export default function MaasTahakkukPage() {
           mebAssignmentDate: row.mebAssignmentDate,
           sgkStartDate: row.sgkStartDate,
           manualUnofficialAmount: changes.unofficialAmount !== undefined ? Number(changes.unofficialAmount) : updatedPayroll.unofficialAmount !== undefined ? updatedPayroll.unofficialAmount : null,
-          workDays: Number(updatedPayroll.workDays) || 30,
+          workDays: parseWorkDays(updatedPayroll.workDays),
           reportDays: Number(updatedPayroll.reportDays) || 0,
           unpaidLeaveDays: Number(updatedPayroll.unpaidLeaveDays) || 0,
           lessonHours: Number(updatedPayroll.lessonHours) || 0,
@@ -727,12 +733,12 @@ export default function MaasTahakkukPage() {
                               type="number"
                               min="0"
                               max="31"
-                              value={p.workDays}
+                              value={p.workDays ?? 0}
                               onChange={(e) =>
                                 handleInputChange(
                                   row.staffId,
                                   "workDays",
-                                  parseInt(e.target.value) || 0
+                                  e.target.value === "" ? 0 : parseInt(e.target.value) || 0
                                 )
                               }
                               className="w-14 px-2 py-1 bg-slate-50 border border-slate-200 rounded text-center font-bold text-slate-800"

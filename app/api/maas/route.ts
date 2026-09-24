@@ -182,7 +182,7 @@ export async function POST(request: Request) {
       mebAssignmentDate: staff.mebAssignmentDate,
       sgkStartDate: staff.sgkStartDate,
       manualUnofficialAmount: customUnofficialAmount !== undefined && customUnofficialAmount !== null ? Number(customUnofficialAmount) : null,
-      workDays: Number(workDays) || 30,
+      workDays: workDays !== undefined && workDays !== null && workDays !== "" && !isNaN(Number(workDays)) ? Number(workDays) : 30,
       reportDays: Number(reportDays) || 0,
       unpaidLeaveDays: Number(unpaidLeaveDays) || 0,
       lessonHours: Number(lessonHours) || 0,
@@ -200,6 +200,8 @@ export async function POST(request: Request) {
       manualStampTax: Number(manualStampTax) || 0,
     });
 
+    const safeWorkDays = workDays !== undefined && workDays !== null && workDays !== "" && !isNaN(Number(workDays)) ? Number(workDays) : 30;
+
     const bonusItemsStr = typeof bonusItems === "string" ? bonusItems : bonusItems ? JSON.stringify(bonusItems) : null;
     const deductionItemsStr = typeof deductionItems === "string" ? deductionItems : deductionItems ? JSON.stringify(deductionItems) : null;
 
@@ -212,7 +214,7 @@ export async function POST(request: Request) {
         },
       },
       update: {
-        workDays: Number(workDays),
+        workDays: safeWorkDays,
         reportDays: Number(reportDays),
         unpaidLeaveDays: Number(unpaidLeaveDays),
         lessonHours: Number(lessonHours),
@@ -247,7 +249,7 @@ export async function POST(request: Request) {
         staffId,
         year: Number(year),
         month: Number(month),
-        workDays: Number(workDays),
+        workDays: safeWorkDays,
         reportDays: Number(reportDays),
         unpaidLeaveDays: Number(unpaidLeaveDays),
         lessonHours: Number(lessonHours),
