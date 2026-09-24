@@ -66,12 +66,12 @@ export function calculateAnnualLeaveEntitlement(
   hireDateStr: string | Date | null | undefined
 ): AnnualLeaveEntitlementResult {
   if (!hireDateStr) {
-    return { completedYears: 0, annualRate: 14, annualEntitled: 14 };
+    return { completedYears: 0, annualRate: 14, annualEntitled: 0 };
   }
 
   const hire = parseSafeDate(hireDateStr);
   if (!hire) {
-    return { completedYears: 0, annualRate: 14, annualEntitled: 14 };
+    return { completedYears: 0, annualRate: 14, annualEntitled: 0 };
   }
 
   const today = new Date();
@@ -83,13 +83,21 @@ export function calculateAnnualLeaveEntitlement(
     completedYears -= 1;
   }
 
-  // Henüz 1 yılı doldurmamış olsa bile kurumsal olarak 1. yıl için 14 gün tanımlanır
-  const yearsToCount = Math.max(1, completedYears);
+  completedYears = Math.max(0, completedYears);
+
+  // 4857 s.k. m. 53: 1 tam yılı doldurmayan personelin yıllık izin hak edişi 0 gündür
+  if (completedYears === 0) {
+    return {
+      completedYears: 0,
+      annualRate: 14,
+      annualEntitled: 0,
+    };
+  }
 
   let totalEntitled = 0;
   let currentRate = 14;
 
-  for (let year = 1; year <= yearsToCount; year++) {
+  for (let year = 1; year <= completedYears; year++) {
     if (year <= 5) {
       totalEntitled += 14;
       currentRate = 14;
@@ -103,7 +111,7 @@ export function calculateAnnualLeaveEntitlement(
   }
 
   return {
-    completedYears: Math.max(0, completedYears),
+    completedYears,
     annualRate: currentRate,
     annualEntitled: totalEntitled,
   };

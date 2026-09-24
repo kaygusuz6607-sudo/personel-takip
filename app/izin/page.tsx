@@ -343,7 +343,9 @@ export default function IzinPage() {
                     <td className="py-3 px-3 text-center">
                       <span className="font-semibold text-slate-800">{s.annualEntitled} gün</span>
                       <span className="block text-[10px] text-teal-700 font-medium">
-                        {(s.completedYears || 1)} yıl x {s.annualRate} gün
+                        {s.completedYears && s.completedYears > 0
+                          ? `${s.completedYears} yıl x ${s.annualRate} gün`
+                          : "1 yıl dolmadı (0 gün)"}
                       </span>
                     </td>
 
@@ -546,7 +548,9 @@ export default function IzinPage() {
                       {selectedStaff.annualEntitled} <span className="text-xs font-normal text-blue-700">gün</span>
                     </p>
                     <p className="text-[11px] text-blue-700/80 font-medium">
-                      {(selectedStaff.completedYears || 1)} yıl x {selectedStaff.annualRate} gün hakediş
+                      {selectedStaff.completedYears && selectedStaff.completedYears > 0
+                        ? `${selectedStaff.completedYears} yıl x ${selectedStaff.annualRate} gün hakediş`
+                        : "1 yıl dolmadı (Hakediş 0 gün)"}
                     </p>
                   </div>
 
