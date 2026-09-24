@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, Fragment } from "react";
 import {
   CalendarCheck,
   Plus,
@@ -24,6 +24,9 @@ import {
   HeartPulse,
   TrendingDown,
   Info,
+  ChevronDown,
+  ChevronRight,
+  ChevronUp,
 } from "lucide-react";
 
 interface StaffLeaveItem {
@@ -83,8 +86,10 @@ export default function IzinPage() {
   const [submitting, setSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
 
-  // Personel Detay Modalı State'leri
+  // Personel Detay Modalı & Akordeon State'leri
   const [selectedStaff, setSelectedStaff] = useState<StaffSummary | null>(null);
+  const [expandedStaffId, setExpandedStaffId] = useState<string | null>(null);
+  const [staffSearch, setStaffSearch] = useState<string>("");
   const [detailFilterType, setDetailFilterType] = useState<string>("ALL");
   const [detailSearchTerm, setDetailSearchTerm] = useState<string>("");
 
@@ -251,20 +256,33 @@ export default function IzinPage() {
         </button>
       </div>
 
-      {/* Personel İzin & Telafi Bakiyesi Tablosu */}
+      {/* Personel İzin & Telafi Bakiyesi Tablosu (Personel Bazlı Gruplanmış & Genişletilebilir) */}
       <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
-        <div className="p-4 bg-slate-50/80 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+        <div className="p-4 bg-slate-50/80 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div className="flex items-center gap-2">
             <Award className="w-4 h-4 text-teal-700" />
-            <h2 className="font-bold text-slate-800 text-sm">Personel İzin & Telafi Bakiyeleri</h2>
+            <h2 className="font-bold text-slate-800 text-sm">Personel İzin & Telafi Listesi</h2>
             <span className="text-xs font-semibold px-2 py-0.5 bg-teal-100 text-teal-900 rounded-full">
               {summaries.length} Personel
             </span>
           </div>
-          <span className="text-xs text-slate-500 flex items-center gap-1.5 font-medium">
-            <Info className="w-3.5 h-3.5 text-teal-600" />
-            Tüm geçmişi ve detayları görmek için personele tıklayınız
-          </span>
+
+          <div className="flex items-center gap-2">
+            <div className="relative">
+              <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                type="text"
+                value={staffSearch}
+                onChange={(e) => setStaffSearch(e.target.value)}
+                placeholder="Personel ara (örn: Akif, Muhammed Ali)..."
+                className="pl-8 pr-3 py-1.5 bg-white border border-slate-200 rounded-xl text-xs font-medium focus:outline-none focus:ring-2 focus:ring-teal-600/20"
+              />
+            </div>
+            <span className="text-xs text-slate-500 hidden md:inline-flex items-center gap-1">
+              <Info className="w-3.5 h-3.5 text-teal-600" />
+              İzin geçmişini görmek için personele tıklayın
+            </span>
+          </div>
         </div>
 
         <div className="overflow-x-auto">
@@ -272,7 +290,7 @@ export default function IzinPage() {
             <thead>
               <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold uppercase tracking-wider">
                 <th className="py-3 px-4">Personel (Tıklayınız)</th>
-                <th className="py-3 px-3 text-center">Kıdem Süresi</th>
+                <th className="py-3 px-3 text-center">Kıdem</th>
                 <th className="py-3 px-3 text-center">Hak Ettiği Yıllık</th>
                 <th className="py-3 px-3 text-center">Kullandığı İzin</th>
                 <th className="py-3 px-3 text-center">Kullanmadığı (Kalan)</th>
@@ -282,7 +300,7 @@ export default function IzinPage() {
                 <th className="py-3 px-4 text-right font-bold text-teal-900">
                   Toplam Kullanılabilir
                 </th>
-                <th className="py-3 px-3 text-center">İncele</th>
+                <th className="py-3 px-3 text-center">İzin Kayıtları</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -299,185 +317,257 @@ export default function IzinPage() {
                   </td>
                 </tr>
               ) : (
-                summaries.map((s) => (
-                  <tr
-                    key={s.staffId}
-                    onClick={() => {
-                      setSelectedStaff(s);
-                      setDetailFilterType("ALL");
-                      setDetailSearchTerm("");
-                    }}
-                    className="hover:bg-teal-50/50 cursor-pointer transition-colors group"
-                    title="Detaylı izin kartını açmak için tıklayınız"
-                  >
-                    {/* Personel Kolonu */}
-                    <td className="py-3 px-4 min-w-[200px]">
-                      <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-full bg-teal-100 text-teal-800 font-bold flex items-center justify-center text-xs group-hover:bg-teal-700 group-hover:text-white transition-colors">
-                          {s.fullName
-                            .split(" ")
-                            .map((n) => n[0])
-                            .slice(0, 2)
-                            .join("")}
-                        </div>
-                        <div>
-                          <p className="font-bold text-slate-900 text-sm group-hover:text-teal-800 transition-colors">
-                            {s.fullName}
-                          </p>
-                          <p className="text-[11px] text-slate-400">
-                            {s.title || (s.departments && s.departments[0])}
-                          </p>
-                        </div>
-                      </div>
-                    </td>
+                summaries
+                  .filter((s) => {
+                    if (!staffSearch.trim()) return true;
+                    const q = staffSearch.toLowerCase();
+                    return (
+                      s.fullName.toLowerCase().includes(q) ||
+                      s.tcNo.includes(q) ||
+                      (s.title && s.title.toLowerCase().includes(q))
+                    );
+                  })
+                  .map((s) => {
+                    const isExpanded = expandedStaffId === s.staffId;
+                    return (
+                      <Fragment key={s.staffId}>
+                        {/* Personel Satırı (Her personel listede TEK KEZ yer alır) */}
+                        <tr
+                          onClick={() => setExpandedStaffId(isExpanded ? null : s.staffId)}
+                          className={`hover:bg-teal-50/50 cursor-pointer transition-colors group ${
+                            isExpanded ? "bg-teal-50/40 border-l-4 border-l-teal-600" : ""
+                          }`}
+                          title="İzin geçmişini açmak / kapatmak için tıklayınız"
+                        >
+                          {/* Personel Adı */}
+                          <td className="py-3 px-4 min-w-[210px]">
+                            <div className="flex items-center gap-3">
+                              <button
+                                type="button"
+                                className="p-1 rounded-md text-slate-400 group-hover:text-teal-700 transition-colors"
+                              >
+                                {isExpanded ? (
+                                  <ChevronDown className="w-4 h-4 text-teal-700" />
+                                ) : (
+                                  <ChevronRight className="w-4 h-4 text-slate-400" />
+                                )}
+                              </button>
+                              <div className="w-8 h-8 rounded-full bg-teal-100 text-teal-800 font-bold flex items-center justify-center text-xs group-hover:bg-teal-700 group-hover:text-white transition-colors shrink-0">
+                                {s.fullName
+                                  .split(" ")
+                                  .map((n) => n[0])
+                                  .slice(0, 2)
+                                  .join("")}
+                              </div>
+                              <div>
+                                <p className="font-bold text-slate-900 text-sm group-hover:text-teal-800 transition-colors">
+                                  {s.fullName}
+                                </p>
+                                <p className="text-[11px] text-slate-400">
+                                  {s.title || (s.departments && s.departments[0]) || "Personel"}
+                                </p>
+                              </div>
+                            </div>
+                          </td>
 
-                    {/* Kıdem */}
-                    <td className="py-3 px-3 text-center">
-                      <span className="inline-flex items-center gap-1 bg-slate-100 text-slate-700 px-2 py-0.5 rounded text-[11px] font-medium">
-                        <Briefcase className="w-3 h-3 text-slate-400" />
-                        {s.seniorityText}
-                      </span>
-                    </td>
+                          {/* Kıdem */}
+                          <td className="py-3 px-3 text-center">
+                            <span className="inline-flex items-center gap-1 bg-slate-100 text-slate-700 px-2 py-0.5 rounded text-[11px] font-medium">
+                              <Briefcase className="w-3 h-3 text-slate-400" />
+                              {s.seniorityText}
+                            </span>
+                          </td>
 
-                    {/* Hak Edilen */}
-                    <td className="py-3 px-3 text-center">
-                      <span className="font-semibold text-slate-800">{s.annualEntitled} gün</span>
-                      <span className="block text-[10px] text-teal-700 font-medium">
-                        {s.completedYears && s.completedYears > 0
-                          ? `${s.completedYears} yıl x ${s.annualRate} gün`
-                          : "1 yıl dolmadı (0 gün)"}
-                      </span>
-                    </td>
+                          {/* Hak Edilen */}
+                          <td className="py-3 px-3 text-center">
+                            <span className="font-semibold text-slate-800">{s.annualEntitled} gün</span>
+                            <span className="block text-[10px] text-teal-700 font-medium">
+                              {s.completedYears && s.completedYears > 0
+                                ? `${s.completedYears} yıl x ${s.annualRate} gün`
+                                : "1 yıl dolmadı (0 gün)"}
+                            </span>
+                          </td>
 
-                    {/* Kullanılan */}
-                    <td className="py-3 px-3 text-center">
-                      <span className="font-semibold text-rose-600">{s.annualUsed} gün</span>
-                      {s.totalUsedAllLeaves > s.annualUsed && (
-                        <span className="block text-[10px] text-slate-400" title="Rapor ve mazeret dahil tüm izinler">
-                          (Toplam: {s.totalUsedAllLeaves} gün)
-                        </span>
-                      )}
-                    </td>
+                          {/* Kullanılan */}
+                          <td className="py-3 px-3 text-center">
+                            <span className="font-semibold text-rose-600">{s.annualUsed} gün</span>
+                            {s.totalUsedAllLeaves > s.annualUsed && (
+                              <span className="block text-[10px] text-slate-400" title="Rapor ve mazeret dahil tüm izinler">
+                                (Toplam: {s.totalUsedAllLeaves} gün)
+                              </span>
+                            )}
+                          </td>
 
-                    {/* Kalan (Kullanmadığı) */}
-                    <td className="py-3 px-3 text-center">
-                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold bg-emerald-100 text-emerald-900 border border-emerald-300">
-                        {s.annualRemaining} gün
-                      </span>
-                    </td>
+                          {/* Kalan (Kullanmadığı) */}
+                          <td className="py-3 px-3 text-center">
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold bg-emerald-100 text-emerald-900 border border-emerald-300">
+                              {s.annualRemaining} gün
+                            </span>
+                          </td>
 
-                    {/* Resmi Tatil Telafisi */}
-                    <td className="py-3 px-3 text-center bg-amber-50/40">
-                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-950 border border-amber-300">
-                        +{s.holidayCompensationDays} gün
-                      </span>
-                    </td>
+                          {/* Resmi Tatil Telafisi */}
+                          <td className="py-3 px-3 text-center bg-amber-50/40">
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-950 border border-amber-300">
+                              +{s.holidayCompensationDays} gün
+                            </span>
+                          </td>
 
-                    {/* Toplam Kullanılabilir */}
-                    <td className="py-3 px-4 text-right">
-                      <span className="font-extrabold text-teal-800 text-sm block">
-                        {s.totalAvailableDays} gün
-                      </span>
-                      <span className="text-[10px] text-slate-400">kullanıma hazır</span>
-                    </td>
+                          {/* Toplam Kullanılabilir */}
+                          <td className="py-3 px-4 text-right">
+                            <span className="font-extrabold text-teal-800 text-sm block">
+                              {s.totalAvailableDays} gün
+                            </span>
+                            <span className="text-[10px] text-slate-400">kullanıma hazır</span>
+                          </td>
 
-                    {/* İncele Butonu */}
-                    <td className="py-3 px-3 text-center">
-                      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold bg-slate-100 text-slate-700 group-hover:bg-teal-700 group-hover:text-white transition-all shadow-2xs">
-                        <Eye className="w-3.5 h-3.5" />
-                        <span>Detay</span>
-                      </span>
-                    </td>
-                  </tr>
-                ))
+                          {/* İncele & Genişlet Butonları */}
+                          <td className="py-3 px-3 text-center" onClick={(e) => e.stopPropagation()}>
+                            <div className="flex items-center justify-center gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => setExpandedStaffId(isExpanded ? null : s.staffId)}
+                                className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold transition-all shadow-2xs ${
+                                  isExpanded
+                                    ? "bg-teal-700 text-white"
+                                    : "bg-slate-100 hover:bg-teal-50 text-slate-700 hover:text-teal-800 border border-slate-200"
+                                }`}
+                              >
+                                <span>{isExpanded ? "Kapat" : `İzinler (${s.leaves.length})`}</span>
+                                {isExpanded ? (
+                                  <ChevronUp className="w-3.5 h-3.5" />
+                                ) : (
+                                  <ChevronDown className="w-3.5 h-3.5" />
+                                )}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setSelectedStaff(s);
+                                  setDetailFilterType("ALL");
+                                  setDetailSearchTerm("");
+                                }}
+                                className="p-1 text-slate-400 hover:text-teal-700 hover:bg-teal-50 rounded-lg transition-colors"
+                                title="Tam Ekran İzin Kartını Aç"
+                              >
+                                <Eye className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+
+                        {/* Genişletilmiş İzin Hareketleri (Personelin üzerine tıklandığında açılan liste) */}
+                        {isExpanded && (
+                          <tr className="bg-slate-50/90 border-b-2 border-teal-600/30">
+                            <td colSpan={8} className="p-4 sm:p-5">
+                              <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 space-y-3">
+                                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-100">
+                                  <div className="flex items-center gap-2">
+                                    <CalendarCheck className="w-4 h-4 text-teal-700" />
+                                    <h3 className="font-bold text-slate-900 text-sm">
+                                      {s.fullName} — Kayıtlı İzin Hareketleri
+                                    </h3>
+                                    <span className="text-xs px-2 py-0.5 rounded-full font-bold bg-teal-100 text-teal-900">
+                                      {s.leaves.length} Kayıt
+                                    </span>
+                                  </div>
+
+                                  <div className="flex items-center gap-2">
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setForm((f) => ({ ...f, staffId: s.staffId }));
+                                        setModalOpen(true);
+                                      }}
+                                      className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-teal-700 hover:bg-teal-800 text-white rounded-xl text-xs font-bold shadow-2xs transition-colors"
+                                    >
+                                      <Plus className="w-3.5 h-3.5" />
+                                      <span>+ Bu Personele İzin Ekle</span>
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setSelectedStaff(s);
+                                        setDetailFilterType("ALL");
+                                        setDetailSearchTerm("");
+                                      }}
+                                      className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-colors"
+                                    >
+                                      <Eye className="w-3.5 h-3.5" />
+                                      <span>Tam Detay Raporu</span>
+                                    </button>
+                                  </div>
+                                </div>
+
+                                {s.leaves.length === 0 ? (
+                                  <div className="py-6 text-center text-slate-400 text-xs">
+                                    Bu personele ait henüz kayıtlı izin hareketi bulunmuyor.
+                                  </div>
+                                ) : (
+                                  <div className="overflow-x-auto">
+                                    <table className="w-full text-left border-collapse text-xs">
+                                      <thead>
+                                        <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 font-bold uppercase tracking-wider text-[11px]">
+                                          <th className="py-2.5 px-3">İzin Türü</th>
+                                          <th className="py-2.5 px-3">Tarih Aralığı</th>
+                                          <th className="py-2.5 px-3 text-center">Gün</th>
+                                          <th className="py-2.5 px-3">Açıklama / Sebep</th>
+                                          <th className="py-2.5 px-3 text-center">Durum</th>
+                                          <th className="py-2.5 px-3 text-right">İşlem</th>
+                                        </tr>
+                                      </thead>
+                                      <tbody className="divide-y divide-slate-100">
+                                        {s.leaves.map((l) => {
+                                          const badge = getLeaveTypeBadge(l.leaveType);
+                                          return (
+                                            <tr key={l.id} className="hover:bg-slate-50/60">
+                                              <td className="py-2.5 px-3">
+                                                <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold border ${badge.className}`}>
+                                                  <span>{badge.icon}</span>
+                                                  <span>{badge.label}</span>
+                                                </span>
+                                              </td>
+                                              <td className="py-2.5 px-3 text-slate-700 font-mono text-[11px]">
+                                                {formatDate(l.startDate)} ➔ {formatDate(l.endDate)}
+                                              </td>
+                                              <td className="py-2.5 px-3 text-center font-bold text-slate-900">
+                                                {l.daysCount} gün
+                                              </td>
+                                              <td className="py-2.5 px-3 text-slate-600 max-w-xs truncate">
+                                                {l.description || "—"}
+                                              </td>
+                                              <td className="py-2.5 px-3 text-center">
+                                                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800">
+                                                  Onaylandı
+                                                </span>
+                                              </td>
+                                              <td className="py-2.5 px-3 text-right">
+                                                <button
+                                                  type="button"
+                                                  onClick={() => handleDelete(l.id)}
+                                                  className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
+                                                  title="Bu İzin Kaydını Sil"
+                                                >
+                                                  <Trash2 className="w-4 h-4" />
+                                                </button>
+                                              </td>
+                                            </tr>
+                                          );
+                                        })}
+                                      </tbody>
+                                    </table>
+                                  </div>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </Fragment>
+                    );
+                  })
               )}
             </tbody>
           </table>
         </div>
-      </div>
-
-      {/* Genel İzin Geçmişi Tablosu */}
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
-        <div className="p-4 bg-slate-50/80 border-b border-slate-100 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <CalendarCheck className="w-4 h-4 text-teal-700" />
-            <h2 className="font-bold text-slate-800 text-sm">Son Kayıtlı İzinler & Telafi Kullanımları</h2>
-          </div>
-          <span className="text-xs text-slate-500">Tüm personellerin son hareketleri</span>
-        </div>
-
-        {loading ? (
-          <div className="p-10 text-center text-slate-400">Yükleniyor...</div>
-        ) : leaves.length === 0 ? (
-          <div className="p-10 text-center text-slate-400">Henüz izin kaydı girilmemiş.</div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse text-xs">
-              <thead>
-                <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold uppercase tracking-wider">
-                  <th className="py-3 px-4">Personel</th>
-                  <th className="py-3 px-4">İzin Türü</th>
-                  <th className="py-3 px-4">Tarih Aralığı</th>
-                  <th className="py-3 px-3 text-center">Gün</th>
-                  <th className="py-3 px-4">Açıklama / Sebep</th>
-                  <th className="py-3 px-4 text-right">İşlem</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {leaves.map((l) => {
-                  const badge = getLeaveTypeBadge(l.leaveType);
-                  return (
-                    <tr key={l.id} className="hover:bg-slate-50/70">
-                      <td className="py-3 px-4 font-bold text-slate-800">
-                        <button
-                          onClick={() => {
-                            const summary = summaries.find((s) => s.staffId === l.staff.id);
-                            if (summary) {
-                              setSelectedStaff(summary);
-                              setDetailFilterType("ALL");
-                              setDetailSearchTerm("");
-                            }
-                          }}
-                          className="hover:text-teal-700 hover:underline text-left inline-flex items-center gap-1.5"
-                          title="Personel İzin Kartını Aç"
-                        >
-                          <User className="w-3.5 h-3.5 text-teal-600" />
-                          <span>{l.staff.fullName}</span>
-                        </button>
-                      </td>
-                      <td className="py-3 px-4">
-                        <span
-                          className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold border ${badge.className}`}
-                        >
-                          <span>{badge.icon}</span>
-                          <span>{badge.label}</span>
-                        </span>
-                      </td>
-                      <td className="py-3 px-4 text-slate-600 font-mono text-[11px]">
-                        {formatDate(l.startDate)} ➔ {formatDate(l.endDate)}
-                      </td>
-                      <td className="py-3 px-3 text-center font-bold text-slate-800">
-                        {l.daysCount} gün
-                      </td>
-                      <td className="py-3 px-4 text-slate-600 max-w-xs truncate">
-                        {l.description || "—"}
-                      </td>
-                      <td className="py-3 px-4 text-right">
-                        <button
-                          onClick={() => handleDelete(l.id)}
-                          className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded transition-colors"
-                          title="İzin Kaydını Sil"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
       </div>
 
       {/* ============================================================== */}
