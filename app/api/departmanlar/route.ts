@@ -8,6 +8,18 @@ export async function GET() {
         _count: {
           select: { staffs: true },
         },
+        staffs: {
+          include: {
+            staff: {
+              select: {
+                id: true,
+                fullName: true,
+                title: true,
+                status: true,
+              },
+            },
+          },
+        },
       },
       orderBy: { name: "asc" },
     });
