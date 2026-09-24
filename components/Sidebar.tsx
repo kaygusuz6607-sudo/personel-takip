@@ -21,6 +21,7 @@ import {
   User as UserIcon,
   CheckCircle2,
   AlertCircle,
+  HardDrive,
 } from "lucide-react";
 
 interface AuthUser {
@@ -146,6 +147,7 @@ export function Sidebar() {
     { href: "/izin", label: "İzin Girişi & Takip", icon: CalendarCheck },
     { href: "/raporlar", label: "Raporlar & Excel", icon: FileSpreadsheet },
     { href: "/kullanicilar", label: "Yetkili Kullanıcılar", icon: ShieldCheck },
+    { href: "/yedekleme", label: "Yedek & Senkronizasyon", icon: HardDrive },
   ];
 
   const getInitials = (name?: string) => {
