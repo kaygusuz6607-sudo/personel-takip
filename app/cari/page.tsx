@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, Suspense } from "react";
+import Link from "next/link";
 import { useSearchParams, useRouter } from "next/navigation";
 import {
   Users,
@@ -249,6 +250,24 @@ function CariContent() {
 
   return (
     <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto w-full space-y-6">
+      {/* Üst Sekmeler: Personel Cari & Okul Giderleri */}
+      <div className="flex items-center gap-2 border-b border-slate-200 pb-3 print:hidden">
+        <Link
+          href="/cari"
+          className="px-4 py-2 rounded-xl text-sm font-bold bg-teal-700 text-white shadow-xs flex items-center gap-2"
+        >
+          <FileText className="w-4 h-4" />
+          <span>Personel Cari & Ekstreler</span>
+        </Link>
+        <Link
+          href="/giderler"
+          className="px-4 py-2 rounded-xl text-sm font-semibold text-slate-600 hover:text-slate-900 hover:bg-slate-100 flex items-center gap-2 transition-colors"
+        >
+          <Building2 className="w-4 h-4" />
+          <span>Okul Giderleri & Taksit Takibi</span>
+        </Link>
+      </div>
+
       {/* 1. Üst Başlık & Çıktı Butonu (Yazdırmada gizlenmez) */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 print:hidden">
         <div>

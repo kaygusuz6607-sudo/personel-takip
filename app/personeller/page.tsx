@@ -43,6 +43,7 @@ interface Staff {
   fullName: string;
   birthDate: string | null;
   phone: string | null;
+  phone2?: string | null;
   email: string | null;
   iban: string | null;
   accountNumber: string | null;
@@ -211,6 +212,7 @@ export default function PersonellerPage() {
     fullName: "",
     birthDate: "",
     phone: "",
+    phone2: "",
     email: "",
     iban: "",
     accountNumber: "",
@@ -269,6 +271,7 @@ export default function PersonellerPage() {
       fullName: "",
       birthDate: "",
       phone: "",
+      phone2: "",
       email: "",
       iban: "",
       accountNumber: "",
@@ -299,6 +302,7 @@ export default function PersonellerPage() {
       fullName: staff.fullName,
       birthDate: staff.birthDate ? staff.birthDate.split("T")[0] : "",
       phone: staff.phone || "",
+      phone2: staff.phone2 || "",
       email: staff.email || "",
       iban: staff.iban || "",
       accountNumber: staff.accountNumber || "",
@@ -566,7 +570,14 @@ export default function PersonellerPage() {
                       {staff.phone && (
                         <p className="text-xs text-slate-600 flex items-center gap-1.5">
                           <Phone className="w-3.5 h-3.5 text-slate-400" />
-                          {staff.phone}
+                          <span>{staff.phone}</span>
+                        </p>
+                      )}
+                      {staff.phone2 && (
+                        <p className="text-xs text-teal-700 flex items-center gap-1.5 font-medium" title="Kurum İçi / İş Telefonu">
+                          <Phone className="w-3.5 h-3.5 text-teal-600" />
+                          <span>{staff.phone2}</span>
+                          <span className="text-[9px] bg-teal-50 text-teal-700 border border-teal-200 px-1 py-0.2 rounded font-semibold">Kurum</span>
                         </p>
                       )}
                       {staff.email && (
@@ -758,13 +769,27 @@ export default function PersonellerPage() {
 
                   <div>
                     <label className="block text-xs font-medium text-slate-700 mb-1">
-                      Telefon Numarası
+                      1. Telefon (Kişisel)
                     </label>
                     <input
                       type="text"
                       value={form.phone}
                       onChange={(e) => setForm({ ...form, phone: e.target.value })}
                       placeholder="05xx xxx xx xx"
+                      className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-600/20 focus:border-teal-600"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-slate-700 mb-1 flex items-center justify-between">
+                      <span>2. Telefon (Kurum İçi / İş)</span>
+                      <span className="text-[10px] text-teal-600 font-normal">Opsiyonel</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={form.phone2}
+                      onChange={(e) => setForm({ ...form, phone2: e.target.value })}
+                      placeholder="Kurum dahili veya iş cep no"
                       className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-600/20 focus:border-teal-600"
                     />
                   </div>

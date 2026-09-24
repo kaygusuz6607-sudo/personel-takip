@@ -716,7 +716,45 @@ export default function MaasTahakkukPage() {
 
                       {/* Çalışma / Saat Girişi */}
                       <td className="py-3 px-3 text-center">
-                        {row.salaryType === "HOURLY" ? (
+                        {row.salaryType === "HYBRID" ? (
+                          <div className="flex flex-col gap-1 items-center justify-center min-w-[125px]">
+                            <div className="flex items-center gap-1" title="Aylık Maaş Üzerinden Çalışılan Gün Sayısı">
+                              <span className="text-[10px] font-bold text-teal-800 w-8 text-right">Gün:</span>
+                              <input
+                                type="number"
+                                min="0"
+                                max="31"
+                                value={p.workDays ?? 0}
+                                onChange={(e) =>
+                                  handleInputChange(
+                                    row.staffId,
+                                    "workDays",
+                                    e.target.value === "" ? 0 : parseInt(e.target.value) || 0
+                                  )
+                                }
+                                className="w-14 px-1.5 py-0.5 bg-teal-50 border border-teal-300 rounded text-center font-bold text-teal-900 text-xs"
+                              />
+                              <span className="text-[10px] text-slate-500">gün</span>
+                            </div>
+                            <div className="flex items-center gap-1" title="Saat Ücreti Üzerinden Aylık Ders Saati">
+                              <span className="text-[10px] font-bold text-blue-800 w-8 text-right">Saat:</span>
+                              <input
+                                type="number"
+                                min="0"
+                                value={p.lessonHours ?? 0}
+                                onChange={(e) =>
+                                  handleInputChange(
+                                    row.staffId,
+                                    "lessonHours",
+                                    parseFloat(e.target.value) || 0
+                                  )
+                                }
+                                className="w-14 px-1.5 py-0.5 bg-blue-50 border border-blue-300 rounded text-center font-bold text-blue-900 text-xs"
+                              />
+                              <span className="text-[10px] text-slate-500">saat</span>
+                            </div>
+                          </div>
+                        ) : row.salaryType === "HOURLY" ? (
                           <div className="flex items-center justify-center gap-1">
                             <input
                               type="number"
@@ -795,8 +833,13 @@ export default function MaasTahakkukPage() {
                       </td>
 
                       {/* Temel Hakediş */}
-                      <td className="py-3 px-3 text-right font-bold text-slate-800 min-w-[110px]">
-                        {formatCurrency(p.grossTotal)}
+                      <td className="py-3 px-3 text-right font-bold text-slate-800 min-w-[125px]">
+                        <span className="block text-slate-900 font-extrabold">{formatCurrency(p.grossTotal)}</span>
+                        {row.salaryType === "HYBRID" && (
+                          <span className="block text-[10px] font-medium text-slate-500" title="Maaş Hakedişi + Saat Hakedişi">
+                            M: {formatCurrency(p.baseEarned)} + S: {formatCurrency(p.hourlyEarned)}
+                          </span>
+                        )}
                       </td>
 
                       {/* Ek Ücret (+) & Kesinti (-) Giriş / Düzenleme Butonu */}

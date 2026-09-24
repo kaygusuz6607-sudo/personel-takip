@@ -43,6 +43,7 @@ model Staff {
   fullName             String
   birthDate            DateTime?
   phone                String?
+  phone2               String?           // 2. Telefon (Kurum İçi / İş Hattı)
   email                String?
   iban                 String?
   accountNumber        String? // Banka Hesap Numarası
@@ -144,4 +145,24 @@ model LeaveRecord {
   description String?
   status      String   @default("APPROVED") // APPROVED, PENDING, REJECTED
   createdAt   DateTime @default(now())
+}
+
+model SchoolExpense {
+  id              String    @id @default(uuid())
+  title           String    // Cari / Kurum / Kişi Adı
+  category        String    // RENT, INVOICE, CREDIT_CARD, LOAN, STUDENT_REFUND, CHEQUE, TAX_SGK, SALARY, COMPENSATION, OTHER
+  subCategory     String?   // Alt Kategori (F-Elektrik, F-Su, F-Doğalgaz, F-Haberleşme, vb.)
+  period          String?   // Dönem (7.Ay, 8.Ay vb.)
+  installmentInfo String?   // Taksit Durumu (4t/8t, 3t/10t, 2t/3t vb.)
+  dueDate         DateTime? // Vade Tarihi
+  dueDateStr      String?   // Tarih Metni (Örn: 15 Ağustos 2026)
+  amountDue       Float     @default(0) // Ödenecek Tutar
+  amountPaid      Float     @default(0) // Ödenen Tutar
+  amountRemaining Float     @default(0) // Kalan Tutar
+  status          String    @default("PENDING") // PENDING, PARTIAL, PAID
+  periodStatus    String?   // Cari Dönem, Geçmiş Dönem, vb.
+  description     String?   // Açıklama / Not
+  paymentHistory  String?   // JSON parçalı ödemeler listesi
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 }

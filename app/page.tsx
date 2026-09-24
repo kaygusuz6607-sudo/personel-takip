@@ -57,7 +57,7 @@ export default async function DashboardPage() {
   }
 
   const grossTotal = latestPayrolls.reduce((sum, p) => sum + p.grossTotal, 0);
-  const totalDeductions = latestPayrolls.reduce((sum, p) => sum + p.totalDeductions, 0);
+  const totalSpecialDeductions = latestPayrolls.reduce((sum, p) => sum + (p.deductionAmount || 0), 0);
   const netTotal = latestPayrolls.reduce((sum, p) => sum + p.netTotal, 0);
   const paidCount = latestPayrolls.filter((p) => p.isPaid).length;
 
@@ -164,8 +164,8 @@ export default async function DashboardPage() {
             <p className="text-2xl font-bold text-white mt-1">{formatCurrency(grossTotal)}</p>
           </div>
           <div>
-            <p className="text-xs text-rose-300">Toplam Kesinti (SGK + Vergi)</p>
-            <p className="text-2xl font-bold text-rose-300 mt-1">- {formatCurrency(totalDeductions)}</p>
+            <p className="text-xs text-rose-300">Personel Özel Kesintileri</p>
+            <p className="text-2xl font-bold text-rose-300 mt-1">- {formatCurrency(totalSpecialDeductions)}</p>
           </div>
           <div>
             <p className="text-xs text-emerald-300">Net Ödeme Tutarı</p>

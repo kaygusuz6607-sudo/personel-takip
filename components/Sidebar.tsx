@@ -23,8 +23,10 @@ import {
   AlertCircle,
   HardDrive,
   ReceiptText,
+  Coins,
 } from "lucide-react";
 import { PWAInstallButton } from "@/components/PWAInstallButton";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 interface AuthUser {
   id: string;
@@ -146,6 +148,7 @@ export function Sidebar() {
     { href: "/departmanlar", label: "Departmanlar", icon: Building2 },
     { href: "/maas", label: "Maaş / Tahakkuk", icon: Calculator },
     { href: "/odeme", label: "Personel Ödeme", icon: CreditCard },
+    { href: "/giderler", label: "Okul Gider & Taksit", icon: Coins },
     { href: "/cari", label: "Muhasebe & Cari", icon: ReceiptText },
     { href: "/izin", label: "İzin Girişi & Takip", icon: CalendarCheck },
     { href: "/raporlar", label: "Raporlar & Excel", icon: FileSpreadsheet },
@@ -184,7 +187,8 @@ export function Sidebar() {
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
+          <ThemeToggle collapsed />
           <div className="w-8 h-8 rounded-full bg-teal-600 flex items-center justify-center font-bold text-xs tracking-wider">
             {getInitials(currentUser?.name)}
           </div>
@@ -249,6 +253,10 @@ export function Sidebar() {
             </nav>
 
             <PWAInstallButton />
+
+            <div className="px-4 py-2 border-t border-slate-100">
+              <ThemeToggle />
+            </div>
 
             <div className="p-4 border-t border-slate-100 bg-slate-50 flex items-center justify-between">
               <div className="flex items-center gap-3 min-w-0">
@@ -325,6 +333,10 @@ export function Sidebar() {
         </nav>
 
         <PWAInstallButton />
+
+        <div className="px-4 py-2 border-t border-slate-100">
+          <ThemeToggle />
+        </div>
 
         {/* User Footer Card */}
         <div className="p-4 border-t border-slate-100 bg-slate-50/50">

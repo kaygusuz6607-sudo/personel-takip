@@ -54,7 +54,7 @@ export async function GET() {
       });
 
       currentMonthStats.grossTotal = payrolls.reduce((acc, p) => acc + p.grossTotal, 0);
-      currentMonthStats.totalDeductions = payrolls.reduce((acc, p) => acc + p.totalDeductions, 0);
+      currentMonthStats.totalDeductions = payrolls.reduce((acc, p) => acc + (p.deductionAmount || 0), 0);
       currentMonthStats.netTotal = payrolls.reduce((acc, p) => acc + p.netTotal, 0);
       currentMonthStats.paidCount = payrolls.filter((p) => p.isPaid).length;
       currentMonthStats.pendingCount = payrolls.filter((p) => !p.isPaid).length;

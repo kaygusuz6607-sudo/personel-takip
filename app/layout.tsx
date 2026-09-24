@@ -27,7 +27,23 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="tr">
+    <html lang="tr" suppressHydrationWarning>
+      <head>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              try {
+                const t = localStorage.getItem("cosmos_theme");
+                if (t === "dark" || (!t && window.matchMedia("(prefers-color-scheme: dark)").matches)) {
+                  document.documentElement.classList.add("dark");
+                } else {
+                  document.documentElement.classList.remove("dark");
+                }
+              } catch (_) {}
+            `,
+          }}
+        />
+      </head>
       <body className="bg-slate-50 min-h-screen text-slate-800 flex flex-col lg:flex-row antialiased">
         <Sidebar />
         <main className="flex-1 min-w-0 flex flex-col min-h-screen overflow-x-hidden">
