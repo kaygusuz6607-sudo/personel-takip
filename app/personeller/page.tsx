@@ -20,7 +20,15 @@ import {
   FileText,
   Briefcase,
   ReceiptText,
+  Camera,
+  QrCode,
+  Upload,
+  User,
+  Image as ImageIcon,
+  ExternalLink,
+  Sparkles,
 } from "lucide-react";
+import QRCode from "qrcode";
 import { calculateDuration, parseSafeDate } from "@/lib/date-utils";
 
 interface Department {
@@ -46,6 +54,7 @@ interface Staff {
   isMebEndNotified: boolean;
   sgkStartDate: string | null;
   unofficialWorkPeriod: string | null;
+  photoUrl?: string | null;
   status: string;
   departments: { department: Department }[];
   salaryConfig: {
@@ -71,6 +80,130 @@ export default function PersonellerPage() {
   const [editingStaffId, setEditingStaffId] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
+
+  // Fotoğraf Yönetimi Modalı State'leri
+  const [photoStaff, setPhotoStaff] = useState<Staff | null>(null);
+  const [qrCodeDataUrl, setQrCodeDataUrl] = useState<string>("");
+  const [uploadTab, setUploadTab] = useState<"QR" | "FILE">("QR");
+  const [localPhotoPreview, setLocalPhotoPreview] = useState<string | null>(null);
+  const [uploadingLocal, setUploadingLocal] = useState(false);
+  const [qrUploadSuccess, setQrUploadSuccess] = useState(false);
+
+  const openPhotoModal = async (staff: Staff) => {
+    setPhotoStaff(staff);
+    setLocalPhotoPreview(staff.photoUrl || null);
+    setQrUploadSuccess(false);
+    setUploadTab("QR");
+
+    if (typeof window !== "undefined") {
+      const origin = window.location.origin;
+      const mobileUrl = `${origin}/foto-yukle/${staff.id}`;
+      try {
+        const qr = await QRCode.toDataURL(mobileUrl, {
+          width: 280,
+          margin: 2,
+          color: { dark: "#0f172a", light: "#ffffff" },
+        });
+        setQrCodeDataUrl(qr);
+      } catch (err) {
+        console.error("QR Code Error:", err);
+      }
+    }
+  };
+
+  // Telefondan yükleme yapıldığında otomatik algıla
+  useEffect(() => {
+    if (!photoStaff) return;
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/personel/${photoStaff.id}/foto`);
+        const data = await res.json();
+        if (res.ok && data.photoUrl && data.photoUrl !== photoStaff.photoUrl) {
+          setPhotoStaff((prev) => (prev ? { ...prev, photoUrl: data.photoUrl } : null));
+          setLocalPhotoPreview(data.photoUrl);
+          setQrUploadSuccess(true);
+          fetchData();
+        }
+      } catch (e) {
+        // ignore
+      }
+    }, 2500);
+
+    return () => clearInterval(interval);
+  }, [photoStaff]);
+
+  // Bilgisayardan fotoğraf yükleme işlemi
+  const handleLocalImageSelect = (file: File) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        const MAX_SIZE = 400;
+        let width = img.width;
+        let height = img.height;
+
+        const minDim = Math.min(width, height);
+        const startX = (width - minDim) / 2;
+        const startY = (height - minDim) / 2;
+
+        canvas.width = MAX_SIZE;
+        canvas.height = MAX_SIZE;
+
+        const ctx = canvas.getContext("2d");
+        if (ctx) {
+          ctx.drawImage(img, startX, startY, minDim, minDim, 0, 0, MAX_SIZE, MAX_SIZE);
+          const compressed = canvas.toDataURL("image/jpeg", 0.85);
+          setLocalPhotoPreview(compressed);
+        }
+      };
+      img.src = e.target?.result as string;
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleSaveLocalPhoto = async () => {
+    if (!photoStaff || !localPhotoPreview) return;
+    try {
+      setUploadingLocal(true);
+      const res = await fetch(`/api/personel/${photoStaff.id}/foto`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ photoUrl: localPhotoPreview }),
+      });
+      if (res.ok) {
+        setPhotoStaff({ ...photoStaff, photoUrl: localPhotoPreview });
+        setQrUploadSuccess(true);
+        fetchData();
+      } else {
+        alert("Fotoğraf kaydedilemedi.");
+      }
+    } catch (err) {
+      alert("Hata oluştu.");
+    } finally {
+      setUploadingLocal(false);
+    }
+  };
+
+  const handleDeletePhoto = async () => {
+    if (!photoStaff) return;
+    if (!confirm("Personel fotoğrafını kaldırmak istediğinize emin misiniz?")) return;
+    try {
+      setUploadingLocal(true);
+      const res = await fetch(`/api/personel/${photoStaff.id}/foto`, {
+        method: "DELETE",
+      });
+      if (res.ok) {
+        setPhotoStaff({ ...photoStaff, photoUrl: null });
+        setLocalPhotoPreview(null);
+        fetchData();
+      }
+    } catch (err) {
+      alert("Fotoğraf silinemedi.");
+    } finally {
+      setUploadingLocal(false);
+    }
+  };
 
   // Form State
   const [form, setForm] = useState({
@@ -333,8 +466,21 @@ export default function PersonellerPage() {
                   <tr key={staff.id} className="hover:bg-slate-50/60 transition-colors">
                     <td className="py-3.5 px-4">
                       <div className="flex items-center gap-3">
-                        <div className="w-9 h-9 rounded-full bg-teal-100 text-teal-800 flex items-center justify-center font-bold text-xs shrink-0">
-                          {staff.fullName.substring(0, 2).toUpperCase()}
+                        <div
+                          onClick={() => openPhotoModal(staff)}
+                          className="relative group cursor-pointer w-10 h-10 rounded-full overflow-hidden border border-slate-200 shadow-2xs shrink-0 flex items-center justify-center bg-slate-100 transition-transform hover:scale-105"
+                          title="Fotoğrafı Görüntüle / QR ile Yükle"
+                        >
+                          {staff.photoUrl ? (
+                            <img src={staff.photoUrl} alt={staff.fullName} className="w-full h-full object-cover" />
+                          ) : (
+                            <div className="w-full h-full bg-gradient-to-br from-teal-600 to-teal-800 text-white flex items-center justify-center font-bold text-xs">
+                              {staff.fullName.substring(0, 2).toUpperCase()}
+                            </div>
+                          )}
+                          <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white">
+                            <Camera className="w-4 h-4" />
+                          </div>
                         </div>
                         <div>
                           <p className="font-semibold text-slate-800">{staff.fullName}</p>
@@ -501,6 +647,13 @@ export default function PersonellerPage() {
 
                     <td className="py-3.5 px-4 text-right">
                       <div className="flex items-center justify-end gap-1.5">
+                        <button
+                          onClick={() => openPhotoModal(staff)}
+                          className="p-1.5 text-slate-500 hover:text-teal-700 hover:bg-teal-50 rounded-lg transition-colors"
+                          title="Fotoğraf Yükle (QR Kod / Dosya)"
+                        >
+                          <Camera className="w-4 h-4 text-teal-700" />
+                        </button>
                         <Link
                           href={`/cari?staffId=${staff.id}`}
                           className="p-1.5 text-slate-500 hover:text-teal-700 hover:bg-teal-50 rounded-lg transition-colors"
@@ -1080,6 +1233,204 @@ export default function PersonellerPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Personel Fotoğrafı Yönetimi & QR Kod Modalı */}
+      {photoStaff && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white rounded-3xl max-w-md w-full shadow-2xl overflow-hidden border border-slate-100 relative">
+            {/* Modal Başlık */}
+            <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-xl bg-teal-50 text-teal-700">
+                  <Camera className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-slate-900 text-sm leading-tight">
+                    Personel Fotoğrafı
+                  </h3>
+                  <p className="text-xs text-slate-500">{photoStaff.fullName}</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPhotoStaff(null)}
+                className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-full transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-5">
+              {/* Canlı Önizleme Alanı */}
+              <div className="flex items-center justify-center">
+                <div className="relative group">
+                  <div className="w-32 h-32 rounded-full overflow-hidden border-4 border-white shadow-xl bg-slate-100 flex items-center justify-center ring-2 ring-teal-500/30">
+                    {photoStaff.photoUrl ? (
+                      <img
+                        src={photoStaff.photoUrl}
+                        alt={photoStaff.fullName}
+                        className="w-full h-full object-cover"
+                      />
+                    ) : (
+                      <div className="w-full h-full bg-gradient-to-br from-teal-700 to-slate-800 text-white flex flex-col items-center justify-center">
+                        <User className="w-12 h-12 text-slate-300 mb-1" />
+                        <span className="text-[11px] font-semibold text-slate-200">Fotoğraf Yok</span>
+                      </div>
+                    )}
+                  </div>
+
+                  {photoStaff.photoUrl && (
+                    <button
+                      type="button"
+                      onClick={handleDeletePhoto}
+                      disabled={uploadingLocal}
+                      className="absolute -top-1 -right-1 p-2 bg-rose-600 hover:bg-rose-700 text-white rounded-full shadow-md transition-transform hover:scale-110"
+                      title="Fotoğrafı Kaldır"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Sekme Seçimi: QR Kod vs Bilgisayardan */}
+              <div className="flex items-center p-1 bg-slate-100 rounded-xl">
+                <button
+                  type="button"
+                  onClick={() => setUploadTab("QR")}
+                  className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 ${
+                    uploadTab === "QR"
+                      ? "bg-white text-slate-900 shadow-sm"
+                      : "text-slate-600 hover:text-slate-900"
+                  }`}
+                >
+                  <QrCode className="w-4 h-4 text-teal-700" />
+                  <span>📱 Telefon ile QR</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setUploadTab("FILE")}
+                  className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 ${
+                    uploadTab === "FILE"
+                      ? "bg-white text-slate-900 shadow-sm"
+                      : "text-slate-600 hover:text-slate-900"
+                  }`}
+                >
+                  <Upload className="w-4 h-4 text-teal-700" />
+                  <span>💻 Bilgisayardan</span>
+                </button>
+              </div>
+
+              {/* QR Kod Sekmesi */}
+              {uploadTab === "QR" && (
+                <div className="flex flex-col items-center text-center space-y-3">
+                  <div className="p-3 bg-white border-2 border-dashed border-teal-300 rounded-2xl shadow-sm">
+                    {qrCodeDataUrl ? (
+                      <img
+                        src={qrCodeDataUrl}
+                        alt="QR Kod"
+                        className="w-48 h-48 rounded-xl"
+                      />
+                    ) : (
+                      <div className="w-48 h-48 flex items-center justify-center text-slate-400">
+                        QR oluşturuluyor...
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="space-y-1">
+                    <p className="text-xs font-bold text-slate-800">
+                      Telefonunuzun kamerasını bu QR koda tutun
+                    </p>
+                    <p className="text-[11px] text-slate-500 max-w-xs leading-relaxed">
+                      Kamerayla fotoğraf çekebilir veya galerinizden seçebilirsiniz. Telefondan kaydedildiğinde bu ekran otomatik güncellenecektir.
+                    </p>
+                  </div>
+
+                  {qrUploadSuccess && (
+                    <div className="w-full p-3 rounded-xl bg-emerald-50 border border-emerald-300 text-emerald-800 text-xs font-bold flex items-center justify-center gap-2">
+                      <Sparkles className="w-4 h-4 text-emerald-600" />
+                      <span>🎉 Fotoğraf başarıyla yüklendi ve güncellendi!</span>
+                    </div>
+                  )}
+
+                  <a
+                    href={`/foto-yukle/${photoStaff.id}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1 text-[11px] text-teal-700 hover:text-teal-800 font-semibold underline mt-1"
+                  >
+                    <span>Yükleme sayfasını bu ekranda aç</span>
+                    <ExternalLink className="w-3 h-3" />
+                  </a>
+                </div>
+              )}
+
+              {/* Bilgisayardan Dosya Yükleme Sekmesi */}
+              {uploadTab === "FILE" && (
+                <div className="space-y-4">
+                  <div
+                    onClick={() => {
+                      const input = document.getElementById("file-photo-input") as HTMLInputElement;
+                      if (input) input.click();
+                    }}
+                    className="border-2 border-dashed border-slate-300 hover:border-teal-500 rounded-2xl p-6 text-center cursor-pointer transition-colors bg-slate-50/50 hover:bg-teal-50/20"
+                  >
+                    <input
+                      id="file-photo-input"
+                      type="file"
+                      accept="image/*"
+                      onChange={(e) => {
+                        if (e.target.files && e.target.files[0]) {
+                          handleLocalImageSelect(e.target.files[0]);
+                        }
+                      }}
+                      className="hidden"
+                    />
+                    <div className="w-12 h-12 rounded-full bg-teal-100 text-teal-700 flex items-center justify-center mx-auto mb-2">
+                      <Upload className="w-6 h-6" />
+                    </div>
+                    <p className="text-xs font-bold text-slate-700">Fotoğraf seçmek için tıklayın</p>
+                    <p className="text-[11px] text-slate-400 mt-0.5">PNG, JPG, JPEG (Otomatik kare kırpılır)</p>
+                  </div>
+
+                  {localPhotoPreview && localPhotoPreview !== photoStaff.photoUrl && (
+                    <div className="flex items-center justify-between p-3 rounded-xl bg-slate-100 border border-slate-200">
+                      <div className="flex items-center gap-2.5">
+                        <img
+                          src={localPhotoPreview}
+                          alt="Seçilen Fotoğraf"
+                          className="w-10 h-10 rounded-full object-cover border border-slate-300"
+                        />
+                        <span className="text-xs font-semibold text-slate-700">Yeni Fotoğraf Seçildi</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleSaveLocalPhoto}
+                        disabled={uploadingLocal}
+                        className="px-4 py-2 bg-teal-700 hover:bg-teal-800 text-white text-xs font-bold rounded-lg shadow-sm transition-all"
+                      >
+                        {uploadingLocal ? "Kaydediliyor..." : "Kaydet ve Uygula"}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Alt Kapat Butonu */}
+            <div className="p-4 bg-slate-50 border-t border-slate-100 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setPhotoStaff(null)}
+                className="px-5 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold text-xs rounded-xl transition-colors"
+              >
+                Kapat
+              </button>
+            </div>
           </div>
         </div>
       )}

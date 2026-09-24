@@ -14,10 +14,12 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  // Giriş ve kimlik doğrulama API rotalarını muaf tut
+  // Giriş ve kimlik doğrulama API rotalarını ve QR ile mobil fotoğraf yüklemeyi muaf tut
   if (
     pathname === "/api/auth/login" ||
-    pathname === "/api/auth/logout"
+    pathname === "/api/auth/logout" ||
+    pathname.startsWith("/foto-yukle") ||
+    pathname.endsWith("/foto")
   ) {
     return NextResponse.next();
   }

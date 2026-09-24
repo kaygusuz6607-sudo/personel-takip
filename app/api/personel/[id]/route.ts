@@ -58,6 +58,7 @@ export async function PUT(
       sgkStartDate,
       notes,
       status,
+      photoUrl,
       departmentIds = [],
       // Ücret yapılandırması
       salaryType,
@@ -92,6 +93,7 @@ export async function PUT(
       sgkStartDate: sgkStartDate ? new Date(sgkStartDate) : null,
       notes,
       status,
+      ...(photoUrl !== undefined ? { photoUrl } : {}),
     };
 
     if (isMebEndNotified !== undefined) {

@@ -58,6 +58,7 @@ model Staff {
   notes                String?
   status               String            @default("ACTIVE") // ACTIVE, PASSIVE, ON_LEAVE
   isSgkNotified        Boolean           @default(false)
+  photoUrl             String?           // Personel vesikalık / profil fotoğrafı (Base64 veya URL)
   
   departments          StaffDepartment[]
   salaryConfig         SalaryConfig?

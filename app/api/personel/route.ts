@@ -83,6 +83,7 @@ export async function POST(request: Request) {
       sgkStartDate,
       notes,
       status = "ACTIVE",
+      photoUrl,
       departmentIds = [],
       // Ücret yapılandırması
       salaryType = "MONTHLY",
@@ -133,6 +134,7 @@ export async function POST(request: Request) {
         sgkStartDate: sgkStartDate ? new Date(sgkStartDate) : null,
         notes,
         status,
+        photoUrl: photoUrl || null,
         salaryConfig: {
           create: {
             salaryType,
