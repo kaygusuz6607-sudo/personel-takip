@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { calculatePayroll } from "@/lib/payroll-calculator";
+import { getMaxWorkDaysForPeriod } from "@/lib/date-utils";
 
 export async function GET(request: Request) {
   try {
@@ -69,6 +70,8 @@ export async function GET(request: Request) {
         .filter((l) => l.leaveType === "UNPAID")
         .reduce((sum, l) => sum + l.daysCount, 0);
 
+      const periodLimit = getMaxWorkDaysForPeriod(year, month, staff.hireDate, staff.terminationDate);
+
       if (existingPayroll) {
         return {
           staffId: staff.id,
@@ -83,6 +86,13 @@ export async function GET(request: Request) {
           hireDate: staff.hireDate,
           mebAssignmentDate: staff.mebAssignmentDate,
           sgkStartDate: staff.sgkStartDate,
+          status: staff.status,
+          terminationDate: staff.terminationDate,
+          maxWorkDays: periodLimit.maxDays,
+          isPartialMonth: periodLimit.isPartialMonth,
+          partialReason: periodLimit.reason,
+          isTerminated: periodLimit.isTerminated,
+          terminationFormatted: periodLimit.terminationFormatted,
           isSaved: true,
           payroll: {
             ...existingPayroll,
@@ -92,13 +102,15 @@ export async function GET(request: Request) {
         };
       }
 
-      // Varsayılan hesap
+      // Varsayılan hesap (İşten ayrılan veya ay ortasında başlayan için gün sayısı periodLimit.maxDays ile sınırlandırılır!)
+      const defaultWorkDays = Math.min(30, periodLimit.maxDays);
+
       const calc = calculatePayroll({
         salaryType: config?.salaryType || "MONTHLY",
         monthlySalary: config?.monthlySalary || 0,
         hourlyRate: config?.hourlyRate || 0,
         dailyRate: config?.dailyRate || 0,
-        workDays: 30,
+        workDays: defaultWorkDays,
         reportDays: autoReportDays,
         unpaidLeaveDays: autoUnpaidDays,
         lessonHours: 0,
@@ -130,11 +142,18 @@ export async function GET(request: Request) {
         hireDate: staff.hireDate,
         mebAssignmentDate: staff.mebAssignmentDate,
         sgkStartDate: staff.sgkStartDate,
+        status: staff.status,
+        terminationDate: staff.terminationDate,
+        maxWorkDays: periodLimit.maxDays,
+        isPartialMonth: periodLimit.isPartialMonth,
+        partialReason: periodLimit.reason,
+        isTerminated: periodLimit.isTerminated,
+        terminationFormatted: periodLimit.terminationFormatted,
         isSaved: false,
         payroll: {
           year,
           month,
-          workDays: 30,
+          workDays: defaultWorkDays,
           reportDays: 0,
           unpaidLeaveDays: 0,
           lessonHours: 0,
@@ -195,18 +214,26 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Personel veya ücret kaydı bulunamadı" }, { status: 404 });
     }
 
-    // İşten ayrılan personel kontrolü: Çıktığı aydan sonraki dönemlere tahakkuk yapılamaz!
-    if (staff.terminationDate) {
-      const termDate = new Date(staff.terminationDate);
-      const periodMonthStart = new Date(Number(year), Number(month) - 1, 1);
-      if (termDate < periodMonthStart) {
-        return NextResponse.json(
-          {
-            error: `Bu personel ${termDate.toLocaleDateString("tr-TR")} tarihinde işten ayrılmıştır. Çıkış yaptığı aydan sonraki dönemler (${month}/${year}) için maaş tahakkuku yapılamaz!`,
-          },
-          { status: 400 }
-        );
-      }
+    // İşten ayrılan / İşe başlayan personel kontrolü: Azami çalışılabilecek gün kontrolü
+    const periodLimit = getMaxWorkDaysForPeriod(Number(year), Number(month), staff.hireDate, staff.terminationDate);
+
+    if (periodLimit.maxDays === 0) {
+      return NextResponse.json(
+        {
+          error: periodLimit.reason || `Bu dönem (${month}/${year}) için personele tahakkuk yapılamaz!`,
+        },
+        { status: 400 }
+      );
+    }
+
+    const requestedWorkDays = workDays !== undefined && workDays !== null && workDays !== "" && !isNaN(Number(workDays)) ? Number(workDays) : 30;
+    if (requestedWorkDays > periodLimit.maxDays) {
+      return NextResponse.json(
+        {
+          error: `Çalışma günü hatası: ${periodLimit.reason ? `(${periodLimit.reason}) ` : ""}Bu ay için fiili azami çalışma süresi ${periodLimit.maxDays} gündür. ${requestedWorkDays} gün olarak tahakkuk ettirilemez!`,
+        },
+        { status: 400 }
+      );
     }
 
     const config = staff.salaryConfig;

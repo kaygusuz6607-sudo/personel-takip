@@ -9,18 +9,42 @@ export function parseSafeDate(d: string | Date | null | undefined): Date | null 
 }
 
 /**
- * İki tarih arasındaki süreyi "X yıl Y ay Z gün" formatında Türkçe olarak hesaplar
+ * İki tarih arasındaki süreyi "X yıl Y ay Z gün" formatında Türkçe olarak hesaplar.
+ * terminationDateStr (işten ayrılış tarihi) verilirse süre o tarihte dondurulur;
+ * cihaz saatine veya ertesi güne göre asla artmaz.
  */
 export function calculateDuration(
   startDateStr: string | Date | null,
-  endDateStr: string | Date | null
+  endDateStr: string | Date | null,
+  terminationDateStr?: string | Date | null
 ): string {
   if (!startDateStr) return "—";
 
   const start = parseSafeDate(startDateStr);
-  const end = endDateStr ? parseSafeDate(endDateStr) : new Date();
+  if (!start) return "—";
 
-  if (!start || !end) return "—";
+  // Bitiş tarihi hiyerarşisi:
+  // 1. Personel işten ayrılmışsa (terminationDate varsa):
+  //    - Eğer resmi SGK başlangıcı varsa ve ayrılış tarihinden önceyse sgkStartDate esas alınır.
+  //    - Aksi takdirde kesinlikle terminationDate esas alınır (süre dondurulur!).
+  // 2. Personel halen çalışıyorsa:
+  //    - Eğer sgkStartDate varsa o tarihe kadar olan gayriresmî süre.
+  //    - Eğer SGK'sı da yoksa bugüne kadar (tarih normalizasyonu ile).
+  let end: Date | null = null;
+  const sgkDate = endDateStr ? parseSafeDate(endDateStr) : null;
+  const termDate = terminationDateStr ? parseSafeDate(terminationDateStr) : null;
+
+  if (termDate && sgkDate) {
+    end = sgkDate < termDate ? sgkDate : termDate;
+  } else if (termDate) {
+    end = termDate;
+  } else if (sgkDate) {
+    end = sgkDate;
+  } else {
+    const today = new Date();
+    end = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  }
+
   if (start > end) return "0 gün";
 
   let years = end.getFullYear() - start.getFullYear();
@@ -44,6 +68,98 @@ export function calculateDuration(
   if (days > 0 || parts.length === 0) parts.push(`${days} gün`);
 
   return parts.join(" ");
+}
+
+export interface MaxWorkDaysResult {
+  maxDays: number;
+  isPartialMonth: boolean;
+  reason?: string;
+  isTerminated: boolean;
+  terminationFormatted?: string;
+}
+
+/**
+ * Belirli bir yıl ve ay için personelin fiili çalışabileceği azami gün sayısını hesaplar.
+ * İşe giriş ve işten ayrılış tarihlerini dikkate alarak personelin çalışmadığı günleri engeller.
+ */
+export function getMaxWorkDaysForPeriod(
+  year: number,
+  month: number,
+  hireDateStr?: string | Date | null,
+  terminationDateStr?: string | Date | null
+): MaxWorkDaysResult {
+  const monthStart = new Date(year, month - 1, 1);
+  const daysInMonth = new Date(year, month, 0).getDate();
+  const monthEnd = new Date(year, month, 0);
+
+  let startDay = 1;
+  let endDay = daysInMonth;
+  const reasons: string[] = [];
+  let isTerminated = false;
+  let terminationFormatted: string | undefined;
+
+  if (hireDateStr) {
+    const hire = parseSafeDate(hireDateStr);
+    if (hire) {
+      if (hire > monthEnd) {
+        return {
+          maxDays: 0,
+          isPartialMonth: true,
+          reason: `İşe başlama (${hire.toLocaleDateString("tr-TR")}) bu dönemden sonradır.`,
+          isTerminated: false,
+        };
+      }
+      if (hire > monthStart) {
+        startDay = hire.getDate();
+        reasons.push(`İşe başlama: ${hire.toLocaleDateString("tr-TR")}`);
+      }
+    }
+  }
+
+  if (terminationDateStr) {
+    const term = parseSafeDate(terminationDateStr);
+    if (term) {
+      isTerminated = true;
+      terminationFormatted = term.toLocaleDateString("tr-TR");
+      if (term < monthStart) {
+        return {
+          maxDays: 0,
+          isPartialMonth: true,
+          reason: `Personel ${term.toLocaleDateString("tr-TR")} tarihinde ayrılmıştır. Bu dönem için tahakkuk yapılamaz.`,
+          isTerminated: true,
+          terminationFormatted,
+        };
+      }
+      if (term <= monthEnd) {
+        endDay = term.getDate();
+        reasons.push(`İşten ayrılış: ${term.toLocaleDateString("tr-TR")}`);
+      }
+    }
+  }
+
+  const isPartialMonth = startDay > 1 || endDay < daysInMonth;
+  let maxDays = 30;
+
+  if (isPartialMonth) {
+    if (startDay > 1 && endDay < daysInMonth) {
+      // Ay ortasında girip ay ortasında ayrılan: fiili takvim farkı (örn. 22-25 Eylül -> 3 gün)
+      maxDays = Math.max(0, endDay - startDay);
+    } else if (startDay === 1 && endDay < daysInMonth) {
+      // Ay başından ayrılış gününe kadar (örn. 1-10 Eylül -> 10 gün)
+      maxDays = Math.min(30, endDay);
+    } else if (startDay > 1 && endDay === daysInMonth) {
+      // Ay ortasında işe başlayan (örn. 15 Eylül -> 30 - 15 + 1 = 16 gün)
+      maxDays = Math.max(0, 30 - startDay + 1);
+    }
+  }
+
+  return {
+    maxDays,
+    isPartialMonth,
+    reason: reasons.length > 0 ? reasons.join(" • ") : undefined,
+    isTerminated,
+    terminationFormatted,
+  };
 }
 
 export interface AnnualLeaveEntitlementResult {

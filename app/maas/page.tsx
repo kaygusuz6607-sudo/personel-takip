@@ -42,6 +42,13 @@ interface PayrollRow {
   hireDate?: string | null;
   mebAssignmentDate?: string | null;
   sgkStartDate?: string | null;
+  status?: string;
+  terminationDate?: string | null;
+  maxWorkDays?: number;
+  isPartialMonth?: boolean;
+  partialReason?: string;
+  isTerminated?: boolean;
+  terminationFormatted?: string;
   isSaved?: boolean;
   payroll: {
     id?: string;
@@ -260,7 +267,17 @@ export default function MaasTahakkukPage() {
       prev.map((row) => {
         if (row.staffId !== staffId) return row;
 
-        const updatedPayroll = { ...row.payroll, [field]: value };
+        let finalValue = value;
+        if (field === "workDays") {
+          const maxAllowed = row.maxWorkDays !== undefined ? row.maxWorkDays : 31;
+          const numVal = Number(value);
+          if (numVal > maxAllowed) {
+            alert(`Bu personel için azami çalışma süresi ${maxAllowed} gündür (${row.partialReason || "işe giriş/ayrılış kısıtı"}). ${numVal} gün girilemez.`);
+            finalValue = maxAllowed;
+          }
+        }
+
+        const updatedPayroll = { ...row.payroll, [field]: finalValue };
 
         // Anlık yeniden hesapla
         const calc = calculatePayroll({
@@ -473,6 +490,11 @@ export default function MaasTahakkukPage() {
   };
 
   const handleSavePayroll = async (row: PayrollRow) => {
+    if (row.maxWorkDays !== undefined && Number(row.payroll.workDays) > row.maxWorkDays) {
+      alert(`Bu personel için azami çalışma süresi ${row.maxWorkDays} gündür (${row.partialReason || "işe giriş/ayrılış kısıtı"}). ${row.payroll.workDays} gün olarak kaydedilemez!`);
+      return;
+    }
+
     try {
       setSavingId(row.staffId);
       const res = await fetch("/api/maas", {
@@ -677,7 +699,7 @@ export default function MaasTahakkukPage() {
                     >
                       {/* Personel */}
                       <td className="py-3 px-3">
-                        <div className="flex items-center gap-1.5">
+                        <div className="flex items-center gap-1.5 flex-wrap">
                           <span className="font-bold text-slate-900 block text-sm">{row.fullName}</span>
                           {row.isSaved ? (
                             <span className="inline-flex items-center gap-0.5 text-[9px] font-bold text-emerald-800 bg-emerald-100 border border-emerald-300 px-1.5 py-0.5 rounded-md">
@@ -688,6 +710,14 @@ export default function MaasTahakkukPage() {
                             <span className="inline-flex items-center gap-0.5 text-[9px] font-medium text-amber-800 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded-md">
                               <Clock className="w-2.5 h-2.5 text-amber-600" />
                               Bekliyor
+                            </span>
+                          )}
+                          {row.isTerminated && (
+                            <span
+                              className="inline-flex items-center gap-0.5 text-[9px] font-bold text-rose-800 bg-rose-50 border border-rose-300 px-1.5 py-0.5 rounded-md"
+                              title={row.partialReason}
+                            >
+                              🚪 Ayrılış: {row.terminationFormatted}
                             </span>
                           )}
                         </div>
@@ -792,22 +822,34 @@ export default function MaasTahakkukPage() {
                             <span className="text-slate-500">gün</span>
                           </div>
                         ) : (
-                          <div className="flex items-center justify-center gap-1">
-                            <input
-                              type="number"
-                              min="0"
-                              max="31"
-                              value={p.workDays ?? 0}
-                              onChange={(e) =>
-                                handleInputChange(
-                                  row.staffId,
-                                  "workDays",
-                                  e.target.value === "" ? 0 : parseInt(e.target.value) || 0
-                                )
-                              }
-                              className="w-14 px-2 py-1 bg-slate-50 border border-slate-200 rounded text-center font-bold text-slate-800"
-                            />
-                            <span className="text-slate-500">gün</span>
+                          <div className="flex flex-col items-center justify-center gap-0.5">
+                            <div className="flex items-center justify-center gap-1">
+                              <input
+                                type="number"
+                                min="0"
+                                max={row.maxWorkDays !== undefined ? row.maxWorkDays : 31}
+                                value={p.workDays ?? 0}
+                                onChange={(e) =>
+                                  handleInputChange(
+                                    row.staffId,
+                                    "workDays",
+                                    e.target.value === "" ? 0 : parseInt(e.target.value) || 0
+                                  )
+                                }
+                                className={`w-14 px-2 py-1 rounded text-center font-bold text-slate-800 border ${
+                                  row.isTerminated || row.isPartialMonth
+                                    ? "bg-amber-50 border-amber-300 text-amber-900"
+                                    : "bg-slate-50 border-slate-200"
+                                }`}
+                                title={row.partialReason ? `Azami: ${row.maxWorkDays} gün (${row.partialReason})` : undefined}
+                              />
+                              <span className="text-slate-500 text-xs">gün</span>
+                            </div>
+                            {row.isPartialMonth && (
+                              <span className="text-[9px] text-amber-700 font-bold block whitespace-nowrap" title={row.partialReason}>
+                                Maks: {row.maxWorkDays} gün
+                              </span>
+                            )}
                           </div>
                         )}
                       </td>

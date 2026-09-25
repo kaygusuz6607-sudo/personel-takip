@@ -38,6 +38,7 @@ interface PayrollItem {
     phone: string | null;
     hireDate: string | null;
     sgkStartDate: string | null;
+    terminationDate?: string | null;
     unofficialWorkPeriod: string | null;
     departments: { department: { name: string } }[];
     salaryConfig?: {
@@ -252,7 +253,8 @@ export default function PersonelOdemePage() {
                 // Otomatik hesaplanan gayriresmi süre
                 const calculatedDuration = calculateDuration(
                   item.staff.hireDate,
-                  item.staff.sgkStartDate
+                  item.staff.sgkStartDate,
+                  item.staff.terminationDate
                 );
 
                 return (

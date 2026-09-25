@@ -593,11 +593,11 @@ export default function PersonellerPage() {
                       <p className="text-slate-800 font-medium">{staff.title || "—"}</p>
                       
                       <div className="flex flex-wrap items-center gap-1.5 mt-1">
-                        {calculateDuration(staff.hireDate, staff.sgkStartDate) !== "—" &&
-                          calculateDuration(staff.hireDate, staff.sgkStartDate) !== "0 gün" && (
+                        {calculateDuration(staff.hireDate, staff.sgkStartDate, staff.terminationDate) !== "—" &&
+                          calculateDuration(staff.hireDate, staff.sgkStartDate, staff.terminationDate) !== "0 gün" && (
                             <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-amber-800 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded">
                               <Briefcase className="w-2.5 h-2.5 text-amber-600" />
-                              Gayriresmî: {calculateDuration(staff.hireDate, staff.sgkStartDate)}
+                              Gayriresmî: {calculateDuration(staff.hireDate, staff.sgkStartDate, staff.terminationDate)}
                             </span>
                           )}
 
@@ -1042,7 +1042,7 @@ export default function PersonellerPage() {
                       value={form.hireDate}
                       onChange={(e) => {
                         const newHire = e.target.value;
-                        const autoDur = calculateDuration(newHire, form.sgkStartDate);
+                        const autoDur = calculateDuration(newHire, form.sgkStartDate, form.terminationDate);
                         setForm({
                           ...form,
                           hireDate: newHire,
@@ -1087,7 +1087,7 @@ export default function PersonellerPage() {
                       value={form.sgkStartDate}
                       onChange={(e) => {
                         const newSgk = e.target.value;
-                        const autoDur = calculateDuration(form.hireDate, newSgk);
+                        const autoDur = calculateDuration(form.hireDate, newSgk, form.terminationDate);
                         setForm({
                           ...form,
                           sgkStartDate: newSgk,
