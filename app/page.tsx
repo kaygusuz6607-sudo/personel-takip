@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import Link from "next/link";
-import { Users, UserCheck, UserX, Clock, Building2, UserPlus, ArrowRight, Wallet, CheckCircle2, AlertCircle } from "lucide-react";
+import { Users, UserCheck, UserX, Clock, Building2, UserPlus, ArrowRight, Wallet, CheckCircle2, AlertCircle, Target, GraduationCap } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
@@ -9,6 +9,9 @@ export default async function DashboardPage() {
   const activeStaff = await prisma.staff.count({ where: { status: "ACTIVE" } });
   const passiveStaff = await prisma.staff.count({ where: { status: "PASSIVE" } });
   const onLeaveStaff = await prisma.staff.count({ where: { status: "ON_LEAVE" } });
+  const totalStudents = await prisma.student.count();
+  const totalLeads = await prisma.lead.count();
+  const newLeads = await prisma.lead.count({ where: { status: "NEW" } });
 
   const departments = await prisma.department.findMany({
     include: {
@@ -177,6 +180,61 @@ export default async function DashboardPage() {
             <Clock className="w-6 h-6" />
           </div>
         </div>
+      </div>
+
+      {/* CRM & Öğrenci Yönetimi Hızlı Erişim Kartları */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <Link
+          href="/crm"
+          className="bg-white p-5 rounded-2xl border border-slate-100 hover:border-teal-500 shadow-xs hover:shadow-md transition-all flex items-center justify-between group"
+        >
+          <div className="flex items-center gap-4">
+            <div className="w-12 h-12 rounded-xl bg-purple-50 text-purple-700 flex items-center justify-center shrink-0">
+              <Target className="w-6 h-6" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="font-bold text-slate-800 text-sm group-hover:text-teal-700 transition-colors">
+                  CRM & Aday Öğrenci Havuzu
+                </h3>
+                {newLeads > 0 && (
+                  <span className="px-2 py-0.5 rounded-full bg-purple-100 text-purple-800 font-bold text-[10px]">
+                    {newLeads} Yeni
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-slate-500 mt-0.5">
+                {totalLeads} toplam aday veli • Satış hunisi, çağrı listeleri ve görüşmeler
+              </p>
+            </div>
+          </div>
+          <ArrowRight className="w-5 h-5 text-slate-400 group-hover:text-teal-700 group-hover:translate-x-1 transition-all" />
+        </Link>
+
+        <Link
+          href="/ogrenciler"
+          className="bg-white p-5 rounded-2xl border border-slate-100 hover:border-teal-500 shadow-xs hover:shadow-md transition-all flex items-center justify-between group"
+        >
+          <div className="flex items-center gap-4">
+            <div className="w-12 h-12 rounded-xl bg-emerald-50 text-emerald-700 flex items-center justify-center shrink-0">
+              <GraduationCap className="w-6 h-6" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="font-bold text-slate-800 text-sm group-hover:text-teal-700 transition-colors">
+                  Öğrenci Kütüğü & Sözleşmeler
+                </h3>
+                <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 font-bold text-[10px]">
+                  {totalStudents} Kayıt
+                </span>
+              </div>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Öğrenci dosyaları, taksit planları, yoklama ve MEB kayıt sözleşmesi
+              </p>
+            </div>
+          </div>
+          <ArrowRight className="w-5 h-5 text-slate-400 group-hover:text-teal-700 group-hover:translate-x-1 transition-all" />
+        </Link>
       </div>
 
       {/* 3 Farklı Maaş Ödeme Takvimi Kartı (10'u Öğretmen, 15'i Personel, 20'si İdari) */}

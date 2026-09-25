@@ -66,6 +66,10 @@ model Staff {
   payrolls             Payroll[]
   leaves               LeaveRecord[]
   
+  assignedLeads        Lead[]            @relation("StaffAssignedLeads")
+  leadInteractions     LeadInteraction[] @relation("StaffLeadInteractions")
+  managedClassrooms    Classroom[]       @relation("ClassroomTeacher")
+  
   createdAt            DateTime          @default(now())
   updatedAt            DateTime          @updatedAt
 }
@@ -219,5 +223,175 @@ model ThirdPartyTransaction {
   description   String?           // Açıklama
   createdAt     DateTime          @default(now())
 }
+
+// ==================== CRM: ADAY ÖĞRENCİ MODÜLLERİ ====================
+
+model Lead {
+  id              String            @id @default(uuid())
+  studentName     String            // Aday Öğrenci Adı Soyadı
+  birthDate       DateTime?         // Doğum Tarihi
+  gender          String?           // MALE, FEMALE
+  currentSchool   String?           // Mevcut Okulu
+  targetGrade     String?           // Hedef Sınıf / Seviye (Örn: 8. Sınıf LGS, 12. Sınıf YKS, 9. Sınıf)
+  programInterest String?           // İlgilendiği Program (Grup Dersi, Birebir Özel Ders, Etüt, Bursluluk vb.)
+  source          String            @default("OTHER") // INSTAGRAM, GOOGLE, RECOMMENDATION, BROCHURE, WALK_IN, PHONE_IN, OTHER
+  sourceDetail    String?           // Örn: Tavsiye eden veli adı veya kampanya adı
+  status          String            @default("NEW") // NEW, CONTACTED, APPOINTMENT, OFFER_SENT, REGISTERED, LOST
+  lostReason      String?           // Fiyat yüksek, mesafe uzak, rakip kurum, veli vazgeçti vb.
+  priority        String            @default("MEDIUM") // LOW, MEDIUM, HIGH, URGENT
+  
+  // Veli Bilgileri
+  parentName      String            // Veli Ad Soyad
+  parentRelation  String            @default("MOTHER") // MOTHER (Anne), FATHER (Baba), GUARDIAN (Vasi)
+  parentPhone     String            // Birincil İletişim Telefonu
+  parentPhone2    String?           // İkincil Telefon
+  parentEmail     String?
+  parentJob       String?           // Mesleği
+  cityDistrict    String?           // Şehir / İlçe (Örn: Kadıköy, Çankaya)
+  address         String?           // Ev / İkamet adresi
+  
+  // Danışman Ataması
+  assignedStaffId String?
+  assignedStaff   Staff?            @relation("StaffAssignedLeads", fields: [assignedStaffId], references: [id], onDelete: SetNull)
+  
+  // Teklif & Finansal Ön Değerlendirme
+  offeredPrice    Float?            @default(0) // Teklif edilen tutar
+  discountNote    String?           // Uygulanan indirim veya kampanya
+  
+  notes           String?
+  
+  interactions    LeadInteraction[]
+  registeredStudent Student?        @relation("LeadToStudent")
+  
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+}
+
+model LeadInteraction {
+  id           String    @id @default(uuid())
+  leadId       String
+  lead         Lead      @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  
+  staffId      String?
+  staff        Staff?    @relation("StaffLeadInteractions", fields: [staffId], references: [id], onDelete: SetNull)
+  
+  type         String    @default("PHONE_CALL") // PHONE_CALL, VISIT, WHATSAPP, SMS, EXAM, MEETING
+  result       String    @default("NO_ANSWER") // NO_ANSWER, APPOINTMENT_SET, THINKING, OFFER_GIVEN, POSITIVE, NEGATIVE
+  notes        String?   // Görüşme özeti ve notları
+  
+  followUpDate DateTime? // Takip / Bir sonraki arama tarihi
+  isCompleted  Boolean   @default(true)
+  
+  createdAt    DateTime  @default(now())
+}
+
+// ==================== ÖĞRENCİ & SINIF YÖNETİMİ ====================
+
+model Classroom {
+  id              String    @id @default(uuid())
+  name            String    @unique // Örn: "8-A LGS", "11-B Sayısal", "10-A Anadolu"
+  gradeLevel      String    // 5, 6, 7, 8, 9, 10, 11, 12, MEZUN
+  branch          String?   // Sayısal, Eşit Ağırlık, Sözel, Dil, LGS, Kurs
+  capacity        Int       @default(16)
+  academicYear    String    @default("2025-2026")
+  roomNumber      String?   // Derslik No: Derslik 101, Kat 2
+  
+  teacherStaffId  String?   // Sınıf Rehber Öğretmeni
+  teacherStaff    Staff?    @relation("ClassroomTeacher", fields: [teacherStaffId], references: [id], onDelete: SetNull)
+  
+  students        Student[]
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+}
+
+model Student {
+  id               String              @id @default(uuid())
+  studentNo        String?             @unique // Okul / Kurum Öğrenci No (Örn: 2026001)
+  tcNo             String              @unique
+  fullName         String
+  birthDate        DateTime?
+  gender           String?             @default("UNSPECIFIED") // MALE, FEMALE, UNSPECIFIED
+  bloodGroup       String?             // A+, A-, B+, B-, AB+, AB-, 0+, 0-
+  healthNotes      String?             // Kronik hastalık, ilaç, alerji
+  photoUrl         String?             // Öğrenci Vesikalık Fotoğrafı
+  status           String              @default("ACTIVE") // ACTIVE, FROZEN, TRANSFERRED, DROPPED, GRADUATED
+  
+  // Aile & Veli Bilgileri
+  fatherName       String?
+  fatherPhone      String?
+  fatherJob        String?
+  motherName       String?
+  motherPhone      String?
+  motherJob        String?
+  guardianRelation String              @default("FATHER") // MOTHER, FATHER, GUARDIAN (Resmi Vasi)
+  primaryPhone     String              // SMS ve Resmi Bildirim Telefonu
+  primaryEmail     String?
+  homeAddress      String?
+  cityDistrict     String?
+  
+  // Akademik & Sınıf Bilgileri
+  classroomId      String?
+  classroom        Classroom?          @relation(fields: [classroomId], references: [id], onDelete: SetNull)
+  academicYear     String              @default("2025-2026")
+  enrollmentDate   DateTime            @default(now())
+  graduationDate   DateTime?
+  previousSchool   String?             // Geldiği okul
+  
+  // Finansal Sözleşme Özeti
+  contractAmount   Float               @default(0) // Anlaşılan Brüt Kayıt Tutarı
+  discountAmount   Float               @default(0) // İndirim Tutarı
+  netAmount        Float               @default(0) // Net Ödenecek Tutar
+  paymentMethod    String              @default("INSTALLMENT") // CASH, CREDIT_CARD, INSTALLMENT, CHEQUE
+  installmentCount Int                 @default(1) // Taksit Sayısı
+  
+  // Özel Etiketler (Burs, Yemek, Servis vb.)
+  tags             String?             // JSON array string: ["BURSLU", "SERVIS", "YEMEK"]
+  notes            String?
+  
+  // İlişkiler
+  leadId           String?             @unique
+  lead             Lead?               @relation("LeadToStudent", fields: [leadId], references: [id], onDelete: SetNull)
+  
+  payments         StudentPayment[]
+  attendances      StudentAttendance[]
+  
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+}
+
+model StudentPayment {
+  id              String    @id @default(uuid())
+  studentId       String
+  student         Student   @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  
+  installmentNo   Int       // 1, 2, 3...
+  title           String    // "1. Taksit", "Peşinat", "Kayıt Ücreti"
+  dueDate         DateTime  // Vade Tarihi
+  amount          Float     @default(0) // Taksit Tutarı
+  paidAmount      Float     @default(0) // Ödenen Tutar
+  isPaid          Boolean   @default(false)
+  paidDate        DateTime? // Ödeme Tarihi
+  paymentMethod   String?   // CASH, CREDIT_CARD, BANK_TRANSFER, CHEQUE
+  receiptNo       String?   // Makbuz No / Dekont No
+  notes           String?
+  
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+}
+
+model StudentAttendance {
+  id          String   @id @default(uuid())
+  studentId   String
+  student     Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  
+  date        DateTime @default(now()) // Yoklama Tarihi
+  lessonHour  String?  // "Tüm Gün" veya "1. Ders", "Etüt"
+  status      String   @default("PRESENT") // PRESENT (Geldi), ABSENT (Gelmedi), LATE (Geç Kaldı), EXCUSED (İzinli/Raporlu)
+  notes       String?  // Gerekçe
+  isNotified  Boolean  @default(false) // Veliye SMS bildirildi mi?
+  
+  createdAt   DateTime @default(now())
+}
+
 
 
