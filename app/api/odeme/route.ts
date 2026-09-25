@@ -33,6 +33,8 @@ export async function GET(request: Request) {
       const split = calculateOfficialSplit({
         netTotal: p.netTotal,
         monthlySalary: p.staff.salaryConfig?.monthlySalary || 0,
+        salaryType: p.staff.salaryConfig?.salaryType,
+        title: p.staff.title,
         year: p.year,
         month: p.month,
         hireDate: p.staff.hireDate,

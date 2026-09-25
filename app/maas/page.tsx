@@ -486,6 +486,8 @@ export default function MaasTahakkukPage() {
         }),
       });
 
+      const data = await res.json();
+
       if (res.ok) {
         setSavedSuccessId(row.staffId);
         setTimeout(() => setSavedSuccessId(null), 2500);
@@ -493,7 +495,7 @@ export default function MaasTahakkukPage() {
           prev.map((r) => (r.staffId === row.staffId ? { ...r, isSaved: true } : r))
         );
       } else {
-        alert("Kaydedilemedi");
+        alert(data.error || "Kaydedilemedi");
       }
     } catch (err) {
       alert("Hata oluştu");

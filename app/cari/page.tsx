@@ -31,8 +31,10 @@ import {
   FileSpreadsheet,
   Download,
   X,
+  ReceiptText,
 } from "lucide-react";
 import { calculateDuration } from "@/lib/date-utils";
+import ThirdPartyLedger from "./components/ThirdPartyLedger";
 
 interface StaffSummary {
   id: string;
@@ -140,6 +142,8 @@ function CariContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const initialStaffId = searchParams.get("staffId") || "";
+  const tabParam = searchParams.get("tab");
+  const [mainTab, setMainTab] = useState<"STAFF" | "THIRD_PARTY">(tabParam === "sahis" ? "THIRD_PARTY" : "STAFF");
 
   const [staffSummaries, setStaffSummaries] = useState<StaffSummary[]>([]);
   const [selectedStaff, setSelectedStaff] = useState<SelectedStaff | null>(null);
@@ -250,23 +254,49 @@ function CariContent() {
 
   return (
     <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto w-full space-y-6">
-      {/* Üst Sekmeler: Personel Cari & Okul Giderleri */}
-      <div className="flex items-center gap-2 border-b border-slate-200 pb-3 print:hidden">
-        <Link
-          href="/cari"
-          className="px-4 py-2 rounded-xl text-sm font-bold bg-teal-700 text-white shadow-xs flex items-center gap-2"
-        >
-          <FileText className="w-4 h-4" />
-          <span>Personel Cari & Ekstreler</span>
-        </Link>
+      {/* Üst Sekmeler: Personel Cari & Şahıs Carileri & Okul Giderleri */}
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-3 print:hidden">
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setMainTab("STAFF")}
+            className={`px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2 transition-all ${
+              mainTab === "STAFF"
+                ? "bg-teal-700 text-white shadow-xs"
+                : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+            }`}
+          >
+            <Users className="w-4 h-4" />
+            <span>👨‍💼 Personel Cari & Ekstreler ({staffSummaries.length})</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setMainTab("THIRD_PARTY")}
+            className={`px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2 transition-all ${
+              mainTab === "THIRD_PARTY"
+                ? "bg-indigo-700 text-white shadow-xs"
+                : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+            }`}
+          >
+            <Building2 className="w-4 h-4" />
+            <span>👥 Şahıs & 3. Kişi Borç-Alacak Carileri (Orhan Kayaalp vb.)</span>
+          </button>
+        </div>
+
         <Link
           href="/giderler"
-          className="px-4 py-2 rounded-xl text-sm font-semibold text-slate-600 hover:text-slate-900 hover:bg-slate-100 flex items-center gap-2 transition-colors"
+          className="px-4 py-2 rounded-xl text-sm font-semibold text-slate-600 hover:text-slate-900 hover:bg-slate-100 flex items-center gap-2 transition-colors border border-slate-200"
         >
-          <Building2 className="w-4 h-4" />
-          <span>Okul Giderleri & Taksit Takibi</span>
+          <ReceiptText className="w-4 h-4 text-slate-500" />
+          <span>Okul Giderleri & Taksit Takibi →</span>
         </Link>
       </div>
+
+      {mainTab === "THIRD_PARTY" ? (
+        <ThirdPartyLedger />
+      ) : (
+        <>
 
       {/* 1. Üst Başlık & Çıktı Butonu (Yazdırmada gizlenmez) */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 print:hidden">
@@ -950,6 +980,8 @@ function CariContent() {
             </div>
           </div>
         </div>
+      )}
+        </>
       )}
     </div>
   );

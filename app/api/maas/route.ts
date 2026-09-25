@@ -10,8 +10,35 @@ export async function GET(request: Request) {
     const year = parseInt(searchParams.get("year") || String(currentYear));
     const month = parseInt(searchParams.get("month") || String(currentMonth));
 
+    const monthStart = new Date(year, month - 1, 1);
+    const monthEnd = new Date(year, month, 0, 23, 59, 59);
+
+    // İşten ayrılan personel kuralı:
+    // Çıktığı aydan sonraki aylarda maaş tahakkuk ekranından kalkar ve tahakkuk yapılamaz.
     const staffs = await prisma.staff.findMany({
-      where: { status: { in: ["ACTIVE", "ON_LEAVE"] } },
+      where: {
+        OR: [
+          // Aktif veya izinli personel (ayrılış tarihi yoksa veya bu ay/sonrasıysa)
+          {
+            status: { in: ["ACTIVE", "ON_LEAVE"] },
+            OR: [
+              { terminationDate: null },
+              { terminationDate: { gte: monthStart } },
+            ],
+          },
+          // Ayrılmış personel (çıkış tarihi bu ayın içindeyse son maaşını hesaplayabilmek için gösterilir)
+          {
+            status: "PASSIVE",
+            terminationDate: { gte: monthStart },
+          },
+          // Veya bu dönem için önceden tahakkuk kaydı oluşturulmuşsa
+          {
+            payrolls: {
+              some: { year, month },
+            },
+          },
+        ],
+      },
       include: {
         salaryConfig: true,
         departments: { include: { department: true } },
@@ -21,8 +48,8 @@ export async function GET(request: Request) {
         leaves: {
           where: {
             status: "APPROVED",
-            startDate: { lte: new Date(year, month, 0, 23, 59, 59) },
-            endDate: { gte: new Date(year, month - 1, 1) },
+            startDate: { lte: monthEnd },
+            endDate: { gte: monthStart },
           },
         },
       },
@@ -166,6 +193,20 @@ export async function POST(request: Request) {
 
     if (!staff || !staff.salaryConfig) {
       return NextResponse.json({ error: "Personel veya ücret kaydı bulunamadı" }, { status: 404 });
+    }
+
+    // İşten ayrılan personel kontrolü: Çıktığı aydan sonraki dönemlere tahakkuk yapılamaz!
+    if (staff.terminationDate) {
+      const termDate = new Date(staff.terminationDate);
+      const periodMonthStart = new Date(Number(year), Number(month) - 1, 1);
+      if (termDate < periodMonthStart) {
+        return NextResponse.json(
+          {
+            error: `Bu personel ${termDate.toLocaleDateString("tr-TR")} tarihinde işten ayrılmıştır. Çıkış yaptığı aydan sonraki dönemler (${month}/${year}) için maaş tahakkuku yapılamaz!`,
+          },
+          { status: 400 }
+        );
+      }
     }
 
     const config = staff.salaryConfig;

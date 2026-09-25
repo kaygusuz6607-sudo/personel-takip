@@ -40,6 +40,9 @@ interface PayrollItem {
     sgkStartDate: string | null;
     unofficialWorkPeriod: string | null;
     departments: { department: { name: string } }[];
+    salaryConfig?: {
+      salaryType: string;
+    } | null;
   };
 }
 
@@ -336,7 +339,15 @@ export default function PersonelOdemePage() {
                       </span>
 
                         {/* Elden ve Banka Dağılımı */}
-                        {item.unofficialAmount > 0 && item.officialAmount > 0 ? (
+                        {item.staff.salaryConfig?.salaryType === "HOURLY" ||
+                        (item.staff.title &&
+                          (item.staff.title.toLowerCase().includes("branş") ||
+                            item.staff.title.toLowerCase().includes("ders saat"))) ? (
+                          <span className="inline-flex items-center gap-1.5 bg-amber-100 text-amber-950 border border-amber-300 px-2.5 py-0.5 rounded text-[11px] font-bold shadow-2xs">
+                            <Banknote className="w-3.5 h-3.5 text-amber-700" />
+                            <span>💵 Tamamı Elden Ödenecek (Ders Saat Ücretli - Banka Transferine Eklenmez)</span>
+                          </span>
+                        ) : item.unofficialAmount > 0 && item.officialAmount > 0 ? (
                           <>
                             <span className="inline-flex items-center gap-1.5 bg-amber-100 text-amber-950 border border-amber-300 px-2.5 py-0.5 rounded text-[11px] font-bold shadow-2xs">
                               <Banknote className="w-3.5 h-3.5 text-amber-700" />

@@ -49,6 +49,7 @@ interface Staff {
   accountNumber: string | null;
   title: string | null;
   hireDate: string | null;
+  terminationDate?: string | null;
   mebAssignmentDate: string | null;
   mebAssignmentEndDate: string | null;
   isMebPermanent: boolean;
@@ -218,6 +219,7 @@ export default function PersonellerPage() {
     accountNumber: "",
     title: "",
     hireDate: "",
+    terminationDate: "",
     mebAssignmentDate: "",
     mebAssignmentEndDate: "",
     isMebPermanent: true,
@@ -277,6 +279,7 @@ export default function PersonellerPage() {
       accountNumber: "",
       title: "",
       hireDate: new Date().toISOString().split("T")[0],
+      terminationDate: "",
       mebAssignmentDate: "",
       mebAssignmentEndDate: "",
       isMebPermanent: false,
@@ -308,6 +311,7 @@ export default function PersonellerPage() {
       accountNumber: staff.accountNumber || "",
       title: staff.title || "",
       hireDate: staff.hireDate ? staff.hireDate.split("T")[0] : "",
+      terminationDate: staff.terminationDate ? staff.terminationDate.split("T")[0] : "",
       mebAssignmentDate: staff.mebAssignmentDate ? staff.mebAssignmentDate.split("T")[0] : "",
       mebAssignmentEndDate: staff.mebAssignmentEndDate ? staff.mebAssignmentEndDate.split("T")[0] : "",
       isMebPermanent: staff.mebAssignmentDate ? (staff.isMebPermanent ?? true) : false,
@@ -645,15 +649,20 @@ export default function PersonellerPage() {
                             ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
                             : staff.status === "ON_LEAVE"
                             ? "bg-amber-50 text-amber-700 border border-amber-200"
-                            : "bg-slate-100 text-slate-600 border border-slate-200"
+                            : "bg-rose-50 text-rose-700 border border-rose-200"
                         }`}
                       >
                         {staff.status === "ACTIVE"
                           ? "Aktif"
                           : staff.status === "ON_LEAVE"
                           ? "İzinli"
-                          : "Pasif"}
+                          : "İşten Ayrıldı"}
                       </span>
+                      {staff.terminationDate && (
+                        <p className="text-[10px] text-rose-600 font-semibold mt-1">
+                          Ayrılış: {new Date(staff.terminationDate).toLocaleDateString("tr-TR")}
+                        </p>
+                      )}
                     </td>
 
                     <td className="py-3.5 px-4 text-right">
@@ -876,18 +885,50 @@ export default function PersonellerPage() {
 
                   <div>
                     <label className="block text-xs font-medium text-slate-700 mb-1">
-                      Durum
+                      Çalışma Durumu
                     </label>
                     <select
                       value={form.status}
-                      onChange={(e) => setForm({ ...form, status: e.target.value })}
-                      className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-600/20 focus:border-teal-600"
+                      onChange={(e) => {
+                        const newStatus = e.target.value;
+                        setForm({
+                          ...form,
+                          status: newStatus,
+                          terminationDate:
+                            newStatus === "PASSIVE" && !form.terminationDate
+                              ? new Date().toISOString().split("T")[0]
+                              : newStatus === "ACTIVE"
+                              ? ""
+                              : form.terminationDate,
+                        });
+                      }}
+                      className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-600/20 focus:border-teal-600 font-medium"
                     >
-                      <option value="ACTIVE">Aktif</option>
-                      <option value="ON_LEAVE">İzinli</option>
-                      <option value="PASSIVE">Pasif (Ayrılmış)</option>
+                      <option value="ACTIVE">Aktif Çalışıyor</option>
+                      <option value="ON_LEAVE">İzinli / Askıda</option>
+                      <option value="PASSIVE">İşten Ayrıldı / Pasif</option>
                     </select>
                   </div>
+
+                  {(form.status === "PASSIVE" || Boolean(form.terminationDate)) && (
+                    <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl space-y-1">
+                      <label className="block text-xs font-bold text-rose-800 flex items-center justify-between">
+                        <span>🚪 İşten Ayrılış Tarihi</span>
+                        <span className="text-[10px] text-rose-600 font-semibold bg-rose-100 px-1.5 py-0.5 rounded">
+                          Tahakkuk Engellenir
+                        </span>
+                      </label>
+                      <input
+                        type="date"
+                        value={form.terminationDate}
+                        onChange={(e) => setForm({ ...form, terminationDate: e.target.value, status: "PASSIVE" })}
+                        className="w-full px-3 py-2 text-sm border border-rose-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-rose-500/20 focus:border-rose-500 bg-white font-semibold text-rose-900"
+                      />
+                      <p className="text-[11px] text-rose-600 leading-tight">
+                        * Bu personelin ayrıldığı aydan sonraki aylarda maaş tahakkuk ekranında listelenmesi engellenir.
+                      </p>
+                    </div>
+                  )}
 
                   <div>
                     <label className="block text-xs font-medium text-slate-700 mb-1">

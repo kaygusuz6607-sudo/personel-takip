@@ -78,6 +78,8 @@ export function parseSafeDate(d: string | Date | null | undefined): { year: numb
 export function calculateOfficialSplit(params: {
   netTotal: number;
   monthlySalary: number;
+  salaryType?: string;
+  title?: string | null;
   year?: number;
   month?: number;
   hireDate?: string | Date | null;
@@ -90,6 +92,8 @@ export function calculateOfficialSplit(params: {
   const {
     netTotal,
     monthlySalary = 0,
+    salaryType,
+    title,
     year = 2024,
     month = 8,
     hireDate,
@@ -102,6 +106,15 @@ export function calculateOfficialSplit(params: {
 
   if (netTotal <= 0) {
     return { officialAmount: 0, unofficialAmount: 0 };
+  }
+
+  // Ders saatli ücretli öğretmenlere para elden verilir, resmi hesaptan atılmaz!
+  const isHourlyTeacher =
+    salaryType === "HOURLY" ||
+    (title && (title.toLowerCase().includes("branş") || title.toLowerCase().includes("ders saat")));
+
+  if (isHourlyTeacher) {
+    return { officialAmount: 0, unofficialAmount: netTotal };
   }
 
   // Eğer muhasebe tarafından manuel elden tutar girilmişse doğrudan uygula
@@ -242,10 +255,11 @@ export function calculatePayroll(input: SalaryCalculationInput): SalaryCalculati
   // 6. Net Ödeme
   const netTotal = Math.max(0, Number((grossTotal - totalDeductions).toFixed(2)));
 
-  // 7. Akif Bey'in Kuralı: İşe girişten atamaya kadar ELDEN, atamadan sonraya RESMİ BANKA
+  // 7. Akif Bey'in Kuralı: İşe girişten atamaya kadar ELDEN, atamadan sonraya RESMİ BANKA (Ders saat ücretliler ise tamamen elden)
   const { officialAmount, unofficialAmount } = calculateOfficialSplit({
     netTotal,
     monthlySalary,
+    salaryType,
     year,
     month,
     hireDate,

@@ -118,6 +118,7 @@ export default function GiderlerPage() {
   const [installmentOnly, setInstallmentOnly] = useState(false);
   const [commitmentsOnly, setCommitmentsOnly] = useState(false);
   const [chequesOnly, setChequesOnly] = useState(false);
+  const [dueTodayOnly, setDueTodayOnly] = useState(false);
 
   // Ay Bazında Takip: 7 (Temmuz), 8 (Ağustos), 9 (Eylül), 10 (Ekim), ALL (Tümü)
   const [selectedMonth, setSelectedMonth] = useState<string>("9");
@@ -291,6 +292,29 @@ export default function GiderlerPage() {
     });
     return Array.from(map.values());
   }, [expenses]);
+
+  // Bugün veya Vadesi Geçmiş Olan Faturalar & Kartlar
+  const dueTodayOrOverdue = useMemo(() => {
+    const today = new Date();
+    today.setHours(23, 59, 59, 999);
+    return expenses.filter((e) => {
+      if (e.status === "PAID" || !e.dueDate) return false;
+      const d = new Date(e.dueDate);
+      return d.getTime() <= today.getTime();
+    });
+  }, [expenses]);
+
+  // Tabloda gösterilecek liste (Bugün filtresi etkinse sadece vadesi gelenler)
+  const displayedExpenses = useMemo(() => {
+    if (!dueTodayOnly) return expenses;
+    const today = new Date();
+    today.setHours(23, 59, 59, 999);
+    return expenses.filter((e) => {
+      if (e.status === "PAID" || !e.dueDate) return false;
+      const d = new Date(e.dueDate);
+      return d.getTime() <= today.getTime();
+    });
+  }, [expenses, dueTodayOnly]);
 
   const openNewModal = () => {
     setEditingExpense(null);
@@ -856,6 +880,32 @@ export default function GiderlerPage() {
             </div>
           </div>
 
+          {/* Son Ödeme Günü Gelen / Geciken Faturalar ve Kartlar Uyarısı */}
+          {dueTodayOrOverdue.length > 0 && !dueTodayOnly && (
+            <div className="p-4 bg-gradient-to-r from-rose-50 to-amber-50 border border-rose-200 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs animate-in fade-in">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-rose-600 text-white flex items-center justify-center font-bold text-lg shadow-sm shrink-0">
+                  🔔
+                </div>
+                <div>
+                  <h4 className="font-extrabold text-rose-950 text-sm">
+                    Bugün veya Vadesi Gelmiş {dueTodayOrOverdue.length} Kalem Fatura & Borç Ödemesi Var!
+                  </h4>
+                  <p className="text-xs text-rose-800 mt-0.5">
+                    Son ödeme tarihi bugün olan veya günü geçmiş bekleyen faturaları ve kredi kartlarını tek tıkla listeleyin.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDueTodayOnly(true)}
+                className="px-4 py-2 bg-rose-700 hover:bg-rose-800 text-white text-xs font-bold rounded-xl shadow-xs transition-all shrink-0 self-start sm:self-auto"
+              >
+                Günü Gelenleri Listele ({dueTodayOrOverdue.length}) →
+              </button>
+            </div>
+          )}
+
           {/* 💳 KREDİ KARTLARI & ŞAHIS KARTLARI DETAY PANOSU (Ahmet Taymaz - Akbank / Halkbank / Vakıfbank) */}
           <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">
             <button
@@ -1014,6 +1064,27 @@ export default function GiderlerPage() {
                   <span>Verilen Çekler ({stats.countCheques})</span>
                 </button>
 
+                {/* Son Ödeme Günü Gelenler / Bugün Ödenecekler */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDueTodayOnly(!dueTodayOnly);
+                    if (!dueTodayOnly) {
+                      setInstallmentOnly(false);
+                      setCommitmentsOnly(false);
+                      setChequesOnly(false);
+                    }
+                  }}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition-all flex items-center gap-1.5 ${
+                    dueTodayOnly
+                      ? "bg-rose-700 text-white border-rose-700 shadow-2xs"
+                      : "bg-rose-50 hover:bg-rose-100 text-rose-800 border-rose-200"
+                  }`}
+                >
+                  <BellRing className="w-3.5 h-3.5" />
+                  <span>Son Günü Gelenler ({dueTodayOrOverdue.length})</span>
+                </button>
+
                 {/* Ödeme Yöntemi Filtresi */}
                 <div className="flex items-center bg-slate-100 p-1 rounded-xl">
                   {[
@@ -1107,8 +1178,10 @@ export default function GiderlerPage() {
           <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">
             {loading ? (
               <div className="p-12 text-center text-slate-400">Giderler yükleniyor...</div>
-            ) : expenses.length === 0 ? (
-              <div className="p-12 text-center text-slate-400">Kayıt bulunamadı.</div>
+            ) : displayedExpenses.length === 0 ? (
+              <div className="p-12 text-center text-slate-400">
+                {dueTodayOnly ? "Bugün veya vadesi geçmiş bekleyen ödeme bulunmuyor. Harika! 🎉" : "Kayıt bulunamadı."}
+              </div>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full text-left border-collapse text-xs">
@@ -1126,7 +1199,7 @@ export default function GiderlerPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {expenses.map((exp) => {
+                    {displayedExpenses.map((exp) => {
                       const cat = CATEGORY_MAP[exp.category] || CATEGORY_MAP.OTHER;
                       const Icon = cat.icon;
 
@@ -1263,8 +1336,39 @@ export default function GiderlerPage() {
 
                           {/* Vade / Tarih */}
                           <td className="py-3 px-3">
-                            <div className="text-slate-800 font-medium">
-                              {exp.dueDateStr || (exp.dueDate ? new Date(exp.dueDate).toLocaleDateString("tr-TR") : "-")}
+                            <div className="text-slate-800 font-semibold flex flex-col gap-0.5">
+                              <span>{exp.dueDateStr || (exp.dueDate ? new Date(exp.dueDate).toLocaleDateString("tr-TR") : "-")}</span>
+                              {(() => {
+                                if (!exp.dueDate || exp.status === "PAID") return null;
+                                const due = new Date(exp.dueDate);
+                                const today = new Date();
+                                today.setHours(0, 0, 0, 0);
+                                due.setHours(0, 0, 0, 0);
+                                const diffTime = due.getTime() - today.getTime();
+                                const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                                if (diffDays === 0) {
+                                  return (
+                                    <span className="inline-flex items-center gap-1 text-[10px] font-black text-rose-700 bg-rose-100 border border-rose-300 px-1.5 py-0.2 rounded w-fit animate-pulse">
+                                      🔔 BUGÜN SON GÜN!
+                                    </span>
+                                  );
+                                }
+                                if (diffDays < 0) {
+                                  return (
+                                    <span className="inline-flex items-center gap-1 text-[10px] font-bold text-rose-600 bg-rose-50 border border-rose-200 px-1.5 py-0.2 rounded w-fit">
+                                      ⚠️ Günü Geçti ({Math.abs(diffDays)} gün)
+                                    </span>
+                                  );
+                                }
+                                if (diffDays <= 3) {
+                                  return (
+                                    <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.2 rounded w-fit">
+                                      ⏰ {diffDays} gün kaldı
+                                    </span>
+                                  );
+                                }
+                                return null;
+                              })()}
                             </div>
                           </td>
 
@@ -1885,15 +1989,28 @@ export default function GiderlerPage() {
                 </div>
 
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">
-                    {form.entryType === "SINGLE" ? "Vade Tarihi *" : "İlk Vade / Başlangıç Tarihi *"}
+                  <label className="block font-bold text-slate-700 mb-1 flex items-center justify-between">
+                    <span>
+                      {form.category === "INVOICE"
+                        ? "📅 Fatura Son Ödeme Tarihi *"
+                        : form.category === "CREDIT_CARD"
+                        ? "💳 Kart Son Ödeme Tarihi *"
+                        : form.entryType === "SINGLE"
+                        ? "Vade / Son Ödeme Tarihi *"
+                        : "İlk Vade / Başlangıç Tarihi *"}
+                    </span>
+                    {(form.category === "INVOICE" || form.category === "CREDIT_CARD") && (
+                      <span className="text-[10px] text-amber-700 font-bold bg-amber-50 px-1.5 py-0.2 rounded">
+                        Günü Gelince Hatırlatılır
+                      </span>
+                    )}
                   </label>
                   <input
                     type="date"
                     required
                     value={form.dueDate}
                     onChange={(e) => setForm({ ...form, dueDate: e.target.value })}
-                    className="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs font-medium focus:outline-none focus:ring-2 focus:ring-teal-600/20"
+                    className="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-teal-600/20"
                   />
                 </div>
               </div>
