@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, Suspense } from "react";
 import Link from "next/link";
 import {
   ReceiptText,
@@ -104,7 +104,27 @@ const CATEGORY_MAP: Record<string, { label: string; icon: any; color: string; ba
   OTHER: { label: "Diğer", icon: ReceiptText, color: "text-slate-700", badgeBg: "bg-slate-50 text-slate-800 border-slate-200" },
 };
 
-export default function GiderlerPage() {
+function formatSafeDate(d: string | Date | null | undefined): string {
+  if (!d) return "-";
+  try {
+    const date = new Date(d);
+    if (isNaN(date.getTime())) return typeof d === "string" ? d : "-";
+    const day = String(date.getDate()).padStart(2, "0");
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const year = date.getFullYear();
+    return `${day}.${month}.${year}`;
+  } catch {
+    return "-";
+  }
+}
+
+function GiderlerPageContent() {
+  // SSR Hydration koruması
+  const [isMounted, setIsMounted] = useState(false);
+  useEffect(() => {
+    setIsMounted(true);
+  }, []);
+
   // Aktif Sekme: EXPENSES (Okul Giderleri) | ASSETS (Araç / Mülk Sigorta & Kasko)
   const [activeMainTab, setActiveMainTab] = useState<"EXPENSES" | "ASSETS">("EXPENSES");
 
@@ -277,44 +297,60 @@ export default function GiderlerPage() {
 
   // Taahhüt Bitişi Yaklaşanlar (Son 45 gün)
   const expiringCommitments = useMemo(() => {
+    if (!isMounted) return [];
     const now = new Date();
     const map = new Map<string, { exp: SchoolExpense; daysLeft: number }>();
     expenses.forEach((e) => {
       if (e.isCommitment && e.commitmentEndDate) {
-        const end = new Date(e.commitmentEndDate);
-        const diffDays = Math.ceil((end.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-        if (diffDays <= 45) {
-          if (!map.has(e.title)) {
-            map.set(e.title, { exp: e, daysLeft: diffDays });
+        try {
+          const end = new Date(e.commitmentEndDate);
+          if (!isNaN(end.getTime())) {
+            const diffDays = Math.ceil((end.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+            if (diffDays <= 45) {
+              if (!map.has(e.title)) {
+                map.set(e.title, { exp: e, daysLeft: diffDays });
+              }
+            }
           }
-        }
+        } catch {}
       }
     });
     return Array.from(map.values());
-  }, [expenses]);
+  }, [expenses, isMounted]);
 
   // Bugün veya Vadesi Geçmiş Olan Faturalar & Kartlar
   const dueTodayOrOverdue = useMemo(() => {
+    if (!isMounted) return [];
     const today = new Date();
     today.setHours(23, 59, 59, 999);
     return expenses.filter((e) => {
       if (e.status === "PAID" || !e.dueDate) return false;
-      const d = new Date(e.dueDate);
-      return d.getTime() <= today.getTime();
+      try {
+        const d = new Date(e.dueDate);
+        if (isNaN(d.getTime())) return false;
+        return d.getTime() <= today.getTime();
+      } catch {
+        return false;
+      }
     });
-  }, [expenses]);
+  }, [expenses, isMounted]);
 
   // Tabloda gösterilecek liste (Bugün filtresi etkinse sadece vadesi gelenler)
   const displayedExpenses = useMemo(() => {
-    if (!dueTodayOnly) return expenses;
+    if (!dueTodayOnly || !isMounted) return expenses;
     const today = new Date();
     today.setHours(23, 59, 59, 999);
     return expenses.filter((e) => {
       if (e.status === "PAID" || !e.dueDate) return false;
-      const d = new Date(e.dueDate);
-      return d.getTime() <= today.getTime();
+      try {
+        const d = new Date(e.dueDate);
+        if (isNaN(d.getTime())) return false;
+        return d.getTime() <= today.getTime();
+      } catch {
+        return false;
+      }
     });
-  }, [expenses, dueTodayOnly]);
+  }, [expenses, dueTodayOnly, isMounted]);
 
   const openNewModal = () => {
     setEditingExpense(null);
@@ -942,7 +978,7 @@ export default function GiderlerPage() {
                     <div className="flex items-center justify-between pb-2 border-b border-slate-200/80">
                       <div className="flex items-center gap-2">
                         <div className="w-7 h-7 rounded-lg bg-indigo-100 text-indigo-800 flex items-center justify-center font-bold text-xs">
-                          {holderName.substring(0, 2).toUpperCase()}
+                          {holderName ? holderName.substring(0, 2).toUpperCase() : "KT"}
                         </div>
                         <span className="font-bold text-slate-900 text-sm">{holderName}</span>
                       </div>
@@ -1205,15 +1241,21 @@ export default function GiderlerPage() {
 
                       // Çoklu Hat Ayrıştırması
                       let phoneLines: any[] = [];
-                      try {
-                        if (exp.phoneLines) phoneLines = JSON.parse(exp.phoneLines);
-                      } catch (e) {}
+                      if (exp.phoneLines) {
+                        try {
+                          const parsed = typeof exp.phoneLines === "string" ? JSON.parse(exp.phoneLines) : exp.phoneLines;
+                          if (Array.isArray(parsed)) phoneLines = parsed;
+                        } catch (e) {}
+                      }
 
                       // Ödeme Geçmişi Ayrıştırması
                       let paymentHistoryList: any[] = [];
-                      try {
-                        if (exp.paymentHistory) paymentHistoryList = JSON.parse(exp.paymentHistory);
-                      } catch (e) {}
+                      if (exp.paymentHistory) {
+                        try {
+                          const parsed = typeof exp.paymentHistory === "string" ? JSON.parse(exp.paymentHistory) : exp.paymentHistory;
+                          if (Array.isArray(parsed)) paymentHistoryList = parsed;
+                        } catch (e) {}
+                      }
 
                       return (
                         <tr
@@ -1280,20 +1322,25 @@ export default function GiderlerPage() {
                             )}
 
                             {/* Taahhüt Süresi Uyarısı */}
-                            {exp.isCommitment && exp.commitmentEndDate && (() => {
-                              const end = new Date(exp.commitmentEndDate);
-                              const diffDays = Math.ceil((end.getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24));
-                              if (diffDays <= 45 && diffDays >= 0) {
-                                return (
-                                  <div className="mt-1">
-                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-black bg-amber-100 text-amber-900 border border-amber-300">
-                                      <AlertCircle className="w-3 h-3 text-amber-700" />
-                                      <span>Taahhüt Bitiyor ({diffDays} gün kaldı)</span>
-                                    </span>
-                                  </div>
-                                );
+                            {isMounted && exp.isCommitment && exp.commitmentEndDate && (() => {
+                              try {
+                                const end = new Date(exp.commitmentEndDate);
+                                if (isNaN(end.getTime())) return null;
+                                const diffDays = Math.ceil((end.getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24));
+                                if (diffDays <= 45 && diffDays >= 0) {
+                                  return (
+                                    <div className="mt-1">
+                                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-black bg-amber-100 text-amber-900 border border-amber-300">
+                                        <AlertCircle className="w-3 h-3 text-amber-700" />
+                                        <span>Taahhüt Bitiyor ({diffDays} gün kaldı)</span>
+                                      </span>
+                                    </div>
+                                  );
+                                }
+                                return null;
+                              } catch {
+                                return null;
                               }
-                              return null;
                             })()}
                           </td>
 
@@ -1337,37 +1384,42 @@ export default function GiderlerPage() {
                           {/* Vade / Tarih */}
                           <td className="py-3 px-3">
                             <div className="text-slate-800 font-semibold flex flex-col gap-0.5">
-                              <span>{exp.dueDateStr || (exp.dueDate ? new Date(exp.dueDate).toLocaleDateString("tr-TR") : "-")}</span>
-                              {(() => {
+                              <span>{exp.dueDateStr || formatSafeDate(exp.dueDate)}</span>
+                              {isMounted && (() => {
                                 if (!exp.dueDate || exp.status === "PAID") return null;
-                                const due = new Date(exp.dueDate);
-                                const today = new Date();
-                                today.setHours(0, 0, 0, 0);
-                                due.setHours(0, 0, 0, 0);
-                                const diffTime = due.getTime() - today.getTime();
-                                const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-                                if (diffDays === 0) {
-                                  return (
-                                    <span className="inline-flex items-center gap-1 text-[10px] font-black text-rose-700 bg-rose-100 border border-rose-300 px-1.5 py-0.2 rounded w-fit animate-pulse">
-                                      🔔 BUGÜN SON GÜN!
-                                    </span>
-                                  );
+                                try {
+                                  const due = new Date(exp.dueDate);
+                                  if (isNaN(due.getTime())) return null;
+                                  const today = new Date();
+                                  today.setHours(0, 0, 0, 0);
+                                  due.setHours(0, 0, 0, 0);
+                                  const diffTime = due.getTime() - today.getTime();
+                                  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                                  if (diffDays === 0) {
+                                    return (
+                                      <span className="inline-flex items-center gap-1 text-[10px] font-black text-rose-700 bg-rose-100 border border-rose-300 px-1.5 py-0.2 rounded w-fit animate-pulse">
+                                        🔔 BUGÜN SON GÜN!
+                                      </span>
+                                    );
+                                  }
+                                  if (diffDays < 0) {
+                                    return (
+                                      <span className="inline-flex items-center gap-1 text-[10px] font-bold text-rose-600 bg-rose-50 border border-rose-200 px-1.5 py-0.2 rounded w-fit">
+                                        ⚠️ Günü Geçti ({Math.abs(diffDays)} gün)
+                                      </span>
+                                    );
+                                  }
+                                  if (diffDays <= 3) {
+                                    return (
+                                      <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.2 rounded w-fit">
+                                        ⏰ {diffDays} gün kaldı
+                                      </span>
+                                    );
+                                  }
+                                  return null;
+                                } catch {
+                                  return null;
                                 }
-                                if (diffDays < 0) {
-                                  return (
-                                    <span className="inline-flex items-center gap-1 text-[10px] font-bold text-rose-600 bg-rose-50 border border-rose-200 px-1.5 py-0.2 rounded w-fit">
-                                      ⚠️ Günü Geçti ({Math.abs(diffDays)} gün)
-                                    </span>
-                                  );
-                                }
-                                if (diffDays <= 3) {
-                                  return (
-                                    <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.2 rounded w-fit">
-                                      ⏰ {diffDays} gün kaldı
-                                    </span>
-                                  );
-                                }
-                                return null;
                               })()}
                             </div>
                           </td>
@@ -1563,7 +1615,7 @@ export default function GiderlerPage() {
                           <span className="text-slate-600 font-semibold">TÜVTÜRK Muayene:</span>
                           <div className="text-right">
                             <span className="font-bold text-slate-900 block">
-                              {item.inspectionDate ? new Date(item.inspectionDate).toLocaleDateString("tr-TR") : "Belirtilmedi"}
+                              {item.inspectionDate ? formatSafeDate(item.inspectionDate) : "Belirtilmedi"}
                             </span>
                             {typeof item.inspDays === "number" && (
                               <span className={`text-[10px] font-black ${item.inspDays <= 10 ? "text-rose-600" : "text-slate-500"}`}>
@@ -1578,7 +1630,7 @@ export default function GiderlerPage() {
                           <span className="text-slate-600 font-semibold">Kasko Bitiş:</span>
                           <div className="text-right">
                             <span className="font-bold text-slate-900 block">
-                              {item.kaskoDate ? new Date(item.kaskoDate).toLocaleDateString("tr-TR") : "Belirtilmedi"}
+                              {item.kaskoDate ? formatSafeDate(item.kaskoDate) : "Belirtilmedi"}
                             </span>
                             {typeof item.kaskoDays === "number" && (
                               <span className={`text-[10px] font-black ${item.kaskoDays <= 10 ? "text-rose-600" : "text-slate-500"}`}>
@@ -1592,7 +1644,7 @@ export default function GiderlerPage() {
                         <div className="flex items-center justify-between p-2 rounded-xl bg-slate-50 border border-slate-100">
                           <span className="text-slate-600 font-semibold">Trafik Sigortası:</span>
                           <span className="font-bold text-slate-900">
-                            {item.insuranceDate ? new Date(item.insuranceDate).toLocaleDateString("tr-TR") : "Belirtilmedi"}
+                            {item.insuranceDate ? formatSafeDate(item.insuranceDate) : "Belirtilmedi"}
                           </span>
                         </div>
                       </>
@@ -1603,7 +1655,7 @@ export default function GiderlerPage() {
                           <span className="text-slate-600 font-semibold">DASK / Yangın Sigortası:</span>
                           <div className="text-right">
                             <span className="font-bold text-slate-900 block">
-                              {item.housingDate ? new Date(item.housingDate).toLocaleDateString("tr-TR") : "Belirtilmedi"}
+                              {item.housingDate ? formatSafeDate(item.housingDate) : "Belirtilmedi"}
                             </span>
                             {typeof item.houseDays === "number" && (
                               <span className={`text-[10px] font-black ${item.houseDays <= 10 ? "text-rose-600" : "text-slate-500"}`}>
@@ -2324,5 +2376,24 @@ export default function GiderlerPage() {
         </div>
       )}
     </div>
+  );
+}
+
+function GiderlerPageFallback() {
+  return (
+    <div className="min-h-screen bg-slate-50 flex items-center justify-center p-8">
+      <div className="flex items-center gap-3 text-slate-500 font-semibold text-sm">
+        <div className="w-5 h-5 border-2 border-teal-600 border-t-transparent rounded-full animate-spin" />
+        <span>Giderler ve Borç Takibi Yükleniyor...</span>
+      </div>
+    </div>
+  );
+}
+
+export default function GiderlerPage() {
+  return (
+    <Suspense fallback={<GiderlerPageFallback />}>
+      <GiderlerPageContent />
+    </Suspense>
   );
 }
