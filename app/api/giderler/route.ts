@@ -33,6 +33,11 @@ export async function GET(request: Request) {
       }
     }
 
+    const month = searchParams.get("month"); // e.g. "8", "9", "10"
+    const paymentMethod = searchParams.get("paymentMethod"); // "CASH", "CREDIT_CARD", "CHEQUE"
+    const cardHolder = searchParams.get("cardHolder");
+    const chequesOnly = searchParams.get("chequesOnly") === "true";
+
     const where: any = {};
 
     if (search) {
@@ -42,6 +47,8 @@ export async function GET(request: Request) {
         { period: { contains: search, mode: "insensitive" } },
         { installmentInfo: { contains: search, mode: "insensitive" } },
         { description: { contains: search, mode: "insensitive" } },
+        { cardHolder: { contains: search, mode: "insensitive" } },
+        { cardBank: { contains: search, mode: "insensitive" } },
       ];
     }
 
@@ -62,10 +69,44 @@ export async function GET(request: Request) {
       where.isCommitment = true;
     }
 
+    if (chequesOnly) {
+      where.category = "CHEQUE";
+    }
+
+    if (paymentMethod && paymentMethod !== "ALL") {
+      where.paymentMethod = paymentMethod;
+    }
+
+    if (cardHolder && cardHolder !== "ALL") {
+      where.cardHolder = cardHolder;
+    }
+
+    if (month && month !== "ALL") {
+      where.monthIndex = parseInt(month);
+    }
+
     const expenses = await prisma.schoolExpense.findMany({
       where,
       orderBy: [{ status: "asc" }, { dueDate: "asc" }, { createdAt: "desc" }],
     });
+
+    // Geçmiş aylardan kalan ödenmemiş ödemeler (Devreden Borçlar - Özdemirler ve İlyas Bey kiralar vb.)
+    let rolloverExpenses: any[] = [];
+    if (month && month !== "ALL") {
+      const targetMonth = parseInt(month);
+      if (!isNaN(targetMonth)) {
+        rolloverExpenses = await prisma.schoolExpense.findMany({
+          where: {
+            status: { in: ["PENDING", "PARTIAL"] },
+            monthIndex: { lt: targetMonth },
+            NOT: {
+              id: { in: expenses.map((e) => e.id) },
+            },
+          },
+          orderBy: [{ monthIndex: "asc" }, { createdAt: "desc" }],
+        });
+      }
+    }
 
     // İstatistikler (Tüm kayıtlar üzerinden)
     const allExpenses = await prisma.schoolExpense.findMany();
@@ -78,9 +119,36 @@ export async function GET(request: Request) {
       countPartial: allExpenses.filter((e) => e.status === "PARTIAL").length,
       countPaid: allExpenses.filter((e) => e.status === "PAID").length,
       countCommitments: allExpenses.filter((e) => e.isCommitment).length,
+      countCheques: allExpenses.filter((e) => e.category === "CHEQUE").length,
     };
 
-    return NextResponse.json({ expenses, stats });
+    // Kredi Kartı Harcamaları Özeti (Kişi ve Banka Gruplu - Ahmet Taymaz Akbank, Halkbank, Vakıfbank vb.)
+    const creditCardExpenses = allExpenses.filter((e) => e.category === "CREDIT_CARD" || e.paymentMethod === "CREDIT_CARD");
+    const cardHoldersMap: Record<string, { totalDue: number; totalPaid: number; totalRemaining: number; banks: Record<string, { total: number; remaining: number }> }> = {};
+
+    creditCardExpenses.forEach((exp) => {
+      const holder = exp.cardHolder || "Şirket / Diğer";
+      const bank = exp.cardBank || exp.title.split("/")[1]?.trim() || "Diğer Banka";
+      if (!cardHoldersMap[holder]) {
+        cardHoldersMap[holder] = { totalDue: 0, totalPaid: 0, totalRemaining: 0, banks: {} };
+      }
+      cardHoldersMap[holder].totalDue += exp.amountDue;
+      cardHoldersMap[holder].totalPaid += exp.amountPaid;
+      cardHoldersMap[holder].totalRemaining += exp.amountRemaining;
+
+      if (!cardHoldersMap[holder].banks[bank]) {
+        cardHoldersMap[holder].banks[bank] = { total: 0, remaining: 0 };
+      }
+      cardHoldersMap[holder].banks[bank].total += exp.amountDue;
+      cardHoldersMap[holder].banks[bank].remaining += exp.amountRemaining;
+    });
+
+    return NextResponse.json({
+      expenses,
+      rolloverExpenses,
+      stats,
+      cardHoldersSummary: cardHoldersMap,
+    });
   } catch (error: any) {
     console.error("Giderler listesi hatası:", error);
     return NextResponse.json({ error: "Gider kayıtları alınamadı" }, { status: 500 });
@@ -128,6 +196,14 @@ export async function POST(request: Request) {
       isCommitment = false,
       commitmentMonths = 12,
       amountMode = "TOTAL", // "TOTAL" veya "MONTHLY"
+      // Yeni Finans ve Kart Alanları
+      paymentMethod = "CASH",
+      cardHolder = null,
+      cardBank = null,
+      monthIndex = null,
+      phoneLines = null,
+      chequeNo = null,
+      chequeBank = null,
     } = body;
 
     if (!title || Number(amountDue) <= 0) {
@@ -136,6 +212,7 @@ export async function POST(request: Request) {
 
     const numAmount = Number(amountDue);
     const baseDate = dueDate ? new Date(dueDate) : new Date();
+    const calculatedMonthIndex = monthIndex ? Number(monthIndex) : baseDate.getMonth() + 1;
 
     // 1. TAAHHÜTLÜ ABONELİK (Telefon, İnternet, TV vb.) ÇOKLU AYLIK PLAN
     if (isCommitment && Number(commitmentMonths) > 1) {
@@ -154,6 +231,7 @@ export async function POST(request: Request) {
             subCategory: subCategory || "Taahhütlü Abonelik",
             period: `${i}.Ay (${i}/${N})`,
             installmentInfo: `${i}t/${N}t`,
+            monthIndex: itemDate.getMonth() + 1,
             dueDate: itemDate,
             dueDateStr: itemDateStr,
             amountDue: monthlyAmount,
@@ -165,6 +243,10 @@ export async function POST(request: Request) {
             isCommitment: true,
             commitmentMonths: N,
             commitmentEndDate: finalEndDate,
+            paymentMethod,
+            cardHolder,
+            cardBank,
+            phoneLines: typeof phoneLines === "object" ? JSON.stringify(phoneLines) : phoneLines,
           },
         });
         createdItems.push(item);
@@ -190,6 +272,7 @@ export async function POST(request: Request) {
             subCategory,
             period: `${i}t/${count}t`,
             installmentInfo: `${i}t/${count}t`,
+            monthIndex: itemDate.getMonth() + 1,
             dueDateStr: itemDateStr,
             dueDate: itemDate,
             amountDue: installmentAmount,
@@ -199,6 +282,9 @@ export async function POST(request: Request) {
             periodStatus: i === 1 ? "Cari Dönem" : "Gelecek Dönem",
             description: `${description ? description + " - " : ""}(${i}/${count} Taksit)`.trim(),
             isCommitment: false,
+            paymentMethod,
+            cardHolder,
+            cardBank,
           },
         });
         createdItems.push(item);
@@ -217,6 +303,7 @@ export async function POST(request: Request) {
         subCategory,
         period: installmentInfo || period,
         installmentInfo,
+        monthIndex: calculatedMonthIndex,
         dueDateStr: finalDueDateStr,
         dueDate: dueDate ? new Date(dueDate) : null,
         amountDue: numAmount,
@@ -228,6 +315,12 @@ export async function POST(request: Request) {
         isCommitment: Boolean(isCommitment),
         commitmentMonths: isCommitment ? Number(commitmentMonths) || 12 : null,
         commitmentEndDate: isCommitment ? (dueDate ? addMonthsPreservingDay(new Date(dueDate), (Number(commitmentMonths) || 12) - 1) : null) : null,
+        paymentMethod,
+        cardHolder,
+        cardBank,
+        phoneLines: typeof phoneLines === "object" ? JSON.stringify(phoneLines) : phoneLines,
+        chequeNo,
+        chequeBank,
       },
     });
 

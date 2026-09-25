@@ -96,6 +96,13 @@ export async function PUT(
       isCommitment,
       commitmentEndDate,
       commitmentMonths,
+      paymentMethod,
+      cardHolder,
+      cardBank,
+      monthIndex,
+      phoneLines,
+      chequeNo,
+      chequeBank,
     } = body;
 
     const numAmountDue = amountDue !== undefined ? Number(amountDue) : existing.amountDue;
@@ -121,6 +128,13 @@ export async function PUT(
         isCommitment: isCommitment !== undefined ? Boolean(isCommitment) : existing.isCommitment,
         commitmentEndDate: commitmentEndDate ? new Date(commitmentEndDate) : existing.commitmentEndDate,
         commitmentMonths: commitmentMonths !== undefined ? Number(commitmentMonths) : existing.commitmentMonths,
+        paymentMethod: paymentMethod ?? existing.paymentMethod,
+        cardHolder: cardHolder !== undefined ? cardHolder : existing.cardHolder,
+        cardBank: cardBank !== undefined ? cardBank : existing.cardBank,
+        monthIndex: monthIndex !== undefined ? (monthIndex ? Number(monthIndex) : null) : existing.monthIndex,
+        phoneLines: phoneLines !== undefined ? (typeof phoneLines === "object" ? JSON.stringify(phoneLines) : phoneLines) : existing.phoneLines,
+        chequeNo: chequeNo !== undefined ? chequeNo : existing.chequeNo,
+        chequeBank: chequeBank !== undefined ? chequeBank : existing.chequeBank,
       },
     });
 

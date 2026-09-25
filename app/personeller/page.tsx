@@ -1221,22 +1221,6 @@ export default function PersonellerPage() {
                       />
                     </div>
                   )}
-
-                  <div>
-                    <label className="block text-xs font-medium text-slate-700 mb-1">
-                      Resmî (SGK Banka) Maaş Kısmı (TL)
-                    </label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      value={form.officialSalaryPart}
-                      onChange={(e) =>
-                        setForm({ ...form, officialSalaryPart: parseFloat(e.target.value) || 0 })
-                      }
-                      placeholder="Banka üzerinden ödenecek resmi tutar"
-                      className="w-full px-3 py-2 text-sm bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-600/20 focus:border-teal-600"
-                    />
-                  </div>
                 </div>
               </div>
 

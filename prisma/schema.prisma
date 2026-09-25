@@ -166,6 +166,28 @@ model SchoolExpense {
   isCommitment    Boolean   @default(false) // Taahhütlü abonelik mi? (Telefon, İnternet, TV)
   commitmentEndDate DateTime? // Taahhüt Bitiş Tarihi
   commitmentMonths  Int?      // Taahhüt Süresi (örn: 12 veya 24 ay)
+  paymentMethod   String    @default("CASH") // CASH (Nakit / Havale), CREDIT_CARD (Kredi Kartı), CHEQUE (Çek)
+  cardHolder      String?   // Kart Sahibi (Ahmet Taymaz, Duygu Köse, vb.)
+  cardBank        String?   // Kart Bankası (Akbank, Halkbank, Vakıfbank, vb.)
+  monthIndex      Int?      // Ay No (7, 8, 9, 10 vb. ay bazında filtreleme için)
+  phoneLines      String?   // JSON çoklu telefon hatları ve taahhütleri
+  chequeNo        String?   // Çek Numarası
+  chequeBank      String?   // Çek Bankası
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 }
+
+model AssetTracking {
+  id              String    @id @default(uuid())
+  title           String    // Araç Plakası veya Gayrimenkul (Örn: 38 AB 123 - Okul Servisi, Merkez Kampüs Binası)
+  assetType       String    @default("VEHICLE") // VEHICLE (Araç), REAL_ESTATE (Konut / Bina / Ev)
+  owner           String?   // Şirket / Bireysel / Şahıs Adı
+  inspectionDate  DateTime? // TÜVTÜRK Araç Muayene Tarihi
+  insuranceDate   DateTime? // Trafik Sigortası Bitiş Tarihi
+  kaskoDate       DateTime? // Kasko Bitiş Tarihi
+  housingDate     DateTime? // DASK / Bina Sigortası Bitiş Tarihi
+  notes           String?   // Açıklama / Notlar
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+}
+

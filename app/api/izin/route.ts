@@ -29,8 +29,16 @@ export async function GET(request: Request) {
     });
 
     // Her personelin tatil telafi izni, yıllık izin hak edişi ve tüm geçmiş izin kayıtları
+    // Branş Öğretmenleri (Ders saat ücretli) haftada 1-2 gün geldiğinden ve atama yapılmadığından izin hakkı yoktur, listelenmez
     const staffs = await prisma.staff.findMany({
-      where: { status: "ACTIVE" },
+      where: {
+        status: "ACTIVE",
+        NOT: [
+          { salaryConfig: { salaryType: "HOURLY" } },
+          { title: { contains: "Branş", mode: "insensitive" } },
+          { title: { contains: "Ders Saat", mode: "insensitive" } },
+        ],
+      },
       select: {
         id: true,
         fullName: true,

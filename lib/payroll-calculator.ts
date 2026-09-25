@@ -190,13 +190,16 @@ export function calculatePayroll(input: SalaryCalculationInput): SalaryCalculati
   const dailyBase = monthlySalary > 0 ? monthlySalary / 30 : 0;
 
   // 2. Ücret Tipine Göre Hakediş Hesaplama
-  if (salaryType === "MONTHLY" || salaryType === "HYBRID") {
+  if (salaryType === "HOURLY") {
+    hourlyEarned = Number((lessonHours * hourlyRate).toFixed(2));
+  } else if (salaryType === "HYBRID") {
+    // Karma Maaş: Ders saati toplam ücretten düşülür (Örn: 40.000 TL toplam hedef, 2.850 TL ders saati -> Sabit kısım 37.150 TL)
+    hourlyEarned = Number((lessonHours * hourlyRate).toFixed(2));
+    const fullMonthlyEarned = monthlySalary > 0 ? (dailyBase * Math.max(0, workDays - reportDays - unpaidLeaveDays)) : 0;
+    baseEarned = Math.max(0, Number((fullMonthlyEarned - hourlyEarned).toFixed(2)));
+  } else if (salaryType === "MONTHLY") {
     const effectivePaidDays = Math.max(0, workDays - reportDays - unpaidLeaveDays);
     baseEarned = Number((dailyBase * effectivePaidDays).toFixed(2));
-  }
-
-  if (salaryType === "HOURLY" || salaryType === "HYBRID") {
-    hourlyEarned = Number((lessonHours * hourlyRate).toFixed(2));
   }
 
   if (salaryType === "DAILY") {
