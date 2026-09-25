@@ -41,6 +41,18 @@ export async function PUT(
         note: body.note || "Parçalı Ödeme",
       });
 
+      let newDescription = existing.description;
+      if (newAmountRemaining <= 0) {
+        if (newDescription && newDescription.toLowerCase().includes("kaldı")) {
+          newDescription = `${history.length} taksit ödendi - Borç tamamen kapandı`;
+        }
+      } else if (newDescription && newDescription.toLowerCase().includes("kaldı")) {
+        newDescription = newDescription.replace(
+          /([0-9.,]+)\s*(TL)?\s*kaldı/i,
+          `${newAmountRemaining.toLocaleString("tr-TR")} TL kaldı`
+        );
+      }
+
       const updated = await prisma.schoolExpense.update({
         where: { id },
         data: {
@@ -48,6 +60,7 @@ export async function PUT(
           amountRemaining: newAmountRemaining,
           status: newStatus,
           paymentHistory: JSON.stringify(history),
+          ...(newDescription !== existing.description ? { description: newDescription } : {}),
         },
       });
 
@@ -56,12 +69,18 @@ export async function PUT(
 
     // Tamamını ödendi olarak işaretleme
     if (body.action === "MARK_PAID") {
+      let newDescription = existing.description;
+      if (newDescription && newDescription.toLowerCase().includes("kaldı")) {
+        newDescription = "Tüm taksitler ödendi - Borç tamamen kapandı";
+      }
+
       const updated = await prisma.schoolExpense.update({
         where: { id },
         data: {
           amountPaid: existing.amountDue,
           amountRemaining: 0,
           status: "PAID",
+          ...(newDescription !== existing.description ? { description: newDescription } : {}),
         },
       });
       return NextResponse.json(updated);

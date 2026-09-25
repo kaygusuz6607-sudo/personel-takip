@@ -6,9 +6,24 @@ export async function GET() {
     const depts = await prisma.department.findMany({
       include: {
         _count: {
-          select: { staffs: true },
+          select: {
+            staffs: {
+              where: {
+                staff: {
+                  status: "ACTIVE",
+                  terminationDate: null,
+                },
+              },
+            },
+          },
         },
         staffs: {
+          where: {
+            staff: {
+              status: "ACTIVE",
+              terminationDate: null,
+            },
+          },
           include: {
             staff: {
               select: {

@@ -20,7 +20,15 @@ export async function GET(request: Request) {
       ];
     }
 
-    if (status) {
+    if (status === "TERMINATED" || status === "PASSIVE") {
+      where.OR = [
+        { status: "PASSIVE" },
+        { terminationDate: { not: null } },
+      ];
+    } else if (status === "ACTIVE") {
+      where.status = "ACTIVE";
+      where.terminationDate = null;
+    } else if (status && status !== "ALL") {
       where.status = status;
     }
 

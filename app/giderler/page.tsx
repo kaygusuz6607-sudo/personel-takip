@@ -1298,7 +1298,11 @@ function GiderlerPageContent() {
 
                             {/* Açıklama / Not */}
                             {exp.description && (
-                              <span className="text-[11px] text-slate-500 block mt-0.5">{exp.description}</span>
+                              <span className="text-[11px] text-slate-500 block mt-0.5">
+                                {(exp.status === "PAID" || exp.amountRemaining <= 0) && exp.description.toLowerCase().includes("kaldı")
+                                  ? "Tüm taksitler ödendi - Borç tamamen kapandı ✅"
+                                  : exp.description}
+                              </span>
                             )}
 
                             {/* Çoklu Telefon Hatları Dökümü */}

@@ -26,13 +26,17 @@ body {
   color: #f1f5f9;
 }
 
-/* Dark mode generic overrides for cards, tables, inputs */
+/* Dark mode comprehensive, contrast-safe styling */
 .dark .bg-white {
-  background-color: #111827 !important;
+  background-color: #0f172a !important;
 }
 
-.dark .bg-slate-50 {
-  background-color: #0f172a !important;
+.dark [class*="bg-slate-50"] {
+  background-color: #0b1120 !important;
+}
+
+.dark [class*="bg-slate-100"] {
+  background-color: #1e293b !important;
 }
 
 .dark .text-slate-900 {
@@ -57,12 +61,14 @@ body {
 
 .dark .border-slate-100,
 .dark .border-slate-200,
-.dark .border-slate-200\/80,
+.dark [class*="border-slate-100"],
+.dark [class*="border-slate-200"],
 .dark .divide-slate-100 > :not([hidden]) ~ :not([hidden]),
 .dark .divide-slate-200 > :not([hidden]) ~ :not([hidden]) {
   border-color: #1e293b !important;
 }
 
+/* Form Elemanları Dark Mode */
 .dark input:not([type="checkbox"]):not([type="radio"]),
 .dark select,
 .dark textarea {
@@ -76,12 +82,59 @@ body {
   color: #64748b !important;
 }
 
-.dark .bg-slate-100 {
-  background-color: #1e293b !important;
+.dark tr:hover {
+  background-color: rgba(30, 41, 59, 0.7) !important;
 }
 
-.dark tr:hover {
-  background-color: rgba(30, 41, 59, 0.5) !important;
+/* Renk Karmaşasını Önleyen Rozet (Badge) Düzeltmeleri */
+.dark [class*="bg-emerald-50"],
+.dark [class*="bg-emerald-100"] {
+  background-color: rgba(6, 78, 59, 0.35) !important;
+  color: #34d399 !important;
+  border-color: rgba(5, 150, 105, 0.4) !important;
+}
+
+.dark [class*="bg-rose-50"],
+.dark [class*="bg-rose-100"] {
+  background-color: rgba(136, 19, 55, 0.35) !important;
+  color: #fb7185 !important;
+  border-color: rgba(225, 29, 72, 0.4) !important;
+}
+
+.dark [class*="bg-amber-50"],
+.dark [class*="bg-amber-100"] {
+  background-color: rgba(120, 53, 15, 0.35) !important;
+  color: #fbbf24 !important;
+  border-color: rgba(217, 119, 6, 0.4) !important;
+}
+
+.dark [class*="bg-teal-50"],
+.dark [class*="bg-teal-100"] {
+  background-color: rgba(19, 78, 74, 0.35) !important;
+  color: #2dd4bf !important;
+  border-color: rgba(13, 148, 136, 0.4) !important;
+}
+
+.dark [class*="bg-indigo-50"],
+.dark [class*="bg-indigo-100"],
+.dark [class*="bg-blue-50"],
+.dark [class*="bg-blue-100"],
+.dark [class*="bg-purple-50"],
+.dark [class*="bg-purple-100"],
+.dark [class*="bg-sky-50"],
+.dark [class*="bg-sky-100"] {
+  background-color: rgba(49, 46, 129, 0.35) !important;
+  color: #a5b4fc !important;
+  border-color: rgba(79, 70, 229, 0.4) !important;
+}
+
+/* Buton metinlerinin koyu modda görünür kalması */
+.dark .bg-teal-700,
+.dark .bg-teal-800,
+.dark .bg-emerald-600,
+.dark .bg-rose-700,
+.dark .bg-indigo-700 {
+  color: #ffffff !important;
 }
 
 /* Custom scrollbars */

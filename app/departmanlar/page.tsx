@@ -459,7 +459,10 @@ export default function DepartmanlarPage() {
         ) : (
           filteredDepartments.map((dept) => {
             const isExpanded = expandedDeptId === dept.id;
-            const staffList = dept.staffs?.map((s) => s.staff) || [];
+            const staffList = (dept.staffs?.map((s) => s.staff) || []).filter(
+              (s) => s && s.status === "ACTIVE"
+            );
+            const activeStaffCount = staffList.length;
             const catKey = getDeptCategory(dept);
             const catMeta = CATEGORY_META[catKey];
             const CatIcon = catMeta.icon;
@@ -483,7 +486,7 @@ export default function DepartmanlarPage() {
 
                     <div className="flex items-center gap-1">
                       <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-slate-100 text-slate-700">
-                        {dept._count.staffs} Personel
+                        {activeStaffCount} Aktif Personel
                       </span>
 
                       {/* Düzenle Butonu */}

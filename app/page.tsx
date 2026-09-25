@@ -1,13 +1,14 @@
 import { prisma } from "@/lib/prisma";
 import Link from "next/link";
 import { Users, UserCheck, UserX, Clock, Building2, UserPlus, ArrowRight, Wallet, CheckCircle2, AlertCircle, Target, GraduationCap } from "lucide-react";
+import { DashboardSalarySchedule, SalaryStaffItem } from "@/components/DashboardSalarySchedule";
 
 export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {
+  const activeStaff = await prisma.staff.count({ where: { status: "ACTIVE", terminationDate: null } });
+  const passiveStaff = await prisma.staff.count({ where: { OR: [{ status: "PASSIVE" }, { terminationDate: { not: null } }] } });
   const totalStaff = await prisma.staff.count();
-  const activeStaff = await prisma.staff.count({ where: { status: "ACTIVE" } });
-  const passiveStaff = await prisma.staff.count({ where: { status: "PASSIVE" } });
   const onLeaveStaff = await prisma.staff.count({ where: { status: "ON_LEAVE" } });
   const totalStudents = await prisma.student.count();
   const totalLeads = await prisma.lead.count();
@@ -16,13 +17,23 @@ export default async function DashboardPage() {
   const departments = await prisma.department.findMany({
     include: {
       _count: {
-        select: { staffs: true },
+        select: {
+          staffs: {
+            where: {
+              staff: {
+                status: "ACTIVE",
+                terminationDate: null,
+              },
+            },
+          },
+        },
       },
     },
     orderBy: { name: "asc" },
   });
 
   const recentStaff = await prisma.staff.findMany({
+    where: { status: "ACTIVE", terminationDate: null },
     take: 6,
     orderBy: { createdAt: "desc" },
     include: {
@@ -75,31 +86,91 @@ export default async function DashboardPage() {
     }
   }
 
-  // 3 Farklı Maaş Ödeme Grubu (10'u Öğretmenler, 15'i Personeller, 20'si İdari Personeller)
-  const isTeacher = (p: any) => {
-    const dept = p.staff?.departments?.map((d: any) => d.department?.name).join(" ").toLowerCase() || "";
-    const title = (p.staff?.title || "").toLowerCase();
-    return dept.includes("öğretmen") || dept.includes("eğitim") || title.includes("öğretmen");
-  };
+  // Tüm aktif çalışanları çek ve kategorize et (Öğretmenler, İdari Personeller, Destek Personelleri)
+  const allActiveStaff = await prisma.staff.findMany({
+    where: {
+      status: "ACTIVE",
+      terminationDate: null,
+    },
+    include: {
+      departments: { include: { department: true } },
+      salaryConfig: true,
+      payrolls: {
+        where: {
+          year: activeYear,
+          month: activeMonth,
+        },
+      },
+    },
+    orderBy: { fullName: "asc" },
+  });
 
-  const isAdmin = (p: any) => {
-    const dept = p.staff?.departments?.map((d: any) => d.department?.name).join(" ").toLowerCase() || "";
-    const title = (p.staff?.title || "").toLowerCase();
-    return dept.includes("idare") || dept.includes("yönetim") || dept.includes("muhasebe") || title.includes("müdür") || title.includes("yönetici") || title.includes("kurucu") || title.includes("idari");
-  };
+  const teacherStaffs: SalaryStaffItem[] = [];
+  const adminStaffs: SalaryStaffItem[] = [];
+  const supportStaffs: SalaryStaffItem[] = [];
 
-  const teacherPayrolls = latestPayrolls.filter((p) => isTeacher(p));
-  const adminPayrolls = latestPayrolls.filter((p) => !isTeacher(p) && isAdmin(p));
-  const staffPayrolls = latestPayrolls.filter((p) => !isTeacher(p) && !isAdmin(p));
+  for (const s of allActiveStaff) {
+    const currentPayroll = s.payrolls?.[0];
+    const amount = currentPayroll?.netTotal ?? s.salaryConfig?.monthlySalary ?? 0;
+    const isPaid = currentPayroll?.isPaid ?? false;
+    const paidDate = currentPayroll?.paidDate ? new Date(currentPayroll.paidDate).toLocaleDateString("tr-TR") : null;
 
-  const teacherTotal = teacherPayrolls.reduce((sum, p) => sum + p.netTotal, 0);
-  const teacherPaidCount = teacherPayrolls.filter((p) => p.isPaid).length;
+    const deptNames = s.departments.map((d: any) => d.department.name);
+    const deptCats = s.departments.map((d: any) => d.department.category);
+    const deptStr = deptNames.join(" ").toLowerCase();
+    const titleStr = (s.title || "").toLowerCase();
 
-  const staffTotal = staffPayrolls.reduce((sum, p) => sum + p.netTotal, 0);
-  const staffPaidCount = staffPayrolls.filter((p) => p.isPaid).length;
+    const item: SalaryStaffItem = {
+      id: s.id,
+      fullName: s.fullName,
+      title: s.title || (deptNames.length > 0 ? deptNames[0] : "Personel"),
+      deptName: deptNames.join(", ") || "Genel Departman",
+      amount,
+      isPaid,
+      paidDate,
+      iban: s.iban || null,
+      accountNumber: s.accountNumber || null,
+      phone: s.phone,
+      photoUrl: s.photoUrl,
+    };
 
-  const adminTotal = adminPayrolls.reduce((sum, p) => sum + p.netTotal, 0);
-  const adminPaidCount = adminPayrolls.filter((p) => p.isPaid).length;
+    // 1. Öğretmenler: Öğretmen veya Branş kategorisi, veya unvan/departmanda öğretmen/eğitim/branş ifadesi
+    const isTeacher =
+      deptCats.includes("TEACHER") ||
+      deptCats.includes("BRANCH") ||
+      deptStr.includes("öğretmen") ||
+      deptStr.includes("eğitim") ||
+      titleStr.includes("öğretmen") ||
+      titleStr.includes("öğretmeni") ||
+      titleStr.includes("branş");
+
+    // 2. İdari Personel: İdari kategori, veya müdür/koordinatör/muhasebe/idari/halkla ilişkiler/psikolog/yönetici/sekreter vb.
+    const isAdmin =
+      !isTeacher &&
+      (deptCats.includes("ADMIN") ||
+        deptStr.includes("idare") ||
+        deptStr.includes("yönetim") ||
+        deptStr.includes("muhasebe") ||
+        deptStr.includes("idari") ||
+        titleStr.includes("müdür") ||
+        titleStr.includes("koordinatör") ||
+        titleStr.includes("muhasebe") ||
+        titleStr.includes("idari") ||
+        titleStr.includes("halkla") ||
+        titleStr.includes("psikolog") ||
+        titleStr.includes("yönetici") ||
+        titleStr.includes("sekreter") ||
+        titleStr.includes("kurucu") ||
+        titleStr.includes("uzman"));
+
+    if (isTeacher) {
+      teacherStaffs.push(item);
+    } else if (isAdmin) {
+      adminStaffs.push(item);
+    } else {
+      supportStaffs.push(item);
+    }
+  }
 
   const grossTotal = latestPayrolls.reduce((sum, p) => sum + p.grossTotal, 0);
   const totalSpecialDeductions = latestPayrolls.reduce((sum, p) => sum + (p.deductionAmount || 0), 0);
@@ -237,106 +308,14 @@ export default async function DashboardPage() {
         </Link>
       </div>
 
-      {/* 3 Farklı Maaş Ödeme Takvimi Kartı (10'u Öğretmen, 15'i Personel, 20'si İdari) */}
-      <div className="space-y-2.5">
-        <div className="flex items-center justify-between">
-          <h2 className="text-sm font-bold text-slate-800 flex items-center gap-2">
-            <span>📅 {monthNames[activeMonth - 1]} {activeYear} Maaş Ödeme Takvimi</span>
-            <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">
-              3 Ayrı Vade
-            </span>
-          </h2>
-          <Link href="/odeme" className="text-xs text-teal-700 hover:underline font-semibold">
-            Tüm Bordroları İncele →
-          </Link>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {/* Öğretmenler - Ayın 10'u */}
-          <div className="bg-white p-5 rounded-2xl border border-teal-200/80 shadow-xs relative overflow-hidden bg-gradient-to-br from-white to-teal-50/30">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-              <div className="flex items-center gap-2.5">
-                <div className="w-9 h-9 rounded-xl bg-teal-700 text-white flex flex-col items-center justify-center font-extrabold text-xs shadow-2xs">
-                  <span>10</span>
-                </div>
-                <div>
-                  <h3 className="font-bold text-slate-900 text-sm">Öğretmen Maaşları</h3>
-                  <span className="text-[11px] text-teal-700 font-bold">Her Ayın 10&apos;u</span>
-                </div>
-              </div>
-              <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-teal-100 text-teal-800 border border-teal-200">
-                {teacherPayrolls.length} Öğretmen
-              </span>
-            </div>
-            <div className="pt-3 flex items-baseline justify-between">
-              <div>
-                <span className="text-[11px] text-slate-500 font-medium">Toplam Net Ödeme</span>
-                <p className="text-xl font-extrabold text-slate-900 mt-0.5">{formatCurrency(teacherTotal)}</p>
-              </div>
-              <div className="text-right text-[11px]">
-                <span className="text-emerald-700 font-bold block">{teacherPaidCount} Ödendi</span>
-                <span className="text-amber-700 font-semibold block">{teacherPayrolls.length - teacherPaidCount} Bekliyor</span>
-              </div>
-            </div>
-          </div>
-
-          {/* Personeller - Ayın 15'i */}
-          <div className="bg-white p-5 rounded-2xl border border-blue-200/80 shadow-xs relative overflow-hidden bg-gradient-to-br from-white to-blue-50/30">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-              <div className="flex items-center gap-2.5">
-                <div className="w-9 h-9 rounded-xl bg-blue-700 text-white flex flex-col items-center justify-center font-extrabold text-xs shadow-2xs">
-                  <span>15</span>
-                </div>
-                <div>
-                  <h3 className="font-bold text-slate-900 text-sm">Personel Maaşları</h3>
-                  <span className="text-[11px] text-blue-700 font-bold">Her Ayın 15&apos;i</span>
-                </div>
-              </div>
-              <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-blue-100 text-blue-800 border border-blue-200">
-                {staffPayrolls.length} Personel
-              </span>
-            </div>
-            <div className="pt-3 flex items-baseline justify-between">
-              <div>
-                <span className="text-[11px] text-slate-500 font-medium">Toplam Net Ödeme</span>
-                <p className="text-xl font-extrabold text-slate-900 mt-0.5">{formatCurrency(staffTotal)}</p>
-              </div>
-              <div className="text-right text-[11px]">
-                <span className="text-emerald-700 font-bold block">{staffPaidCount} Ödendi</span>
-                <span className="text-amber-700 font-semibold block">{staffPayrolls.length - staffPaidCount} Bekliyor</span>
-              </div>
-            </div>
-          </div>
-
-          {/* İdari Personel - Ayın 20'si */}
-          <div className="bg-white p-5 rounded-2xl border border-purple-200/80 shadow-xs relative overflow-hidden bg-gradient-to-br from-white to-purple-50/30">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-              <div className="flex items-center gap-2.5">
-                <div className="w-9 h-9 rounded-xl bg-purple-700 text-white flex flex-col items-center justify-center font-extrabold text-xs shadow-2xs">
-                  <span>20</span>
-                </div>
-                <div>
-                  <h3 className="font-bold text-slate-900 text-sm">İdari Personel Maaşları</h3>
-                  <span className="text-[11px] text-purple-700 font-bold">Her Ayın 20&apos;si</span>
-                </div>
-              </div>
-              <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-purple-100 text-purple-800 border border-purple-200">
-                {adminPayrolls.length} İdari
-              </span>
-            </div>
-            <div className="pt-3 flex items-baseline justify-between">
-              <div>
-                <span className="text-[11px] text-slate-500 font-medium">Toplam Net Ödeme</span>
-                <p className="text-xl font-extrabold text-slate-900 mt-0.5">{formatCurrency(adminTotal)}</p>
-              </div>
-              <div className="text-right text-[11px]">
-                <span className="text-emerald-700 font-bold block">{adminPaidCount} Ödendi</span>
-                <span className="text-amber-700 font-semibold block">{adminPayrolls.length - adminPaidCount} Bekliyor</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
+      {/* 3 Farklı Maaş Ödeme Takvimi Kartı (10'u Öğretmen, 15'i Personel, 20'si İdari) ve Tıklanabilir Detay Modalı */}
+      <DashboardSalarySchedule
+        monthName={monthNames[activeMonth - 1]}
+        year={activeYear}
+        teachers={teacherStaffs}
+        staffs={supportStaffs}
+        admins={adminStaffs}
+      />
 
       {/* Edutime Özet Finans Kartı */}
       <div className="bg-gradient-to-r from-teal-800 to-slate-900 rounded-2xl text-white p-6 shadow-md">

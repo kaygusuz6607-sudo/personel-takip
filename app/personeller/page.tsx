@@ -27,6 +27,8 @@ import {
   Image as ImageIcon,
   ExternalLink,
   Sparkles,
+  UserCheck,
+  UserMinus,
 } from "lucide-react";
 import QRCode from "qrcode";
 import { calculateDuration, parseSafeDate } from "@/lib/date-utils";
@@ -46,7 +48,7 @@ interface Staff {
   phone2?: string | null;
   email: string | null;
   iban: string | null;
-  accountNumber: string | null;
+  accountNumber?: string | null;
   title: string | null;
   hireDate: string | null;
   terminationDate?: string | null;
@@ -76,6 +78,11 @@ export default function PersonellerPage() {
   const [selectedDept, setSelectedDept] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("");
   const [selectedStatus, setSelectedStatus] = useState("");
+
+  // Aktif Personeller vs İşten Ayrılanlar Sekmesi
+  const [staffTab, setStaffTab] = useState<"ACTIVE" | "TERMINATED">("ACTIVE");
+  const [activeCount, setActiveCount] = useState<number>(0);
+  const [terminatedCount, setTerminatedCount] = useState<number>(0);
 
   // Modal State
   const [modalOpen, setModalOpen] = useState(false);
@@ -243,18 +250,26 @@ export default function PersonellerPage() {
       if (search) queryParams.set("search", search);
       if (selectedCategory) queryParams.set("category", selectedCategory);
       if (selectedDept) queryParams.set("departmentId", selectedDept);
-      if (selectedStatus) queryParams.set("status", selectedStatus);
+      queryParams.set("status", staffTab === "TERMINATED" ? "TERMINATED" : (selectedStatus || "ACTIVE"));
 
-      const [staffRes, deptRes] = await Promise.all([
+      const [staffRes, deptRes, allRes] = await Promise.all([
         fetch(`/api/personel?${queryParams.toString()}`),
         fetch("/api/departmanlar"),
+        fetch("/api/personel?status=ALL"),
       ]);
 
       const staffData = await staffRes.json();
       const deptData = await deptRes.json();
+      const allData = await allRes.json();
 
       if (Array.isArray(staffData)) setStaffs(staffData);
       if (Array.isArray(deptData)) setDepartments(deptData);
+      if (Array.isArray(allData)) {
+        const act = allData.filter((s: Staff) => s.status === "ACTIVE" && !s.terminationDate).length;
+        const term = allData.filter((s: Staff) => s.status === "PASSIVE" || Boolean(s.terminationDate)).length;
+        setActiveCount(act);
+        setTerminatedCount(term);
+      }
     } catch (err) {
       console.error(err);
     } finally {
@@ -264,7 +279,26 @@ export default function PersonellerPage() {
 
   useEffect(() => {
     fetchData();
-  }, [search, selectedDept, selectedStatus, selectedCategory]);
+  }, [search, selectedDept, selectedStatus, selectedCategory, staffTab]);
+
+  const handleRehire = async (staff: Staff) => {
+    if (!confirm(`"${staff.fullName}" isimli personeli tekrar aktif çalışan olarak kadroya almak istiyor musunuz?`)) return;
+    try {
+      const res = await fetch(`/api/personel/${staff.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          status: "ACTIVE",
+          terminationDate: null,
+        }),
+      });
+      if (!res.ok) throw new Error("İşlem başarısız.");
+      fetchData();
+      alert(`"${staff.fullName}" başarıyla aktif kadroya alındı.`);
+    } catch (e: any) {
+      alert("Hata: " + e.message);
+    }
+  };
 
   const openNewModal = () => {
     setEditingStaffId(null);
@@ -391,6 +425,64 @@ export default function PersonellerPage() {
           <Plus className="w-4 h-4" />
           <span>Yeni Personel Ekle</span>
         </button>
+      </div>
+
+      {/* Aktif Çalışanlar / İşten Ayrılanlar Sekme Butonları */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2 p-1.5 bg-slate-100 rounded-2xl border border-slate-200">
+          <button
+            type="button"
+            onClick={() => {
+              setStaffTab("ACTIVE");
+              setSelectedStatus("");
+            }}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+              staffTab === "ACTIVE"
+                ? "bg-teal-700 text-white shadow-xs"
+                : "text-slate-600 hover:text-slate-900 hover:bg-white/60"
+            }`}
+          >
+            <Users className="w-4 h-4" />
+            <span>Aktif Çalışanlar</span>
+            <span
+              className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                staffTab === "ACTIVE" ? "bg-white/20 text-white" : "bg-teal-100 text-teal-800"
+              }`}
+            >
+              {activeCount}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setStaffTab("TERMINATED");
+              setSelectedStatus("");
+            }}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+              staffTab === "TERMINATED"
+                ? "bg-rose-700 text-white shadow-xs"
+                : "text-slate-600 hover:text-rose-800 hover:bg-white/60"
+            }`}
+          >
+            <UserMinus className="w-4 h-4" />
+            <span>İşten Ayrılanlar</span>
+            <span
+              className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                staffTab === "TERMINATED" ? "bg-white/20 text-white" : "bg-rose-100 text-rose-800"
+              }`}
+            >
+              {terminatedCount}
+            </span>
+          </button>
+        </div>
+
+        {staffTab === "TERMINATED" && (
+          <div className="text-xs text-rose-700 font-semibold bg-rose-50 border border-rose-200 px-3.5 py-2 rounded-xl flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+            <span>Kurumdan ayrılmış eski çalışanlar listelenmektedir. Dilediğiniz personeli tek tıkla tekrar aktif kadroya alabilirsiniz.</span>
+          </div>
+        )}
       </div>
 
       {/* Arama & Filtreleme Çubuğu */}
@@ -667,6 +759,17 @@ export default function PersonellerPage() {
 
                     <td className="py-3.5 px-4 text-right">
                       <div className="flex items-center justify-end gap-1.5">
+                        {staffTab === "TERMINATED" && (
+                          <button
+                            type="button"
+                            onClick={() => handleRehire(staff)}
+                            className="flex items-center gap-1 px-2.5 py-1 text-xs font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg transition-colors mr-1"
+                            title="Personeli Tekrar Aktif Kadroya Al"
+                          >
+                            <UserCheck className="w-3.5 h-3.5" />
+                            <span>Tekrar Başlat</span>
+                          </button>
+                        )}
                         <button
                           onClick={() => openPhotoModal(staff)}
                           className="p-1.5 text-slate-500 hover:text-teal-700 hover:bg-teal-50 rounded-lg transition-colors"

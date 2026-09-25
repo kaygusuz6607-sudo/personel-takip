@@ -10,7 +10,7 @@ export function ThemeToggle({ collapsed = false }: { collapsed?: boolean }) {
   useEffect(() => {
     setMounted(true);
     const stored = localStorage.getItem("cosmos_theme");
-    if (stored === "dark" || (!stored && window.matchMedia("(prefers-color-scheme: dark)").matches)) {
+    if (stored === "dark") {
       setTheme("dark");
       document.documentElement.classList.add("dark");
     } else {
