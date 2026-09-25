@@ -146,6 +146,9 @@ export async function POST(request: NextRequest) {
       gender,
       bloodGroup,
       healthNotes,
+      dietNotes,
+      toiletTrained,
+      napTime,
       photoUrl,
       fatherName,
       fatherPhone,
@@ -158,14 +161,25 @@ export async function POST(request: NextRequest) {
       primaryEmail,
       homeAddress,
       cityDistrict,
+      authorizedPickups,
+      emergencyContact,
+      section,
+      educationType,
       classroomId,
       academicYear,
       previousSchool,
+      serviceUsed,
+      mealUsed,
       contractAmount,
       discountAmount,
+      contractDiscountType,
       netAmount,
       installmentCount,
       firstInstallmentDate,
+      portalUsername,
+      portalPassword,
+      kvkkConsent,
+      photoConsent,
       tags,
       notes,
     } = body;
@@ -196,6 +210,10 @@ export async function POST(request: NextRequest) {
       finalStudentNo = `${yearPrefix}${(count + 1).toString().padStart(4, "0")}`;
     }
 
+    // Otomatik Portal Şifresi ve Kullanıcı Adı
+    const generatedUsername = portalUsername?.trim() || `veli.${tcNo.trim().slice(-6)}`;
+    const generatedPassword = portalPassword?.trim() || Math.floor(100000 + Math.random() * 900000).toString();
+
     const totalContract = parseFloat(contractAmount || 0);
     const totalDiscount = parseFloat(discountAmount || 0);
     const finalNet = netAmount !== undefined ? parseFloat(netAmount) : Math.max(0, totalContract - totalDiscount);
@@ -212,6 +230,9 @@ export async function POST(request: NextRequest) {
           gender: gender || "UNSPECIFIED",
           bloodGroup: bloodGroup || null,
           healthNotes: healthNotes || null,
+          dietNotes: dietNotes || null,
+          toiletTrained: toiletTrained !== undefined ? Boolean(toiletTrained) : true,
+          napTime: napTime !== undefined ? Boolean(napTime) : false,
           photoUrl: photoUrl || null,
           status: "ACTIVE",
           fatherName: fatherName?.trim() || null,
@@ -225,14 +246,25 @@ export async function POST(request: NextRequest) {
           primaryEmail: primaryEmail?.trim() || null,
           homeAddress: homeAddress?.trim() || null,
           cityDistrict: cityDistrict?.trim() || null,
+          authorizedPickups: authorizedPickups ? (typeof authorizedPickups === "string" ? authorizedPickups : JSON.stringify(authorizedPickups)) : null,
+          emergencyContact: emergencyContact ? (typeof emergencyContact === "string" ? emergencyContact : JSON.stringify(emergencyContact)) : null,
+          section: section || "ANAOKULU",
+          educationType: educationType || "TAM_GUN",
           classroomId: classroomId || null,
           academicYear: academicYear || "2025-2026",
           previousSchool: previousSchool?.trim() || null,
+          serviceUsed: Boolean(serviceUsed),
+          mealUsed: mealUsed !== undefined ? Boolean(mealUsed) : true,
           contractAmount: totalContract,
           discountAmount: totalDiscount,
+          contractDiscountType: contractDiscountType || null,
           netAmount: finalNet,
           installmentCount: instCount,
-          tags: tags ? JSON.stringify(tags) : null,
+          portalUsername: generatedUsername,
+          portalPassword: generatedPassword,
+          kvkkConsent: kvkkConsent !== undefined ? Boolean(kvkkConsent) : true,
+          photoConsent: photoConsent !== undefined ? Boolean(photoConsent) : true,
+          tags: tags ? (Array.isArray(tags) ? JSON.stringify(tags) : tags) : null,
           notes: notes?.trim() || null,
         },
       });

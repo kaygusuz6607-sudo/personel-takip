@@ -67,12 +67,13 @@ export async function PUT(
 
     const { id } = await params;
     const body = await request.json();
-    const { name, gradeLevel, branch, capacity, academicYear, roomNumber, teacherStaffId } = body;
+    const { name, section, gradeLevel, branch, capacity, academicYear, roomNumber, teacherStaffId } = body;
 
     const updated = await prisma.classroom.update({
       where: { id },
       data: {
         name: name !== undefined ? name.trim() : undefined,
+        section: section !== undefined ? section : undefined,
         gradeLevel: gradeLevel !== undefined ? gradeLevel.trim() : undefined,
         branch: branch !== undefined ? branch : undefined,
         capacity: capacity !== undefined ? parseInt(capacity) : undefined,

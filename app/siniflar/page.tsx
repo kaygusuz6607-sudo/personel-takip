@@ -17,6 +17,9 @@ import {
   AlertCircle,
   Building,
   UserCheck,
+  Baby,
+  BookOpen,
+  Sparkles,
 } from "lucide-react";
 
 interface Staff {
@@ -40,6 +43,7 @@ interface ClassroomStudent {
 interface Classroom {
   id: string;
   name: string;
+  section: "ANAOKULU" | "ILKOKUL" | "ORTAOKUL" | "LISE" | "KURS";
   gradeLevel: string;
   branch: string | null;
   capacity: number;
@@ -51,11 +55,45 @@ interface Classroom {
   students?: ClassroomStudent[];
 }
 
+const SECTIONS = [
+  { id: "ALL", label: "Tüm Kademeler", icon: "🏫" },
+  { id: "ANAOKULU", label: "Anaokulu / Okul Öncesi", icon: "🧸" },
+  { id: "ILKOKUL", label: "İlkokul (1-4)", icon: "🎒" },
+  { id: "ORTAOKUL", label: "Ortaokul (5-8)", icon: "📚" },
+  { id: "LISE", label: "Lise (9-12)", icon: "🎓" },
+  { id: "KURS", label: "Özel Kurs / Mezun", icon: "🎯" },
+];
+
+const GRADE_LEVELS = [
+  // Anaokulu
+  { id: "3_YAS", label: "3 Yaş (Oyun Grubu / Minikler)", section: "ANAOKULU" },
+  { id: "4_YAS", label: "4 Yaş (Küçük Grup)", section: "ANAOKULU" },
+  { id: "5_YAS", label: "5 Yaş / Anasınıfı (İlkokula Hazırlık)", section: "ANAOKULU" },
+  // İlkokul
+  { id: "1", label: "1. Sınıf", section: "ILKOKUL" },
+  { id: "2", label: "2. Sınıf", section: "ILKOKUL" },
+  { id: "3", label: "3. Sınıf", section: "ILKOKUL" },
+  { id: "4", label: "4. Sınıf", section: "ILKOKUL" },
+  // Ortaokul
+  { id: "5", label: "5. Sınıf", section: "ORTAOKUL" },
+  { id: "6", label: "6. Sınıf", section: "ORTAOKUL" },
+  { id: "7", label: "7. Sınıf", section: "ORTAOKUL" },
+  { id: "8", label: "8. Sınıf (LGS Hazırlık)", section: "ORTAOKUL" },
+  // Lise
+  { id: "9", label: "9. Sınıf", section: "LISE" },
+  { id: "10", label: "10. Sınıf", section: "LISE" },
+  { id: "11", label: "11. Sınıf", section: "LISE" },
+  { id: "12", label: "12. Sınıf (YKS Hazırlık)", section: "LISE" },
+  // Kurs
+  { id: "MEZUN", label: "Mezun Grubu", section: "KURS" },
+];
+
 export default function SiniflarPage() {
   const [classrooms, setClassrooms] = useState<Classroom[]>([]);
   const [staffList, setStaffList] = useState<Staff[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
+  const [selectedSection, setSelectedSection] = useState("ALL");
   const [gradeFilter, setGradeFilter] = useState("ALL");
 
   // Modallar
@@ -66,11 +104,12 @@ export default function SiniflarPage() {
   // Form State
   const [formData, setFormData] = useState({
     name: "",
-    gradeLevel: "8",
-    branch: "LGS",
+    section: "ANAOKULU" as "ANAOKULU" | "ILKOKUL" | "ORTAOKUL" | "LISE" | "KURS",
+    gradeLevel: "3_YAS",
+    branch: "Papatyalar Sınıfı",
     capacity: 16,
     academicYear: "2025-2026",
-    roomNumber: "Derslik 101",
+    roomNumber: "Zemin Kat - 1",
     teacherStaffId: "",
   });
 
@@ -101,13 +140,16 @@ export default function SiniflarPage() {
     fetchData();
   }, []);
 
-  const openAddModal = () => {
+  const openAddModal = (defaultSection = "ANAOKULU") => {
     setEditingClassroom(null);
+    const defGrade = defaultSection === "ANAOKULU" ? "3_YAS" : defaultSection === "ILKOKUL" ? "1" : "8";
+    const defBranch = defaultSection === "ANAOKULU" ? "Minik Kalpler" : "A Şubesi";
     setFormData({
       name: "",
-      gradeLevel: "8",
-      branch: "LGS",
-      capacity: 16,
+      section: defaultSection as any,
+      gradeLevel: defGrade,
+      branch: defBranch,
+      capacity: defaultSection === "ANAOKULU" ? 14 : 18,
       academicYear: "2025-2026",
       roomNumber: "",
       teacherStaffId: "",
@@ -119,6 +161,7 @@ export default function SiniflarPage() {
     setEditingClassroom(c);
     setFormData({
       name: c.name,
+      section: c.section || "ANAOKULU",
       gradeLevel: c.gradeLevel,
       branch: c.branch || "",
       capacity: c.capacity,
@@ -181,6 +224,7 @@ export default function SiniflarPage() {
     }
   };
 
+  // Filtreleme
   const filteredClassrooms = classrooms.filter((c) => {
     const matchSearch =
       !search.trim() ||
@@ -188,14 +232,21 @@ export default function SiniflarPage() {
       (c.branch && c.branch.toLowerCase().includes(search.toLowerCase())) ||
       (c.teacherStaff && c.teacherStaff.fullName.toLowerCase().includes(search.toLowerCase()));
 
+    const matchSection = selectedSection === "ALL" || c.section === selectedSection;
     const matchGrade = gradeFilter === "ALL" || c.gradeLevel === gradeFilter;
 
-    return matchSearch && matchGrade;
+    return matchSearch && matchSection && matchGrade;
   });
 
   const totalCapacity = classrooms.reduce((s, c) => s + c.capacity, 0);
   const totalEnrolled = classrooms.reduce((s, c) => s + c.activeStudentCount, 0);
   const overallOccupancy = totalCapacity > 0 ? Math.round((totalEnrolled / totalCapacity) * 100) : 0;
+
+  // Anaokulu ve diğer kademe sayaçları
+  const anaokuluCount = classrooms.filter((c) => c.section === "ANAOKULU").length;
+  const ilkokulCount = classrooms.filter((c) => c.section === "ILKOKUL").length;
+  const ortaokulCount = classrooms.filter((c) => c.section === "ORTAOKUL").length;
+  const liseCount = classrooms.filter((c) => c.section === "LISE" || c.section === "KURS").length;
 
   return (
     <div className="min-h-screen bg-slate-50/50 p-4 lg:p-8 space-y-6">
@@ -208,18 +259,28 @@ export default function SiniflarPage() {
           <div>
             <h1 className="text-2xl font-bold text-slate-800 tracking-tight">Sınıflar & Şubeler</h1>
             <p className="text-xs text-slate-500 font-medium">
-              Eğitim sınıfları, kontenjan takibi ve sınıf rehber öğretmenleri
+              Anaokulu (3-5 yaş), İlkokul, Ortaokul ve Lise sınıf kontenjanları ve sınıf öğretmenleri
             </p>
           </div>
         </div>
 
-        <button
-          onClick={openAddModal}
-          className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-teal-700 hover:bg-teal-800 text-white text-xs font-semibold shadow-sm transition-all"
-        >
-          <Plus className="w-4 h-4" />
-          <span>Yeni Sınıf Oluştur</span>
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => openAddModal("ANAOKULU")}
+            className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl border border-pink-200 bg-pink-50 text-pink-700 hover:bg-pink-100 text-xs font-bold shadow-xs transition-all"
+          >
+            <span>🧸</span>
+            <span>+ Anaokulu Sınıfı Ekle</span>
+          </button>
+
+          <button
+            onClick={() => openAddModal("ILKOKUL")}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-teal-700 hover:bg-teal-800 text-white text-xs font-semibold shadow-sm transition-all"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Yeni Sınıf Oluştur</span>
+          </button>
+        </div>
       </div>
 
       {/* KPI Kartları */}
@@ -232,6 +293,9 @@ export default function SiniflarPage() {
             <span className="text-2xl font-extrabold text-slate-800">{classrooms.length}</span>
             <Layers className="w-4 h-4 text-slate-400" />
           </div>
+          <span className="text-[10px] text-slate-400 mt-1 block">
+            {anaokuluCount} Anaokulu • {ilkokulCount} İlkokul • {ortaokulCount} Ortaokul
+          </span>
         </div>
 
         <div className="p-4 rounded-2xl bg-white border border-slate-200 shadow-xs">
@@ -242,6 +306,7 @@ export default function SiniflarPage() {
             <span className="text-2xl font-extrabold text-teal-800">{totalEnrolled}</span>
             <GraduationCap className="w-4 h-4 text-teal-600" />
           </div>
+          <span className="text-[10px] text-teal-600 mt-1 block">Tüm kademeler aktif mevcudu</span>
         </div>
 
         <div className="p-4 rounded-2xl bg-white border border-slate-200 shadow-xs">
@@ -252,6 +317,7 @@ export default function SiniflarPage() {
             <span className="text-2xl font-extrabold text-slate-800">{totalCapacity}</span>
             <Users className="w-4 h-4 text-slate-400" />
           </div>
+          <span className="text-[10px] text-slate-400 mt-1 block">Kalan Boş Kontenjan: {Math.max(0, totalCapacity - totalEnrolled)}</span>
         </div>
 
         <div className="p-4 rounded-2xl bg-white border border-slate-200 shadow-xs">
@@ -262,16 +328,38 @@ export default function SiniflarPage() {
             <span className="text-2xl font-extrabold text-blue-700">%{overallOccupancy}</span>
             <CheckCircle2 className="w-4 h-4 text-blue-500" />
           </div>
+          <span className="text-[10px] text-blue-600 mt-1 block">Kapasite kullanım oranı</span>
         </div>
       </div>
 
-      {/* Arama & Filtre */}
+      {/* Kademe Seçim Sekmeleri */}
+      <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
+        {SECTIONS.map((sec) => (
+          <button
+            key={sec.id}
+            onClick={() => {
+              setSelectedSection(sec.id);
+              setGradeFilter("ALL");
+            }}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all shrink-0 ${
+              selectedSection === sec.id
+                ? "bg-teal-800 text-white shadow-sm"
+                : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"
+            }`}
+          >
+            <span>{sec.icon}</span>
+            <span>{sec.label}</span>
+          </button>
+        ))}
+      </div>
+
+      {/* Arama & Alt Seviye Filtresi */}
       <div className="flex flex-col sm:flex-row items-center gap-3 bg-white p-3 rounded-2xl border border-slate-200 shadow-xs">
         <div className="relative flex-1 w-full">
           <Search className="w-4 h-4 absolute left-3 top-3 text-slate-400" />
           <input
             type="text"
-            placeholder="Sınıf adı, branş veya rehber öğretmen ara..."
+            placeholder="Sınıf adı, şube (örn: Papatyalar, 8-A) veya rehber öğretmen ara..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="w-full pl-9 pr-4 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs focus:ring-2 focus:ring-teal-600 focus:bg-white focus:outline-none"
@@ -284,40 +372,44 @@ export default function SiniflarPage() {
           className="w-full sm:w-auto px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 text-xs font-semibold text-slate-700 focus:outline-none"
         >
           <option value="ALL">Tüm Seviyeler</option>
-          <option value="5">5. Sınıf</option>
-          <option value="6">6. Sınıf</option>
-          <option value="7">7. Sınıf</option>
-          <option value="8">8. Sınıf (LGS)</option>
-          <option value="9">9. Sınıf</option>
-          <option value="10">10. Sınıf</option>
-          <option value="11">11. Sınıf</option>
-          <option value="12">12. Sınıf (YKS)</option>
-          <option value="MEZUN">Mezun Grubu</option>
+          {GRADE_LEVELS.filter((g) => selectedSection === "ALL" || g.section === selectedSection).map((g) => (
+            <option key={g.id} value={g.id}>
+              {g.label}
+            </option>
+          ))}
         </select>
       </div>
 
       {/* Sınıf Kartları Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
         {filteredClassrooms.length === 0 ? (
-          <div className="col-span-full p-8 text-center bg-white rounded-2xl border border-slate-200">
-            <School className="w-8 h-8 text-slate-300 mx-auto mb-2" />
-            <p className="text-sm font-semibold text-slate-700">Kayıtlı sınıf bulunamadı.</p>
-            <p className="text-xs text-slate-400">Yeni bir sınıf ekleyerek başlayabilirsiniz.</p>
+          <div className="col-span-full p-12 text-center bg-white rounded-2xl border border-slate-200 space-y-2">
+            <School className="w-8 h-8 text-slate-300 mx-auto" />
+            <p className="text-sm font-semibold text-slate-700">Bu kademede henüz sınıf bulunmuyor.</p>
+            <p className="text-xs text-slate-400">Yukarıdaki butonlardan yeni sınıf tanımlayabilirsiniz.</p>
           </div>
         ) : (
           filteredClassrooms.map((c) => {
             const isFull = c.activeStudentCount >= c.capacity;
+            const isAnaokulu = c.section === "ANAOKULU";
             return (
               <div
                 key={c.id}
                 onClick={() => openDetailModal(c)}
-                className="bg-white rounded-2xl border border-slate-200 p-4 hover:border-teal-500 hover:shadow-md transition-all cursor-pointer group flex flex-col justify-between"
+                className={`bg-white rounded-2xl border p-4 hover:shadow-md transition-all cursor-pointer group flex flex-col justify-between ${
+                  isAnaokulu ? "hover:border-pink-500 border-pink-100" : "hover:border-teal-500 border-slate-200"
+                }`}
               >
                 <div className="space-y-3">
                   <div className="flex items-start justify-between">
                     <div>
-                      <span className="text-[10px] font-bold text-teal-700 uppercase tracking-wider">
-                        {c.gradeLevel}. Seviye {c.branch ? `• ${c.branch}` : ""}
+                      <span
+                        className={`text-[10px] font-bold uppercase tracking-wider block ${
+                          isAnaokulu ? "text-pink-600" : "text-teal-700"
+                        }`}
+                      >
+                        {isAnaokulu ? "🧸 Okul Öncesi / Anaokulu" : `${c.gradeLevel}. Seviye`}
+                        {c.branch ? ` • ${c.branch}` : ""}
                       </span>
                       <h3 className="text-base font-extrabold text-slate-800 group-hover:text-teal-700 transition-colors">
                         {c.name}
@@ -361,6 +453,8 @@ export default function SiniflarPage() {
                             ? "bg-rose-500"
                             : c.occupancyRate > 75
                             ? "bg-amber-500"
+                            : isAnaokulu
+                            ? "bg-pink-500"
                             : "bg-teal-600"
                         }`}
                         style={{ width: `${Math.min(100, c.occupancyRate)}%` }}
@@ -368,12 +462,13 @@ export default function SiniflarPage() {
                     </div>
                   </div>
 
-                  {/* Rehber Öğretmen ve Derslik */}
+                  {/* Öğretmen ve Derslik */}
                   <div className="text-[11px] text-slate-600 space-y-1 pt-2 border-t border-slate-100">
                     <div className="flex items-center gap-1.5">
                       <UserCheck className="w-3.5 h-3.5 text-slate-400" />
                       <span className="truncate">
-                        <strong>Rehber:</strong> {c.teacherStaff?.fullName || "Atanmadı"}
+                        <strong>{isAnaokulu ? "Sınıf Öğretmeni:" : "Rehber Öğretmen:"}</strong>{" "}
+                        {c.teacherStaff?.fullName || "Atanmadı"}
                       </span>
                     </div>
                     {c.roomNumber && (
@@ -385,8 +480,12 @@ export default function SiniflarPage() {
                   </div>
                 </div>
 
-                <div className="pt-3 mt-3 border-t border-slate-100 flex items-center justify-between text-[11px] text-teal-700 font-semibold">
-                  <span>Öğrencileri İncele</span>
+                <div
+                  className={`pt-3 mt-3 border-t border-slate-100 flex items-center justify-between text-[11px] font-semibold ${
+                    isAnaokulu ? "text-pink-600" : "text-teal-700"
+                  }`}
+                >
+                  <span>Öğrenci Listesi ({c.activeStudentCount})</span>
                   <span>&rarr;</span>
                 </div>
               </div>
@@ -406,9 +505,9 @@ export default function SiniflarPage() {
                 </div>
                 <div>
                   <h3 className="font-bold text-slate-800 text-sm">
-                    {editingClassroom ? "Sınıfı Düzenle" : "Yeni Sınıf Tanımla"}
+                    {editingClassroom ? "Sınıfı Düzenle" : "Yeni Sınıf / Şube Tanımla"}
                   </h3>
-                  <p className="text-[11px] text-slate-500">Sınıf adı, kapasite ve rehber öğretmenini belirleyin</p>
+                  <p className="text-[11px] text-slate-500">Kademe, yaş grubu, kapasite ve öğretmen seçimi</p>
                 </div>
               </div>
               <button
@@ -421,47 +520,66 @@ export default function SiniflarPage() {
 
             <form onSubmit={handleSubmit} className="p-6 space-y-4 text-xs">
               <div>
-                <label className="block font-semibold text-slate-700 mb-1">Sınıf / Şube Adı *</label>
+                <label className="block font-semibold text-slate-700 mb-1">Eğitim Kademesi *</label>
+                <select
+                  value={formData.section}
+                  onChange={(e) => {
+                    const sec = e.target.value as any;
+                    const defGrade = sec === "ANAOKULU" ? "3_YAS" : sec === "ILKOKUL" ? "1" : "8";
+                    setFormData({ ...formData, section: sec, gradeLevel: defGrade });
+                  }}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 text-xs font-semibold focus:ring-2 focus:ring-teal-600 focus:bg-white focus:outline-none"
+                >
+                  <option value="ANAOKULU">🧸 Okul Öncesi / Anaokulu</option>
+                  <option value="ILKOKUL">🎒 İlkokul (1, 2, 3, 4. Sınıf)</option>
+                  <option value="ORTAOKUL">📚 Ortaokul (5, 6, 7, 8. Sınıf)</option>
+                  <option value="LISE">🎓 Lise (9, 10, 11, 12. Sınıf)</option>
+                  <option value="KURS">🎯 Özel Kurs / Mezun Grubu</option>
+                </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">Sınıf / Yaş Seviyesi *</label>
+                  <select
+                    value={formData.gradeLevel}
+                    onChange={(e) => setFormData({ ...formData, gradeLevel: e.target.value })}
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 text-xs font-semibold focus:ring-2 focus:ring-teal-600 focus:bg-white focus:outline-none"
+                  >
+                    {GRADE_LEVELS.filter((g) => g.section === formData.section).map((g) => (
+                      <option key={g.id} value={g.id}>
+                        {g.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">Şube / Branş</label>
+                  <input
+                    type="text"
+                    value={formData.branch}
+                    onChange={(e) => setFormData({ ...formData, branch: e.target.value })}
+                    placeholder={formData.section === "ANAOKULU" ? "Papatyalar, Uğur Böcekleri" : "A Şubesi, Sayısal"}
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 text-xs focus:ring-2 focus:ring-teal-600 focus:bg-white focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1">Sınıfın Tam Adı *</label>
                 <input
                   type="text"
                   required
                   value={formData.name}
                   onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  placeholder="Örn: 8-A LGS, 11-B Sayısal, 12-A EA"
+                  placeholder={
+                    formData.section === "ANAOKULU"
+                      ? "Örn: Minikler 3 Yaş (Papatyalar), Hazırlık 5 Yaş"
+                      : "Örn: 1-A İlkokul, 8-A LGS"
+                  }
                   className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 text-xs focus:ring-2 focus:ring-teal-600 focus:bg-white focus:outline-none"
                 />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block font-semibold text-slate-700 mb-1">Seviye *</label>
-                  <select
-                    value={formData.gradeLevel}
-                    onChange={(e) => setFormData({ ...formData, gradeLevel: e.target.value })}
-                    className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 text-xs focus:ring-2 focus:ring-teal-600 focus:bg-white focus:outline-none"
-                  >
-                    <option value="5">5. Sınıf</option>
-                    <option value="6">6. Sınıf</option>
-                    <option value="7">7. Sınıf</option>
-                    <option value="8">8. Sınıf (LGS)</option>
-                    <option value="9">9. Sınıf</option>
-                    <option value="10">10. Sınıf</option>
-                    <option value="11">11. Sınıf</option>
-                    <option value="12">12. Sınıf (YKS)</option>
-                    <option value="MEZUN">Mezun Grubu</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block font-semibold text-slate-700 mb-1">Branş / Tür</label>
-                  <input
-                    type="text"
-                    value={formData.branch}
-                    onChange={(e) => setFormData({ ...formData, branch: e.target.value })}
-                    placeholder="Sayısal, EA, LGS, Dil"
-                    className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 text-xs focus:ring-2 focus:ring-teal-600 focus:bg-white focus:outline-none"
-                  />
-                </div>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
@@ -483,14 +601,16 @@ export default function SiniflarPage() {
                     type="text"
                     value={formData.roomNumber}
                     onChange={(e) => setFormData({ ...formData, roomNumber: e.target.value })}
-                    placeholder="Derslik 101, Kat 2"
+                    placeholder="Zemin Kat - 1, Kat 2"
                     className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 text-xs focus:ring-2 focus:ring-teal-600 focus:bg-white focus:outline-none"
                   />
                 </div>
               </div>
 
               <div>
-                <label className="block font-semibold text-slate-700 mb-1">Sınıf Rehber Öğretmeni</label>
+                <label className="block font-semibold text-slate-700 mb-1">
+                  {formData.section === "ANAOKULU" ? "Sınıf / Okul Öncesi Öğretmeni" : "Sınıf Rehber Öğretmeni"}
+                </label>
                 <select
                   value={formData.teacherStaffId}
                   onChange={(e) => setFormData({ ...formData, teacherStaffId: e.target.value })}
@@ -532,7 +652,7 @@ export default function SiniflarPage() {
             <div className="p-5 border-b border-slate-100 bg-slate-50 flex items-center justify-between">
               <div>
                 <span className="text-[10px] font-bold text-teal-700 uppercase tracking-wider block">
-                  Sınıf Öğrenci Listesi
+                  {selectedClassroom.section === "ANAOKULU" ? "🧸 Anaokulu Öğrenci Listesi" : "Sınıf Öğrenci Listesi"}
                 </span>
                 <h3 className="text-base font-bold text-slate-800">{selectedClassroom.name}</h3>
               </div>

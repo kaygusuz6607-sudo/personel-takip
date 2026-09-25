@@ -34,6 +34,12 @@ import {
   Building,
   School,
   Share2,
+  Printer,
+  FileText,
+  Baby,
+  Smile,
+  BadgePercent,
+  Clock3,
 } from "lucide-react";
 import * as XLSX from "xlsx";
 
@@ -51,6 +57,7 @@ interface LeadInteraction {
   result: string;
   notes: string | null;
   followUpDate: string | null;
+  followUpTime?: string | null;
   createdAt: string;
   staff?: {
     id: string;
@@ -67,6 +74,10 @@ interface Lead {
   currentSchool: string | null;
   targetGrade: string | null;
   programInterest: string | null;
+  section?: "ANAOKULU" | "ILKOKUL" | "ORTAOKUL" | "LISE" | "KURS" | null;
+  educationType?: "TAM_GUN" | "YARIM_GUN_SABAH" | "YARIM_GUN_OGLE" | null;
+  campaignType?: string | null;
+  followUpTime?: string | null;
   source: string;
   sourceDetail: string | null;
   status: "NEW" | "CONTACTED" | "APPOINTMENT" | "OFFER_SENT" | "REGISTERED" | "LOST";
@@ -103,6 +114,38 @@ interface Classroom {
   capacity: number;
 }
 
+const SECTIONS = [
+  { id: "ALL", label: "Tüm Kademeler", icon: "🏫" },
+  { id: "ANAOKULU", label: "Anaokulu (3-5 Yaş)", icon: "🧸" },
+  { id: "ILKOKUL", label: "İlkokul (1-4)", icon: "🎒" },
+  { id: "ORTAOKUL", label: "Ortaokul (5-8)", icon: "📚" },
+  { id: "LISE", label: "Lise (9-12)", icon: "🎓" },
+  { id: "KURS", label: "Kurs / Etüt / Sınav", icon: "🎯" },
+];
+
+const SECTION_GRADES: Record<string, string[]> = {
+  ANAOKULU: ["3 Yaş (Oyun Grubu)", "4 Yaş (Küçük Yaş)", "5 Yaş (Hazırlık Sınıfı)"],
+  ILKOKUL: ["1. Sınıf", "2. Sınıf", "3. Sınıf", "4. Sınıf"],
+  ORTAOKUL: ["5. Sınıf", "6. Sınıf", "7. Sınıf", "8. Sınıf (LGS)"],
+  LISE: ["9. Sınıf", "10. Sınıf", "11. Sınıf", "12. Sınıf (YKS)"],
+  KURS: ["Mezun (YKS Kursu)", "8. Sınıf LGS Kursu", "Ders Takviye / Özel Ders"],
+};
+
+const EDUCATION_TYPES: Record<string, string> = {
+  TAM_GUN: "Tam Gün (08:30 - 17:30)",
+  YARIM_GUN_SABAH: "Yarım Gün Sabah (08:30 - 12:30)",
+  YARIM_GUN_OGLE: "Yarım Gün Öğle (13:00 - 17:30)",
+};
+
+const CAMPAIGN_PRESETS = [
+  "Erken Kayıt İndirimi",
+  "Kardeş İndirimi (%10)",
+  "Bursluluk Sınavı Başarı İndirimi",
+  "Öğretmen / Kamu Personeli İndirimi",
+  "Veli Tavsiyesi / Referans Kampanyası",
+  "Özel Kurumsal Anlaşma",
+];
+
 const STAGES = [
   { id: "NEW", label: "Yeni Aday", color: "bg-blue-50 text-blue-700 border-blue-200", badgeColor: "bg-blue-600" },
   { id: "CONTACTED", label: "İletişimde", color: "bg-amber-50 text-amber-700 border-amber-200", badgeColor: "bg-amber-600" },
@@ -138,6 +181,7 @@ export default function CRMPage() {
 
   // Arama & Filtreler
   const [search, setSearch] = useState("");
+  const [filterSection, setFilterSection] = useState("ALL");
   const [filterStatus, setFilterStatus] = useState("ALL");
   const [filterStaff, setFilterStaff] = useState("ALL");
   const [filterSource, setFilterSource] = useState("ALL");
@@ -149,6 +193,7 @@ export default function CRMPage() {
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null); // Detay & Timeline
   const [convertingLead, setConvertingLead] = useState<Lead | null>(null); // Kesin Kayıt
   const [lostModalLead, setLostModalLead] = useState<Lead | null>(null); // Kayıp Nedeni
+  const [proformaLead, setProformaLead] = useState<Lead | null>(null); // Proforma Teklif Yazdırma
 
   // Yeni Aday Form Durumu
   const [formData, setFormData] = useState({
@@ -156,8 +201,11 @@ export default function CRMPage() {
     birthDate: "",
     gender: "UNSPECIFIED",
     currentSchool: "",
+    section: "ORTAOKUL" as "ANAOKULU" | "ILKOKUL" | "ORTAOKUL" | "LISE" | "KURS",
     targetGrade: "8. Sınıf (LGS)",
+    educationType: "TAM_GUN" as "TAM_GUN" | "YARIM_GUN_SABAH" | "YARIM_GUN_OGLE",
     programInterest: "Tam Zamanlı Grup",
+    campaignType: "",
     source: "INSTAGRAM",
     sourceDetail: "",
     priority: "MEDIUM" as "LOW" | "MEDIUM" | "HIGH" | "URGENT",
@@ -182,6 +230,7 @@ export default function CRMPage() {
     result: "APPOINTMENT_SET",
     notes: "",
     followUpDate: "",
+    followUpTime: "",
     newLeadStatus: "",
   });
   const [submittingInteraction, setSubmittingInteraction] = useState(false);
@@ -248,6 +297,7 @@ export default function CRMPage() {
         (lead.currentSchool && lead.currentSchool.toLowerCase().includes(search.toLowerCase())) ||
         (lead.cityDistrict && lead.cityDistrict.toLowerCase().includes(search.toLowerCase()));
 
+      const matchSection = filterSection === "ALL" || lead.section === filterSection;
       const matchStatus = filterStatus === "ALL" || lead.status === filterStatus;
       const matchStaff =
         filterStaff === "ALL" ||
@@ -255,9 +305,9 @@ export default function CRMPage() {
       const matchSource = filterSource === "ALL" || lead.source === filterSource;
       const matchPriority = filterPriority === "ALL" || lead.priority === filterPriority;
 
-      return matchSearch && matchStatus && matchStaff && matchSource && matchPriority;
+      return matchSearch && matchSection && matchStatus && matchStaff && matchSource && matchPriority;
     });
-  }, [leads, search, filterStatus, filterStaff, filterSource, filterPriority]);
+  }, [leads, search, filterSection, filterStatus, filterStaff, filterSource, filterPriority]);
 
   // Aranacaklar Listesi (Follow-up takibi)
   const callList = useMemo(() => {
@@ -323,8 +373,11 @@ export default function CRMPage() {
       birthDate: "",
       gender: "UNSPECIFIED",
       currentSchool: "",
+      section: "ORTAOKUL",
       targetGrade: "8. Sınıf (LGS)",
+      educationType: "TAM_GUN",
       programInterest: "Tam Zamanlı Grup",
+      campaignType: "",
       source: "INSTAGRAM",
       sourceDetail: "",
       priority: "MEDIUM",
@@ -351,8 +404,11 @@ export default function CRMPage() {
       birthDate: lead.birthDate ? lead.birthDate.split("T")[0] : "",
       gender: lead.gender || "UNSPECIFIED",
       currentSchool: lead.currentSchool || "",
+      section: (lead.section as any) || "ORTAOKUL",
       targetGrade: lead.targetGrade || "8. Sınıf (LGS)",
+      educationType: (lead.educationType as any) || "TAM_GUN",
       programInterest: lead.programInterest || "Tam Zamanlı Grup",
+      campaignType: lead.campaignType || "",
       source: lead.source || "INSTAGRAM",
       sourceDetail: lead.sourceDetail || "",
       priority: lead.priority || "MEDIUM",
@@ -420,6 +476,7 @@ export default function CRMPage() {
         result: "APPOINTMENT_SET",
         notes: "",
         followUpDate: "",
+        followUpTime: "",
         newLeadStatus: "",
       });
 
@@ -654,6 +711,27 @@ export default function CRMPage() {
               className="w-full pl-9 pr-4 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs focus:ring-2 focus:ring-teal-600 focus:bg-white focus:outline-none"
             />
           </div>
+        </div>
+
+        {/* Kademe Filtre Butonları */}
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 pt-1 border-t border-slate-100">
+          <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider shrink-0 mr-1 flex items-center gap-1">
+            <School className="w-3.5 h-3.5 text-teal-700" /> Kademe:
+          </span>
+          {SECTIONS.map((sec) => (
+            <button
+              key={sec.id}
+              onClick={() => setFilterSection(sec.id)}
+              className={`flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 ${
+                filterSection === sec.id
+                  ? "bg-teal-700 text-white shadow-xs"
+                  : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+              }`}
+            >
+              <span>{sec.icon}</span>
+              <span>{sec.label}</span>
+            </button>
+          ))}
         </div>
 
         {/* Filtre Açılır Menüleri */}
@@ -1060,8 +1138,40 @@ export default function CRMPage() {
               {/* Öğrenci Bilgileri */}
               <div className="space-y-3">
                 <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
-                  <GraduationCap className="w-4 h-4 text-teal-700" /> Aday Öğrenci Bilgileri
+                  <GraduationCap className="w-4 h-4 text-teal-700" /> Aday Öğrenci Bilgileri & Kademe
                 </h4>
+
+                {/* Kademe Seçimi */}
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                    Okul Kademesi *
+                  </label>
+                  <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
+                    {SECTIONS.filter(s => s.id !== "ALL").map((sec) => (
+                      <button
+                        type="button"
+                        key={sec.id}
+                        onClick={() => {
+                          const grades = SECTION_GRADES[sec.id] || [];
+                          setFormData({
+                            ...formData,
+                            section: sec.id as any,
+                            targetGrade: grades[0] || formData.targetGrade,
+                          });
+                        }}
+                        className={`flex items-center justify-center gap-1.5 py-2 px-2.5 rounded-xl border text-xs font-bold transition-all ${
+                          formData.section === sec.id
+                            ? "bg-teal-700 text-white border-teal-700 shadow-xs"
+                            : "bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100"
+                        }`}
+                      >
+                        <span>{sec.icon}</span>
+                        <span>{sec.label.split(" ")[0]}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <div>
                     <label className="block text-xs font-semibold text-slate-700 mb-1">
@@ -1079,40 +1189,71 @@ export default function CRMPage() {
 
                   <div>
                     <label className="block text-xs font-semibold text-slate-700 mb-1">
-                      Hedef Sınıf / Seviye *
+                      Eğitim Şekli / Zamanı
                     </label>
+                    <select
+                      value={formData.educationType}
+                      onChange={(e) => setFormData({ ...formData, educationType: e.target.value as any })}
+                      className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 text-xs focus:ring-2 focus:ring-teal-600 focus:bg-white focus:outline-none font-semibold text-slate-800"
+                    >
+                      <option value="TAM_GUN">Tam Gün (08:30 - 17:30)</option>
+                      <option value="YARIM_GUN_SABAH">Yarım Gün Sabah (08:30 - 12:30)</option>
+                      <option value="YARIM_GUN_OGLE">Yarım Gün Öğle (13:00 - 17:30)</option>
+                    </select>
+                  </div>
+
+                  <div className="md:col-span-2">
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      Hedef Sınıf / Yaş Grubu *
+                    </label>
+                    <div className="flex flex-wrap gap-1.5 mb-2">
+                      {(SECTION_GRADES[formData.section] || []).map((grade) => (
+                        <button
+                          type="button"
+                          key={grade}
+                          onClick={() => setFormData({ ...formData, targetGrade: grade })}
+                          className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all border ${
+                            formData.targetGrade === grade
+                              ? "bg-teal-50 border-teal-600 text-teal-800 font-bold"
+                              : "bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100"
+                          }`}
+                        >
+                          {grade}
+                        </button>
+                      ))}
+                    </div>
                     <input
                       type="text"
                       required
                       value={formData.targetGrade}
                       onChange={(e) => setFormData({ ...formData, targetGrade: e.target.value })}
-                      placeholder="Örn: 8. Sınıf (LGS), 12. Sınıf Sayısal, 9. Sınıf"
+                      placeholder="Örn: 3 Yaş (Oyun Grubu), 8. Sınıf (LGS), vb."
                       className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 text-xs focus:ring-2 focus:ring-teal-600 focus:bg-white focus:outline-none"
                     />
                   </div>
 
                   <div>
                     <label className="block text-xs font-semibold text-slate-700 mb-1">
-                      Mevcut Okulu
+                      Mevcut Okulu / Yuvası
                     </label>
                     <input
                       type="text"
                       value={formData.currentSchool}
                       onChange={(e) => setFormData({ ...formData, currentSchool: e.target.value })}
-                      placeholder="Örn: Atatürk Ortaokulu"
+                      placeholder="Örn: Minik Kalpler Anaokulu"
                       className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 text-xs focus:ring-2 focus:ring-teal-600 focus:bg-white focus:outline-none"
                     />
                   </div>
 
                   <div>
                     <label className="block text-xs font-semibold text-slate-700 mb-1">
-                      İlgilendiği Program
+                      İlgilendiği Program / Beklenti
                     </label>
                     <input
                       type="text"
                       value={formData.programInterest}
                       onChange={(e) => setFormData({ ...formData, programInterest: e.target.value })}
-                      placeholder="Örn: Tam Zamanlı Kurs, Birebir Özel Ders, Etüt"
+                      placeholder="Örn: İngilizce Ağırlıklı, Oyun Tabanlı, Etüt"
                       className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 text-xs focus:ring-2 focus:ring-teal-600 focus:bg-white focus:outline-none"
                     />
                   </div>
@@ -1213,7 +1354,7 @@ export default function CRMPage() {
               {/* Pazarlama, Danışman & Teklif */}
               <div className="space-y-3 pt-3 border-t border-slate-100">
                 <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
-                  <Target className="w-4 h-4 text-teal-700" /> Kaynak, Danışman & Teklif
+                  <Target className="w-4 h-4 text-teal-700" /> Kaynak, Danışman & Fiyat Teklifi
                 </h4>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                   <div>
@@ -1283,6 +1424,24 @@ export default function CRMPage() {
 
                   <div>
                     <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      Kampanya Türü
+                    </label>
+                    <select
+                      value={formData.campaignType}
+                      onChange={(e) => setFormData({ ...formData, campaignType: e.target.value })}
+                      className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 text-xs focus:ring-2 focus:ring-teal-600 focus:bg-white focus:outline-none"
+                    >
+                      <option value="">Standart Fiyat / Kampanyasız</option>
+                      {CAMPAIGN_PRESETS.map((c) => (
+                        <option key={c} value={c}>
+                          {c}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
                       Önerilen Teklif Tutarı (TL)
                     </label>
                     <input
@@ -1294,15 +1453,15 @@ export default function CRMPage() {
                     />
                   </div>
 
-                  <div>
+                  <div className="md:col-span-3">
                     <label className="block text-xs font-semibold text-slate-700 mb-1">
-                      İndirim / Kampanya Notu
+                      İndirim / Kampanya Açıklaması
                     </label>
                     <input
                       type="text"
                       value={formData.discountNote}
                       onChange={(e) => setFormData({ ...formData, discountNote: e.target.value })}
-                      placeholder="Örn: Erken Kayıt %10 İndirimi"
+                      placeholder="Örn: Erken Kayıt %10 İndirimi + Peşin Ödeme Avantajı"
                       className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 text-xs focus:ring-2 focus:ring-teal-600 focus:bg-white focus:outline-none"
                     />
                   </div>
@@ -1384,6 +1543,15 @@ export default function CRMPage() {
                 </div>
 
                 <div className="flex items-center gap-1.5">
+                  <button
+                    onClick={() => setProformaLead(selectedLead)}
+                    className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shadow-xs"
+                    title="Veliye sunulacak resmi proforma fiyat teklifini yazdır"
+                  >
+                    <Printer className="w-3.5 h-3.5" />
+                    <span>Fiyat Teklifi / Proforma</span>
+                  </button>
+
                   {selectedLead.status !== "REGISTERED" && (
                     <button
                       onClick={() => {
@@ -1413,24 +1581,57 @@ export default function CRMPage() {
               </div>
 
               {/* Temel Bilgiler Kartı */}
-              <div className="grid grid-cols-2 gap-3 text-xs">
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-xs">
                 <div className="p-3 rounded-xl bg-slate-50 border border-slate-100 space-y-1">
-                  <span className="text-slate-400 font-medium">Hedef Sınıf</span>
+                  <span className="text-slate-400 font-medium">Kademe & Sınıf</span>
+                  <div className="flex items-center gap-1">
+                    {selectedLead.section && (
+                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-teal-100 text-teal-800">
+                        {selectedLead.section === "ANAOKULU" ? "🧸 Anaokulu" :
+                         selectedLead.section === "ILKOKUL" ? "🎒 İlkokul" :
+                         selectedLead.section === "ORTAOKUL" ? "📚 Ortaokul" :
+                         selectedLead.section === "LISE" ? "🎓 Lise" : "🎯 Kurs"}
+                      </span>
+                    )}
+                  </div>
                   <p className="font-bold text-slate-800">{selectedLead.targetGrade || "Belirtilmedi"}</p>
                 </div>
+
+                <div className="p-3 rounded-xl bg-slate-50 border border-slate-100 space-y-1">
+                  <span className="text-slate-400 font-medium">Eğitim Şekli</span>
+                  <p className="font-bold text-slate-800">
+                    {selectedLead.educationType === "TAM_GUN"
+                      ? "Tam Gün (08:30 - 17:30)"
+                      : selectedLead.educationType === "YARIM_GUN_SABAH"
+                      ? "Yarım Gün (Sabah)"
+                      : selectedLead.educationType === "YARIM_GUN_OGLE"
+                      ? "Yarım Gün (Öğle)"
+                      : "Tam Gün"}
+                  </p>
+                </div>
+
                 <div className="p-3 rounded-xl bg-slate-50 border border-slate-100 space-y-1">
                   <span className="text-slate-400 font-medium">Veli İletişim</span>
                   <p className="font-bold text-slate-800">{selectedLead.parentName}</p>
                   <p className="font-mono text-teal-700">{selectedLead.parentPhone}</p>
                 </div>
+
                 <div className="p-3 rounded-xl bg-slate-50 border border-slate-100 space-y-1">
                   <span className="text-slate-400 font-medium">Kayıt Danışmanı</span>
                   <p className="font-bold text-slate-800">{selectedLead.assignedStaff?.fullName || "Atanmadı"}</p>
                 </div>
+
                 <div className="p-3 rounded-xl bg-slate-50 border border-slate-100 space-y-1">
                   <span className="text-slate-400 font-medium">Teklif Tutarı</span>
                   <p className="font-bold text-slate-800">
                     {selectedLead.offeredPrice ? `${selectedLead.offeredPrice.toLocaleString("tr-TR")} ₺` : "Teklif yok"}
+                  </p>
+                </div>
+
+                <div className="p-3 rounded-xl bg-slate-50 border border-slate-100 space-y-1">
+                  <span className="text-slate-400 font-medium">Uygulanan Kampanya</span>
+                  <p className="font-semibold text-slate-800 truncate">
+                    {selectedLead.campaignType || selectedLead.discountNote || "Standart"}
                   </p>
                 </div>
               </div>
@@ -1486,15 +1687,27 @@ export default function CRMPage() {
                   />
                 </div>
 
-                <div className="grid grid-cols-2 gap-2 text-xs">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-xs">
                   <div>
                     <label className="block text-[11px] font-semibold text-slate-700 mb-1">
-                      Takip / Tekrar Arama Tarihi
+                      Takip Tarihi
                     </label>
                     <input
                       type="date"
                       value={interactionForm.followUpDate}
                       onChange={(e) => setInteractionForm({ ...interactionForm, followUpDate: e.target.value })}
+                      className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white text-xs"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                      Takip Saati
+                    </label>
+                    <input
+                      type="time"
+                      value={interactionForm.followUpTime}
+                      onChange={(e) => setInteractionForm({ ...interactionForm, followUpTime: e.target.value })}
                       className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white text-xs"
                     />
                   </div>
@@ -1563,8 +1776,9 @@ export default function CRMPage() {
                           <div className="flex items-center justify-between text-[10px] text-slate-500 pt-1 border-t border-slate-100">
                             <span>Sonuç: <strong>{interaction.result}</strong></span>
                             {interaction.followUpDate && (
-                              <span className="text-purple-700 font-semibold">
-                                🔔 Takip: {new Date(interaction.followUpDate).toLocaleDateString("tr-TR")}
+                              <span className="text-purple-700 font-semibold flex items-center gap-1">
+                                <Clock3 className="w-3 h-3" /> Takip: {new Date(interaction.followUpDate).toLocaleDateString("tr-TR")}
+                                {interaction.followUpTime && ` • ${interaction.followUpTime}`}
                               </span>
                             )}
                           </div>
@@ -1806,6 +2020,226 @@ export default function CRMPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ================= MODAL 5: PROFORMA FİYAT TEKLİFİ YAZDIRMA (PDF) ================= */}
+      {proformaLead && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-3xl w-full overflow-hidden border border-slate-200 my-8">
+            {/* Üst Eylem Çubuğu (Yazdırmada Gizli) */}
+            <div className="p-4 border-b border-slate-100 bg-slate-50 flex items-center justify-between print:hidden">
+              <div className="flex items-center gap-2">
+                <div className="p-1.5 rounded-lg bg-indigo-600 text-white">
+                  <Printer className="w-4 h-4" />
+                </div>
+                <span className="font-bold text-slate-800 text-xs">
+                  Resmi Fiyat Teklifi & Proforma Önizleme
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => window.print()}
+                  className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-teal-700 hover:bg-teal-800 text-white text-xs font-bold shadow-xs transition-all"
+                >
+                  <Printer className="w-3.5 h-3.5" />
+                  <span>Yazdır / PDF Kaydet</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setProformaLead(null)}
+                  className="p-2 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-200/50"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+
+            {/* Baskı Gövdesi */}
+            <div className="p-8 space-y-6 text-slate-800 bg-white">
+              {/* Kurum Başlığı */}
+              <div className="border-b-2 border-slate-900 pb-4 flex items-center justify-between">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-lg bg-teal-800 text-white flex items-center justify-center font-extrabold text-sm">
+                      C
+                    </div>
+                    <div>
+                      <h2 className="text-xl font-black tracking-tight text-slate-900 uppercase">
+                        COSMOS EĞİTİM KURUMLARI
+                      </h2>
+                      <p className="text-[10px] text-slate-500 font-semibold uppercase tracking-wider">
+                        Okul Öncesi • İlkokul • Ortaokul • Lise • Özel Öğretim Kursları
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="text-right text-[11px] space-y-0.5 font-mono">
+                  <p className="font-bold text-slate-900">
+                    TEKLİF NO: <span className="text-teal-800">PRF-{proformaLead.id.slice(-6).toUpperCase()}</span>
+                  </p>
+                  <p className="text-slate-500">
+                    Tarih: {new Date().toLocaleDateString("tr-TR")}
+                  </p>
+                  <p className="text-rose-600 font-semibold text-[10px]">
+                    * 7 Gün Süreyle Geçerlidir
+                  </p>
+                </div>
+              </div>
+
+              {/* Teklif Başlığı */}
+              <div className="text-center py-1 bg-slate-100 rounded-lg border border-slate-200">
+                <h3 className="text-sm font-extrabold text-slate-800 tracking-wide uppercase">
+                  ADAY ÖĞRENCİ EĞİTİM HİZMETLERİ FİYAT VE KAYIT TEKLİFİ
+                </h3>
+              </div>
+
+              {/* Aday & Veli Bilgileri */}
+              <div className="grid grid-cols-2 gap-4 text-xs border border-slate-200 rounded-xl p-4 bg-slate-50/50">
+                <div className="space-y-1.5">
+                  <p className="text-slate-400 font-semibold text-[10px] uppercase">Aday Öğrenci Bilgileri</p>
+                  <p><strong>Adı Soyadı:</strong> <span className="font-bold text-slate-900">{proformaLead.studentName}</span></p>
+                  <p>
+                    <strong>Kademe:</strong>{" "}
+                    {proformaLead.section === "ANAOKULU" ? "🧸 Anaokulu (Okul Öncesi)" :
+                     proformaLead.section === "ILKOKUL" ? "🎒 İlkokul" :
+                     proformaLead.section === "ORTAOKUL" ? "📚 Ortaokul" :
+                     proformaLead.section === "LISE" ? "🎓 Lise" : "🎯 Kurs / Etüt"}
+                  </p>
+                  <p><strong>Hedef Sınıf / Seviye:</strong> {proformaLead.targetGrade || "-"}</p>
+                  <p>
+                    <strong>Öğrenim Şekli:</strong>{" "}
+                    {proformaLead.educationType === "TAM_GUN"
+                      ? "Tam Gün (08:30 - 17:30)"
+                      : proformaLead.educationType === "YARIM_GUN_SABAH"
+                      ? "Yarım Gün Sabah (08:30 - 12:30)"
+                      : proformaLead.educationType === "YARIM_GUN_OGLE"
+                      ? "Yarım Gün Öğle (13:00 - 17:30)"
+                      : "Tam Gün"}
+                  </p>
+                </div>
+
+                <div className="space-y-1.5">
+                  <p className="text-slate-400 font-semibold text-[10px] uppercase">Veli & Danışman Bilgileri</p>
+                  <p><strong>Veli Adı Soyadı:</strong> {proformaLead.parentName}</p>
+                  <p><strong>İletişim Tel:</strong> <span className="font-mono font-semibold">{proformaLead.parentPhone}</span></p>
+                  <p><strong>İkamet / İlçe:</strong> {proformaLead.cityDistrict || "-"}</p>
+                  <p><strong>Kayıt Danışmanı:</strong> {proformaLead.assignedStaff?.fullName || "Kayıt Kabul Koordinatörlüğü"}</p>
+                </div>
+              </div>
+
+              {/* Finansal Teklif Tablosu */}
+              <div className="space-y-2">
+                <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+                  Eğitim Ücreti & Uygulanan İndirimler
+                </h4>
+
+                {(() => {
+                  const netPrice = proformaLead.offeredPrice || 0;
+                  const listPrice = Math.round(netPrice * 1.15);
+                  const discount = listPrice - netPrice;
+                  return (
+                    <div className="border border-slate-200 rounded-xl overflow-hidden text-xs">
+                      <table className="w-full text-left">
+                        <thead className="bg-slate-100 text-slate-700 font-bold border-b border-slate-200">
+                          <tr>
+                            <th className="p-3">Hizmet Tanımı</th>
+                            <th className="p-3 text-right">Liste Fiyatı</th>
+                            <th className="p-3 text-right">İndirim / Kampanya</th>
+                            <th className="p-3 text-right">Net Teklif Tutarı</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          <tr>
+                            <td className="p-3">
+                              <p className="font-bold text-slate-900">
+                                2025-2026 Eğitim-Öğretim Yılı Kayıt Paketi
+                              </p>
+                              <p className="text-[11px] text-slate-500">
+                                {proformaLead.campaignType || proformaLead.discountNote || "Standart Kayıt Paketi"}
+                              </p>
+                            </td>
+                            <td className="p-3 text-right font-mono text-slate-400 line-through">
+                              {listPrice.toLocaleString("tr-TR")} ₺
+                            </td>
+                            <td className="p-3 text-right font-mono text-emerald-700 font-semibold">
+                              - {discount > 0 ? discount.toLocaleString("tr-TR") : "0"} ₺
+                            </td>
+                            <td className="p-3 text-right font-mono font-extrabold text-sm text-teal-900 bg-teal-50/50">
+                              {netPrice.toLocaleString("tr-TR")} ₺
+                            </td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  );
+                })()}
+              </div>
+
+              {/* Alternatif Ödeme Projeksiyonu */}
+              <div className="space-y-2">
+                <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+                  Alternatif Ödeme ve Taksit Seçenekleri
+                </h4>
+                {(() => {
+                  const net = proformaLead.offeredPrice || 0;
+                  const cash = Math.round(net * 0.95);
+                  const inst6 = Math.round(net / 6);
+                  const inst10 = Math.round(net / 10);
+                  return (
+                    <div className="grid grid-cols-3 gap-3 text-center text-xs">
+                      <div className="p-3 rounded-xl border border-slate-200 bg-slate-50">
+                        <span className="text-[10px] font-bold text-slate-500 block uppercase">1. Peşin / Tek Çekim</span>
+                        <span className="text-base font-extrabold text-slate-900 font-mono block mt-1">
+                          {cash.toLocaleString("tr-TR")} ₺
+                        </span>
+                        <span className="text-[10px] text-emerald-700 font-semibold">%5 Ekstra Peşin İndirimi</span>
+                      </div>
+
+                      <div className="p-3 rounded-xl border border-slate-200 bg-slate-50">
+                        <span className="text-[10px] font-bold text-slate-500 block uppercase">2. 6 Taksit Planı</span>
+                        <span className="text-base font-extrabold text-slate-900 font-mono block mt-1">
+                          {inst6.toLocaleString("tr-TR")} ₺ <span className="text-xs font-normal text-slate-500">/ ay</span>
+                        </span>
+                        <span className="text-[10px] text-slate-500">Toplam: {net.toLocaleString("tr-TR")} ₺</span>
+                      </div>
+
+                      <div className="p-3 rounded-xl border-2 border-teal-600 bg-teal-50/40">
+                        <span className="text-[10px] font-bold text-teal-800 block uppercase">3. 10 Taksit (Maksimum Vade)</span>
+                        <span className="text-base font-extrabold text-teal-900 font-mono block mt-1">
+                          {inst10.toLocaleString("tr-TR")} ₺ <span className="text-xs font-normal text-slate-500">/ ay</span>
+                        </span>
+                        <span className="text-[10px] text-teal-700 font-semibold">Taksitli Standart Plan</span>
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
+
+              {/* Notlar & MEB Bilgilendirmesi */}
+              <div className="text-[11px] text-slate-500 space-y-1 bg-slate-50 p-3.5 rounded-xl border border-slate-200">
+                <p><strong>Önemli Bilgilendirme:</strong></p>
+                <p>1. Bu proforma teklif belgesi, adayın kurumumuza ön kaydının yapılabilmesi amacıyla hazırlanmış olup kesin kayıt sözleşmesi yerine geçmez.</p>
+                <p>2. Belirtilen fiyat ve taksit avantajları, teklif tarihinden itibaren 7 (yedi) takvim günü boyunca geçerlidir.</p>
+                <p>3. Kesin kayıt sırasında Millî Eğitim Bakanlığı Standart Sözleşmesi (Ek-1) tanzim edilerek karşılıklı imza altına alınacaktır.</p>
+              </div>
+
+              {/* İmzalar */}
+              <div className="grid grid-cols-2 pt-6 text-center text-xs font-semibold">
+                <div className="space-y-12">
+                  <p>COSMOS EĞİTİM KURUMLARI<br /><span className="text-[10px] font-normal text-slate-500">Kayıt Kabul Yetkilisi / Kaşe - İmza</span></p>
+                  <p className="font-mono text-slate-400">________________________</p>
+                </div>
+
+                <div className="space-y-12">
+                  <p>VELİ / MUHATAP<br /><span className="text-[10px] font-normal text-slate-500">Teklif Bilgilerini İnceledim</span></p>
+                  <p className="font-mono text-slate-400">________________________</p>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       )}

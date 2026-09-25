@@ -231,11 +231,14 @@ model Lead {
   studentName     String            // Aday Öğrenci Adı Soyadı
   birthDate       DateTime?         // Doğum Tarihi
   gender          String?           // MALE, FEMALE
-  currentSchool   String?           // Mevcut Okulu
-  targetGrade     String?           // Hedef Sınıf / Seviye (Örn: 8. Sınıf LGS, 12. Sınıf YKS, 9. Sınıf)
-  programInterest String?           // İlgilendiği Program (Grup Dersi, Birebir Özel Ders, Etüt, Bursluluk vb.)
+  currentSchool   String?           // Mevcut Okulu / Kreşi
+  section         String?           @default("ANAOKULU") // ANAOKULU, ILKOKUL, ORTAOKUL, LISE, KURS
+  targetGrade     String?           // Hedef Sınıf / Yaş Grubu (Örn: 3 Yaş Oyun Grubu, 4 Yaş, 5 Yaş Hazırlık, 1. Sınıf vb.)
+  educationType   String?           @default("TAM_GUN") // TAM_GUN (Tam Gün), YARIM_GUN_SABAH, YARIM_GUN_OGLE
+  programInterest String?           // İlgilendiği Program (Anaokulu Tam Gün, İlkokul, LGS Kursu, Birebir vb.)
   source          String            @default("OTHER") // INSTAGRAM, GOOGLE, RECOMMENDATION, BROCHURE, WALK_IN, PHONE_IN, OTHER
   sourceDetail    String?           // Örn: Tavsiye eden veli adı veya kampanya adı
+  campaignType    String?           // ERKEN_KAYIT, KARDES, PROTOKOL, BURS, DIGER
   status          String            @default("NEW") // NEW, CONTACTED, APPOINTMENT, OFFER_SENT, REGISTERED, LOST
   lostReason      String?           // Fiyat yüksek, mesafe uzak, rakip kurum, veli vazgeçti vb.
   priority        String            @default("MEDIUM") // LOW, MEDIUM, HIGH, URGENT
@@ -280,6 +283,7 @@ model LeadInteraction {
   notes        String?   // Görüşme özeti ve notları
   
   followUpDate DateTime? // Takip / Bir sonraki arama tarihi
+  followUpTime String?   // Takip saati (Örn: "14:30")
   isCompleted  Boolean   @default(true)
   
   createdAt    DateTime  @default(now())
@@ -289,14 +293,15 @@ model LeadInteraction {
 
 model Classroom {
   id              String    @id @default(uuid())
-  name            String    @unique // Örn: "8-A LGS", "11-B Sayısal", "10-A Anadolu"
-  gradeLevel      String    // 5, 6, 7, 8, 9, 10, 11, 12, MEZUN
-  branch          String?   // Sayısal, Eşit Ağırlık, Sözel, Dil, LGS, Kurs
+  name            String    @unique // Örn: "Minikler 3 Yaş", "Hazırlık 5 Yaş", "1-A İlkokul", "8-A LGS"
+  section         String    @default("ANAOKULU") // ANAOKULU, ILKOKUL, ORTAOKUL, LISE, KURS
+  gradeLevel      String    // 3_YAS, 4_YAS, 5_YAS, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, MEZUN
+  branch          String?   // Oyun Grubu, Hazırlık, Sayısal, LGS, vb.
   capacity        Int       @default(16)
   academicYear    String    @default("2025-2026")
-  roomNumber      String?   // Derslik No: Derslik 101, Kat 2
+  roomNumber      String?   // Derslik No: Sevimli Ayıcıklar Sınıfı, Derslik 101, Kat 1
   
-  teacherStaffId  String?   // Sınıf Rehber Öğretmeni
+  teacherStaffId  String?   // Sınıf Rehber / Anaokulu Öğretmeni
   teacherStaff    Staff?    @relation("ClassroomTeacher", fields: [teacherStaffId], references: [id], onDelete: SetNull)
   
   students        Student[]
@@ -313,6 +318,9 @@ model Student {
   gender           String?             @default("UNSPECIFIED") // MALE, FEMALE, UNSPECIFIED
   bloodGroup       String?             // A+, A-, B+, B-, AB+, AB-, 0+, 0-
   healthNotes      String?             // Kronik hastalık, ilaç, alerji
+  dietNotes        String?             // Özel beslenme, laktoz, gluten, alerjenler
+  toiletTrained    Boolean?            @default(true) // Tuvalet eğitimi tamamlandı mı (Anaokulu)
+  napTime          Boolean?            @default(false) // Öğle uykusu alıyor mu (Anaokulu)
   photoUrl         String?             // Öğrenci Vesikalık Fotoğrafı
   status           String              @default("ACTIVE") // ACTIVE, FROZEN, TRANSFERRED, DROPPED, GRADUATED
   
@@ -329,13 +337,23 @@ model Student {
   homeAddress      String?
   cityDistrict     String?
   
+  // Güvenlik & Çocuğu Teslim Alma (Özellikle Anaokulu / İlkokul için)
+  authorizedPickups String?            // JSON listesi: [{ name, phone, relation, tcNo }]
+  emergencyContact  String?            // Acil durumda aranacak kişi (Ad, Tel, Yakınlık)
+  
   // Akademik & Sınıf Bilgileri
+  section          String              @default("ANAOKULU") // ANAOKULU, ILKOKUL, ORTAOKUL, LISE, KURS
+  educationType    String              @default("TAM_GUN") // TAM_GUN, YARIM_GUN_SABAH, YARIM_GUN_OGLE
   classroomId      String?
   classroom        Classroom?          @relation(fields: [classroomId], references: [id], onDelete: SetNull)
   academicYear     String              @default("2025-2026")
   enrollmentDate   DateTime            @default(now())
   graduationDate   DateTime?
-  previousSchool   String?             // Geldiği okul
+  previousSchool   String?             // Geldiği kreş veya okul
+  
+  // Hizmet Tercihleri
+  serviceUsed      Boolean             @default(false) // Servis kullanıyor mu
+  mealUsed         Boolean             @default(true)  // Yemek hizmeti alıyor mu
   
   // Finansal Sözleşme Özeti
   contractAmount   Float               @default(0) // Anlaşılan Brüt Kayıt Tutarı
@@ -343,9 +361,16 @@ model Student {
   netAmount        Float               @default(0) // Net Ödenecek Tutar
   paymentMethod    String              @default("INSTALLMENT") // CASH, CREDIT_CARD, INSTALLMENT, CHEQUE
   installmentCount Int                 @default(1) // Taksit Sayısı
+  contractDiscountType String?         // Erken Kayıt, Kardeş, Kurum İndirimi
+  
+  // Portal & Güvenlik
+  portalUsername   String?             // Veli portal giriş kullanıcı adı
+  portalPassword   String?             // Veli portal giriş şifresi
+  kvkkConsent      Boolean             @default(true)
+  photoConsent     Boolean             @default(true) // Sosyal medya/etkinlik fotoğraf izni
   
   // Özel Etiketler (Burs, Yemek, Servis vb.)
-  tags             String?             // JSON array string: ["BURSLU", "SERVIS", "YEMEK"]
+  tags             String?             // JSON array string: ["BURSLU", "SERVIS", "YEMEK", "TAM_GUN"]
   notes            String?
   
   // İlişkiler

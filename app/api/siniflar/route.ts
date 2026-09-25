@@ -42,6 +42,7 @@ export async function GET(request: NextRequest) {
     const formatted = classrooms.map((c) => ({
       id: c.id,
       name: c.name,
+      section: c.section,
       gradeLevel: c.gradeLevel,
       branch: c.branch,
       capacity: c.capacity,
@@ -71,7 +72,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { name, gradeLevel, branch, capacity, academicYear, roomNumber, teacherStaffId } = body;
+    const { name, section, gradeLevel, branch, capacity, academicYear, roomNumber, teacherStaffId } = body;
 
     if (!name?.trim() || !gradeLevel?.trim()) {
       return NextResponse.json(
@@ -94,6 +95,7 @@ export async function POST(request: NextRequest) {
     const classroom = await prisma.classroom.create({
       data: {
         name: name.trim(),
+        section: section || "ANAOKULU",
         gradeLevel: gradeLevel.trim(),
         branch: branch?.trim() || null,
         capacity: capacity ? parseInt(capacity) : 16,

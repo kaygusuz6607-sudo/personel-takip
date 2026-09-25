@@ -79,6 +79,8 @@ export async function POST(
     const totalNet = netAmount !== undefined ? parseFloat(netAmount) : (parseFloat(contractAmount || 0) - parseFloat(discountAmount || 0));
     const instCount = Math.max(1, parseInt(installmentCount || 1));
     const singleInstAmount = Math.round((totalNet / instCount) * 100) / 100;
+    const generatedUsername = `veli.${tcNo.trim().slice(-6)}`;
+    const generatedPassword = Math.floor(100000 + Math.random() * 900000).toString();
 
     // Transaction ile Student, Payment ve Lead güncellemesi
     const result = await prisma.$transaction(async (tx) => {
@@ -105,6 +107,8 @@ export async function POST(
           primaryEmail: lead.parentEmail || null,
           homeAddress: lead.address || null,
           cityDistrict: lead.cityDistrict || null,
+          section: lead.section || "ANAOKULU",
+          educationType: lead.educationType || "TAM_GUN",
           classroomId: classroomId || null,
           academicYear: academicYear || "2025-2026",
           previousSchool: lead.currentSchool || null,
@@ -112,6 +116,8 @@ export async function POST(
           discountAmount: parseFloat(discountAmount || 0),
           netAmount: totalNet,
           installmentCount: instCount,
+          portalUsername: generatedUsername,
+          portalPassword: generatedPassword,
           tags: tags ? JSON.stringify(tags) : null,
           notes: notes?.trim() || lead.notes || null,
         },

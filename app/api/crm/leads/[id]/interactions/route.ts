@@ -14,7 +14,7 @@ export async function POST(
 
     const { id } = await params;
     const body = await request.json();
-    const { type, result, notes, followUpDate, staffId, newLeadStatus } = body;
+    const { type, result, notes, followUpDate, followUpTime, staffId, newLeadStatus } = body;
 
     if (!notes?.trim()) {
       return NextResponse.json(
@@ -32,6 +32,7 @@ export async function POST(
         result: result || "NO_ANSWER",
         notes: notes.trim(),
         followUpDate: followUpDate ? new Date(followUpDate) : null,
+        followUpTime: followUpTime || null,
       },
       include: {
         staff: {
