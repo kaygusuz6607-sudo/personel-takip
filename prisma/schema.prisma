@@ -418,5 +418,36 @@ model StudentAttendance {
   createdAt   DateTime @default(now())
 }
 
+model PriceQuote {
+  id                  String   @id @default(uuid())
+  quoteNo             String   @unique
+  date                DateTime @default(now())
+  schoolName          String   @default("ÖZEL KAYSERİ SİMYA ÇOCUK ÜNİVERSİTESİ")
+  schoolAddress       String?  @default("ESENYURT MAH. YAVUZ CAD. PRESTİJ SİT. B BLOK NO:17/A MELİKGAZİ / KAYSERİ")
+  schoolPhone         String?  @default("0(352) 503 91 93 - 0(537) 380 0 380")
+  parentName          String
+  studentName         String?
+  phone               String?
+  email               String?
+  title               String   @default("2026 - 2027 Eğitim Öğretim Yılı mevcut aya özel erken kayıt ücretlerimizi bilgilerinize sunarız.")
+  items               String   // JSON string: [{id, desc, qty, unit, listPrice, discountPercent, netPrice, total}]
+  grossTotal          Float    @default(0)
+  discountTotal       Float    @default(0)
+  netTotal            Float    @default(0)
+  kdvPercent          Float    @default(0)
+  kdvTotal            Float    @default(0)
+  grandTotal          Float    @default(0)
+  policyNotes         String?  // Kayıt yönergesi ve şartlar
+  bankInfo            String?  // Banka hesap ve IBAN
+  bankCampaigns       String?  // JSON string: [{bank, campaign}]
+  includeStamp        Boolean  @default(true) // Kaşe / Mühür gösterilsin mi?
+  status              String   @default("DRAFT") // DRAFT, SENT, ACCEPTED, REJECTED
+  notes               String?
+  leadId              String?
+  studentId           String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+}
+
 
 

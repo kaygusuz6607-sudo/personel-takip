@@ -27,6 +27,7 @@ import {
   Target,
   GraduationCap,
   School,
+  FileText,
 } from "lucide-react";
 import { PWAInstallButton } from "@/components/PWAInstallButton";
 import { ThemeToggle } from "@/components/ThemeToggle";
@@ -148,6 +149,7 @@ export function Sidebar() {
   const menuItems = [
     { href: "/", label: "Gösterge Paneli", icon: LayoutDashboard },
     { href: "/crm", label: "CRM & Aday Öğrenci", icon: Target },
+    { href: "/teklifler", label: "Fiyat Teklif Formu", icon: FileText },
     { href: "/ogrenciler", label: "Öğrenci Kütüğü", icon: GraduationCap },
     { href: "/siniflar", label: "Sınıflar & Şubeler", icon: School },
     { href: "/personeller", label: "Personeller", icon: Users },
