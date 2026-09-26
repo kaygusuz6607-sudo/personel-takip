@@ -106,14 +106,28 @@ export default async function DashboardPage() {
   });
 
   const teacherStaffs: SalaryStaffItem[] = [];
+  const branchStaffs: SalaryStaffItem[] = [];
   const adminStaffs: SalaryStaffItem[] = [];
   const supportStaffs: SalaryStaffItem[] = [];
 
   for (const s of allActiveStaff) {
     const currentPayroll = s.payrolls?.[0];
-    const amount = currentPayroll?.netTotal ?? s.salaryConfig?.monthlySalary ?? 0;
+    const hasPayroll = !!currentPayroll;
     const isPaid = currentPayroll?.isPaid ?? false;
     const paidDate = currentPayroll?.paidDate ? new Date(currentPayroll.paidDate).toLocaleDateString("tr-TR") : null;
+
+    let amount = 0;
+    if (hasPayroll) {
+      amount = currentPayroll.netTotal;
+    } else {
+      if (s.salaryConfig?.salaryType === "HOURLY") {
+        amount = s.salaryConfig.monthlySalary > 0 ? s.salaryConfig.monthlySalary : (s.salaryConfig.hourlyRate * 30);
+      } else if (s.salaryConfig?.salaryType === "DAILY") {
+        amount = s.salaryConfig.dailyRate * 30;
+      } else {
+        amount = s.salaryConfig?.monthlySalary ?? 0;
+      }
+    }
 
     const deptNames = s.departments.map((d: any) => d.department.name);
     const deptCats = s.departments.map((d: any) => d.department.category);
@@ -127,6 +141,10 @@ export default async function DashboardPage() {
       deptName: deptNames.join(", ") || "Genel Departman",
       amount,
       isPaid,
+      hasPayroll,
+      salaryType: s.salaryConfig?.salaryType,
+      hourlyRate: s.salaryConfig?.hourlyRate,
+      monthlySalary: s.salaryConfig?.monthlySalary,
       paidDate,
       iban: s.iban || null,
       accountNumber: s.accountNumber || null,
@@ -134,18 +152,29 @@ export default async function DashboardPage() {
       photoUrl: s.photoUrl,
     };
 
-    // 1. Öğretmenler: Öğretmen veya Branş kategorisi, veya unvan/departmanda öğretmen/eğitim/branş ifadesi
-    const isTeacher =
-      deptCats.includes("TEACHER") ||
+    // 1. Branş Öğretmenleri (Her Ayın 15'i): Branş departmanı, saatlik model veya drama/satranç/dans/jimnastik vb.
+    const isBranch =
       deptCats.includes("BRANCH") ||
-      deptStr.includes("öğretmen") ||
-      deptStr.includes("eğitim") ||
-      titleStr.includes("öğretmen") ||
-      titleStr.includes("öğretmeni") ||
-      titleStr.includes("branş");
+      deptStr.includes("branş") ||
+      titleStr.includes("drama") ||
+      titleStr.includes("satranç") ||
+      titleStr.includes("dans") ||
+      titleStr.includes("jimnastik") ||
+      titleStr.includes("halk oyun") ||
+      (s.salaryConfig?.salaryType === "HOURLY" && !deptCats.includes("ADMIN"));
 
-    // 2. İdari Personel: İdari kategori, veya müdür/koordinatör/muhasebe/idari/halkla ilişkiler/psikolog/yönetici/sekreter vb.
+    // 2. Normal / Sınıf Öğretmenleri (Her Ayın 10'u)
+    const isTeacher =
+      !isBranch &&
+      (deptCats.includes("TEACHER") ||
+        deptStr.includes("öğretmen") ||
+        deptStr.includes("eğitim") ||
+        titleStr.includes("öğretmen") ||
+        titleStr.includes("öğretmeni"));
+
+    // 3. İdari Personel (Her Ayın 20'si)
     const isAdmin =
+      !isBranch &&
       !isTeacher &&
       (deptCats.includes("ADMIN") ||
         deptStr.includes("idare") ||
@@ -163,7 +192,9 @@ export default async function DashboardPage() {
         titleStr.includes("kurucu") ||
         titleStr.includes("uzman"));
 
-    if (isTeacher) {
+    if (isBranch) {
+      branchStaffs.push(item);
+    } else if (isTeacher) {
       teacherStaffs.push(item);
     } else if (isAdmin) {
       adminStaffs.push(item);
@@ -308,11 +339,12 @@ export default async function DashboardPage() {
         </Link>
       </div>
 
-      {/* 3 Farklı Maaş Ödeme Takvimi Kartı (10'u Öğretmen, 15'i Personel, 20'si İdari) ve Tıklanabilir Detay Modalı */}
+      {/* 4 Farklı Maaş Ödeme Takvimi Kartı (10'u Öğretmen, 15'i Branş Öğretmenleri, 15'i Personel, 20'si İdari) ve Tıklanabilir Detay Modalı */}
       <DashboardSalarySchedule
         monthName={monthNames[activeMonth - 1]}
         year={activeYear}
         teachers={teacherStaffs}
+        branchTeachers={branchStaffs}
         staffs={supportStaffs}
         admins={adminStaffs}
       />

@@ -139,6 +139,51 @@ export default function MaasTahakkukPage() {
   const [savedSuccessId, setSavedSuccessId] = useState<string | null>(null);
   const [activeModalStaff, setActiveModalStaff] = useState<PayrollRow | null>(null);
   const [statusFilter, setStatusFilter] = useState<"ALL" | "SAVED" | "PENDING">("ALL");
+  const [cadreFilter, setCadreFilter] = useState<"ALL" | "TEACHER" | "BRANCH" | "STAFF" | "ADMIN">("ALL");
+
+  const isBranchRow = (r: PayrollRow) => {
+    const depts = (r.departments || []).join(" ").toLowerCase();
+    const title = (r.title || "").toLowerCase();
+    return (
+      depts.includes("branş") ||
+      title.includes("drama") ||
+      title.includes("satranç") ||
+      title.includes("dans") ||
+      title.includes("jimnastik") ||
+      title.includes("halk oyun") ||
+      (r.salaryType === "HOURLY" && !depts.includes("idari"))
+    );
+  };
+
+  const isTeacherRow = (r: PayrollRow) => {
+    if (isBranchRow(r)) return false;
+    const depts = (r.departments || []).join(" ").toLowerCase();
+    const title = (r.title || "").toLowerCase();
+    return depts.includes("öğretmen") || depts.includes("eğitim") || title.includes("öğretmen");
+  };
+
+  const isAdminRow = (r: PayrollRow) => {
+    if (isBranchRow(r) || isTeacherRow(r)) return false;
+    const depts = (r.departments || []).join(" ").toLowerCase();
+    const title = (r.title || "").toLowerCase();
+    return (
+      depts.includes("idari") ||
+      depts.includes("yönetim") ||
+      depts.includes("muhasebe") ||
+      title.includes("müdür") ||
+      title.includes("koordinatör") ||
+      title.includes("muhasebe") ||
+      title.includes("psikolog") ||
+      title.includes("yönetici") ||
+      title.includes("sekreter") ||
+      title.includes("kurucu") ||
+      title.includes("halkla")
+    );
+  };
+
+  const isStaffRow = (r: PayrollRow) => {
+    return !isBranchRow(r) && !isTeacherRow(r) && !isAdminRow(r);
+  };
 
   // Çoklu Ek Ücret ve Kesinti Kalemleri
   const [bonusList, setBonusList] = useState<AdjustmentItem[]>([]);
@@ -556,6 +601,26 @@ export default function MaasTahakkukPage() {
     }).format(val || 0);
   };
 
+  const teacherRows = rows.filter(isTeacherRow);
+  const branchRows = rows.filter(isBranchRow);
+  const staffRows = rows.filter(isStaffRow);
+  const adminRows = rows.filter(isAdminRow);
+
+  const cadreFilteredRows = rows.filter((r) => {
+    if (cadreFilter === "TEACHER") return isTeacherRow(r);
+    if (cadreFilter === "BRANCH") return isBranchRow(r);
+    if (cadreFilter === "STAFF") return isStaffRow(r);
+    if (cadreFilter === "ADMIN") return isAdminRow(r);
+    return true;
+  });
+
+  const savedRowsInCadre = cadreFilteredRows.filter((r) => r.isSaved);
+  const pendingRowsInCadre = cadreFilteredRows.filter((r) => !r.isSaved);
+
+  const savedTotalInCadre = savedRowsInCadre.reduce((sum, r) => sum + r.payroll.netTotal, 0);
+  const pendingTotalInCadre = pendingRowsInCadre.reduce((sum, r) => sum + r.payroll.netTotal, 0);
+  const totalInCadre = savedTotalInCadre + pendingTotalInCadre;
+
   return (
     <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto w-full space-y-6">
       {/* Başlık ve Dönem Seçimi */}
@@ -595,6 +660,127 @@ export default function MaasTahakkukPage() {
         </div>
       </div>
 
+      {/* Kadro & Vade Sekmeleri (10'u Öğretmen, 15'i Branş Öğretmenleri, 15'i Destek, 20'si İdari) */}
+      <div className="flex flex-wrap items-center gap-2 bg-white p-2 rounded-2xl border border-slate-200/80 shadow-xs">
+        <button
+          type="button"
+          onClick={() => setCadreFilter("ALL")}
+          className={`px-3 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+            cadreFilter === "ALL"
+              ? "bg-slate-900 text-white shadow-xs"
+              : "bg-slate-50 text-slate-600 hover:bg-slate-100"
+          }`}
+        >
+          <span>👥 Tümü</span>
+          <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${cadreFilter === "ALL" ? "bg-slate-700 text-white" : "bg-slate-200 text-slate-700"}`}>
+            {rows.length}
+          </span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setCadreFilter("TEACHER")}
+          className={`px-3 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+            cadreFilter === "TEACHER"
+              ? "bg-teal-700 text-white shadow-xs"
+              : "bg-teal-50/70 text-teal-800 hover:bg-teal-100 border border-teal-200/60"
+          }`}
+        >
+          <span>🎓 Öğretmenler (10&apos;u)</span>
+          <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${cadreFilter === "TEACHER" ? "bg-teal-800 text-white" : "bg-teal-200 text-teal-900"}`}>
+            {teacherRows.length}
+          </span>
+        </button>
+
+        {/* BRANŞ ÖĞRETMENLERİ - HER AYIN 15'İ AYRI SEKME */}
+        <button
+          type="button"
+          onClick={() => setCadreFilter("BRANCH")}
+          className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+            cadreFilter === "BRANCH"
+              ? "bg-amber-600 text-white shadow-xs"
+              : "bg-amber-50 text-amber-900 hover:bg-amber-100 border border-amber-300"
+          }`}
+        >
+          <span>🎨 Branş Öğretmenleri (Her Ayın 15&apos;i)</span>
+          <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-extrabold ${cadreFilter === "BRANCH" ? "bg-amber-700 text-white" : "bg-amber-200 text-amber-950"}`}>
+            {branchRows.length}
+          </span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setCadreFilter("STAFF")}
+          className={`px-3 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+            cadreFilter === "STAFF"
+              ? "bg-blue-700 text-white shadow-xs"
+              : "bg-blue-50/70 text-blue-800 hover:bg-blue-100 border border-blue-200/60"
+          }`}
+        >
+          <span>🛠️ Personeller (15&apos;i)</span>
+          <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${cadreFilter === "STAFF" ? "bg-blue-800 text-white" : "bg-blue-200 text-blue-900"}`}>
+            {staffRows.length}
+          </span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setCadreFilter("ADMIN")}
+          className={`px-3 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+            cadreFilter === "ADMIN"
+              ? "bg-purple-700 text-white shadow-xs"
+              : "bg-purple-50/70 text-purple-800 hover:bg-purple-100 border border-purple-200/60"
+          }`}
+        >
+          <span>💼 İdari Personel (20&apos;si)</span>
+          <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${cadreFilter === "ADMIN" ? "bg-purple-800 text-white" : "bg-purple-200 text-purple-900"}`}>
+            {adminRows.length}
+          </span>
+        </button>
+      </div>
+
+      {/* Finansal Özet Banner (Toplam Tutar, Net Ödenecek Maaş, Tahmini Ödeme) */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div className="bg-white p-3.5 rounded-2xl border border-slate-200/90 shadow-2xs">
+          <div className="flex items-center justify-between text-xs text-slate-500">
+            <span>Seçili Kadro Toplam Tutar</span>
+            <Coins className="w-4 h-4 text-slate-400" />
+          </div>
+          <p className="text-xl font-extrabold text-slate-900 mt-1 font-mono">{formatCurrency(totalInCadre)}</p>
+          <span className="text-[10px] text-slate-400 block mt-0.5">
+            {cadreFilteredRows.length} personelin genel toplamı
+          </span>
+        </div>
+
+        <div className="bg-emerald-50/70 p-3.5 rounded-2xl border border-emerald-200 shadow-2xs">
+          <div className="flex items-center justify-between text-xs text-emerald-800 font-semibold">
+            <span className="flex items-center gap-1">
+              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+              Net Ödenecek Maaş (Tahakkuk Yapılan)
+            </span>
+            <span className="px-1.5 py-0.2 rounded-full bg-emerald-100 text-emerald-900 text-[10px] font-bold">
+              {savedRowsInCadre.length} Kişi
+            </span>
+          </div>
+          <p className="text-xl font-extrabold text-emerald-800 mt-1 font-mono">{formatCurrency(savedTotalInCadre)}</p>
+          <span className="text-[10px] text-emerald-700 block mt-0.5">Kesinleşen net bordro toplamı</span>
+        </div>
+
+        <div className="bg-amber-50/70 p-3.5 rounded-2xl border border-amber-200 shadow-2xs">
+          <div className="flex items-center justify-between text-xs text-amber-800 font-semibold">
+            <span className="flex items-center gap-1">
+              <Clock className="w-3.5 h-3.5 text-amber-600" />
+              Tahmini Ödeme (Tahakkuk Yapılmayan)
+            </span>
+            <span className="px-1.5 py-0.2 rounded-full bg-amber-100 text-amber-900 text-[10px] font-bold">
+              {pendingRowsInCadre.length} Kişi
+            </span>
+          </div>
+          <p className="text-xl font-extrabold text-amber-800 mt-1 font-mono">{formatCurrency(pendingTotalInCadre)}</p>
+          <span className="text-[10px] text-amber-700 block mt-0.5">Kayıt bekleyen tahmini ücret toplamı</span>
+        </div>
+      </div>
+
       {/* Tahakkuk Durum Özeti & Filtreler */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-3 rounded-2xl border border-slate-200/80 shadow-xs">
         <div className="flex flex-wrap items-center gap-2">
@@ -609,7 +795,7 @@ export default function MaasTahakkukPage() {
           >
             <span>Tümü</span>
             <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${statusFilter === "ALL" ? "bg-slate-700 text-white" : "bg-slate-200 text-slate-700"}`}>
-              {rows.length}
+              {cadreFilteredRows.length}
             </span>
           </button>
 
@@ -625,7 +811,7 @@ export default function MaasTahakkukPage() {
             <CheckCircle2 className="w-3.5 h-3.5" />
             <span>Tahakkuku Yapılanlar</span>
             <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${statusFilter === "SAVED" ? "bg-emerald-800 text-white" : "bg-emerald-200 text-emerald-900"}`}>
-              {rows.filter((r) => r.isSaved).length}
+              {savedRowsInCadre.length}
             </span>
           </button>
 
@@ -641,7 +827,7 @@ export default function MaasTahakkukPage() {
             <Clock className="w-3.5 h-3.5" />
             <span>Bekleyenler / Taslak</span>
             <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${statusFilter === "PENDING" ? "bg-amber-700 text-white" : "bg-amber-200 text-amber-900"}`}>
-              {rows.filter((r) => !r.isSaved).length}
+              {pendingRowsInCadre.length}
             </span>
           </button>
         </div>
@@ -662,8 +848,8 @@ export default function MaasTahakkukPage() {
       <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">
         {loading ? (
           <div className="p-12 text-center text-slate-400">Tahakkuk verileri hesaplanıyor...</div>
-        ) : rows.length === 0 ? (
-          <div className="p-12 text-center text-slate-400">Personel bulunamadı.</div>
+        ) : cadreFilteredRows.length === 0 ? (
+          <div className="p-12 text-center text-slate-400">Bu grupta personel bulunamadı.</div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse text-xs">
@@ -680,7 +866,7 @@ export default function MaasTahakkukPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {rows
+                {cadreFilteredRows
                   .filter((r) => {
                     if (statusFilter === "SAVED") return r.isSaved;
                     if (statusFilter === "PENDING") return !r.isSaved;
