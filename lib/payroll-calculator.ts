@@ -4,6 +4,7 @@ export interface SalaryCalculationInput {
   hourlyRate: number;
   dailyRate: number;
   officialSalaryPart?: number; // Kayıtlı resmi maaş kısmı
+  title?: string | null;
 
   // Ay parametreleri
   year?: number;
@@ -151,8 +152,8 @@ export function calculateOfficialSplit(params: {
     startDay = hireParsed.day;
   }
 
-  // Atamaya kadar geçen gün sayısı (Ayın 1'inden atama gününe kadar olan gün sayısı, örn: ayın 10'una kadar -> 10 gün)
-  const unofficialDays = Math.max(0, assignDay - startDay + 1);
+  // Atamaya kadar geçen gün sayısı (Ayın 1'inden atama gününe kadar olan gün sayısı, örn: ayın 10'una kadar -> 10 gün; ayın 1'inde atandıysa 0 gün elden)
+  const unofficialDays = assignDay <= 1 && startDay <= 1 ? 0 : Math.max(0, assignDay - startDay + 1);
 
   const dailyBase = monthlySalary > 0 ? monthlySalary / 30 : netTotal / 30;
 
@@ -169,6 +170,7 @@ export function calculatePayroll(input: SalaryCalculationInput): SalaryCalculati
     monthlySalary = 0,
     hourlyRate = 0,
     dailyRate = 0,
+    title = null,
     year = 2024,
     month = 8,
     workDays = 30,
@@ -260,6 +262,7 @@ export function calculatePayroll(input: SalaryCalculationInput): SalaryCalculati
     netTotal,
     monthlySalary,
     salaryType,
+    title,
     year,
     month,
     hireDate,

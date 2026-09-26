@@ -39,6 +39,7 @@ interface PayrollRow {
   monthlySalary: number;
   hourlyRate: number;
   dailyRate: number;
+  officialSalaryPart?: number;
   hireDate?: string | null;
   mebAssignmentDate?: string | null;
   sgkStartDate?: string | null;
@@ -50,6 +51,7 @@ interface PayrollRow {
   isTerminated?: boolean;
   terminationFormatted?: string;
   isSaved?: boolean;
+  isManualElden?: boolean;
   payroll: {
     id?: string;
     year: number;
@@ -204,6 +206,7 @@ export default function MaasTahakkukPage() {
     try {
       setSavingElden(true);
       const val = Math.max(0, Math.min(eldenModalStaff.payroll.netTotal, Number(manualEldenValue) || 0));
+      const officialVal = Number((eldenModalStaff.payroll.netTotal - val).toFixed(2));
       
       handleInputChange(eldenModalStaff.staffId, "unofficialAmount", val);
 
@@ -213,7 +216,8 @@ export default function MaasTahakkukPage() {
         year,
         month,
         unofficialAmount: val,
-        officialAmount: Number((eldenModalStaff.payroll.netTotal - val).toFixed(2)),
+        officialAmount: officialVal,
+        isManualElden: true,
       };
 
       const res = await fetch("/api/maas", {
@@ -227,7 +231,18 @@ export default function MaasTahakkukPage() {
         setTimeout(() => setSavedSuccessId(null), 3000);
         setRows((prev) =>
           prev.map((r) =>
-            r.staffId === eldenModalStaff.staffId ? { ...r, isSaved: true } : r
+            r.staffId === eldenModalStaff.staffId
+              ? {
+                  ...r,
+                  isSaved: true,
+                  isManualElden: true,
+                  payroll: {
+                    ...r.payroll,
+                    unofficialAmount: val,
+                    officialAmount: officialVal,
+                  },
+                }
+              : r
           )
         );
         setEldenModalStaff(null);
@@ -245,6 +260,8 @@ export default function MaasTahakkukPage() {
       monthlySalary: row.monthlySalary,
       hourlyRate: row.hourlyRate,
       dailyRate: row.dailyRate,
+      officialSalaryPart: row.officialSalaryPart || 0,
+      title: row.title,
       year,
       month,
       hireDate: row.hireDate,
@@ -269,7 +286,26 @@ export default function MaasTahakkukPage() {
       manualStampTax: row.payroll.stampTax,
     });
     setManualEldenValue(calc.unofficialAmount);
-    handleInputChange(row.staffId, "unofficialAmount", calc.unofficialAmount);
+    setRows((prev) =>
+      prev.map((r) => {
+        if (r.staffId !== row.staffId) return r;
+        const updated = {
+          ...r,
+          isManualElden: false,
+          payroll: {
+            ...r.payroll,
+            ...calc,
+          },
+        };
+        if (activeModalStaff && activeModalStaff.staffId === row.staffId) {
+          setActiveModalStaff(updated);
+        }
+        if (eldenModalStaff && eldenModalStaff.staffId === row.staffId) {
+          setEldenModalStaff(updated);
+        }
+        return updated;
+      })
+    );
   };
 
   const months = [
@@ -323,6 +359,7 @@ export default function MaasTahakkukPage() {
         }
 
         const updatedPayroll = { ...row.payroll, [field]: finalValue };
+        const isManualEldenNext = field === "unofficialAmount" ? true : Boolean(row.isManualElden);
 
         // Anlık yeniden hesapla
         const calc = calculatePayroll({
@@ -330,12 +367,19 @@ export default function MaasTahakkukPage() {
           monthlySalary: row.monthlySalary,
           hourlyRate: row.hourlyRate,
           dailyRate: row.dailyRate,
+          officialSalaryPart: row.officialSalaryPart || 0,
+          title: row.title,
           year,
           month,
           hireDate: row.hireDate,
           mebAssignmentDate: row.mebAssignmentDate,
           sgkStartDate: row.sgkStartDate,
-          manualUnofficialAmount: field === "unofficialAmount" ? Number(value) : updatedPayroll.unofficialAmount !== undefined ? updatedPayroll.unofficialAmount : null,
+          manualUnofficialAmount:
+            field === "unofficialAmount"
+              ? Number(value)
+              : isManualEldenNext && updatedPayroll.unofficialAmount !== undefined
+              ? updatedPayroll.unofficialAmount
+              : null,
           workDays: parseWorkDays(updatedPayroll.workDays),
           reportDays: Number(updatedPayroll.reportDays) || 0,
           unpaidLeaveDays: Number(updatedPayroll.unpaidLeaveDays) || 0,
@@ -356,6 +400,7 @@ export default function MaasTahakkukPage() {
 
         const newRow = {
           ...row,
+          isManualElden: isManualEldenNext,
           payroll: {
             ...updatedPayroll,
             ...calc,
@@ -379,18 +424,26 @@ export default function MaasTahakkukPage() {
         if (row.staffId !== staffId) return row;
 
         const updatedPayroll = { ...row.payroll, ...changes };
+        const isManualEldenNext = changes.unofficialAmount !== undefined ? true : Boolean(row.isManualElden);
 
         const calc = calculatePayroll({
           salaryType: row.salaryType,
           monthlySalary: row.monthlySalary,
           hourlyRate: row.hourlyRate,
           dailyRate: row.dailyRate,
+          officialSalaryPart: row.officialSalaryPart || 0,
+          title: row.title,
           year,
           month,
           hireDate: row.hireDate,
           mebAssignmentDate: row.mebAssignmentDate,
           sgkStartDate: row.sgkStartDate,
-          manualUnofficialAmount: changes.unofficialAmount !== undefined ? Number(changes.unofficialAmount) : updatedPayroll.unofficialAmount !== undefined ? updatedPayroll.unofficialAmount : null,
+          manualUnofficialAmount:
+            changes.unofficialAmount !== undefined
+              ? Number(changes.unofficialAmount)
+              : isManualEldenNext && updatedPayroll.unofficialAmount !== undefined
+              ? updatedPayroll.unofficialAmount
+              : null,
           workDays: parseWorkDays(updatedPayroll.workDays),
           reportDays: Number(updatedPayroll.reportDays) || 0,
           unpaidLeaveDays: Number(updatedPayroll.unpaidLeaveDays) || 0,
@@ -411,6 +464,7 @@ export default function MaasTahakkukPage() {
 
         const newRow = {
           ...row,
+          isManualElden: isManualEldenNext,
           payroll: {
             ...updatedPayroll,
             ...calc,
@@ -548,6 +602,7 @@ export default function MaasTahakkukPage() {
         body: JSON.stringify({
           staffId: row.staffId,
           ...row.payroll,
+          isManualElden: Boolean(row.isManualElden),
           year,
           month,
         }),
@@ -559,7 +614,22 @@ export default function MaasTahakkukPage() {
         setSavedSuccessId(row.staffId);
         setTimeout(() => setSavedSuccessId(null), 2500);
         setRows((prev) =>
-          prev.map((r) => (r.staffId === row.staffId ? { ...r, isSaved: true } : r))
+          prev.map((r) =>
+            r.staffId === row.staffId
+              ? {
+                  ...r,
+                  isSaved: true,
+                  payroll: {
+                    ...r.payroll,
+                    officialAmount: data.officialAmount ?? r.payroll.officialAmount,
+                    unofficialAmount: data.unofficialAmount ?? r.payroll.unofficialAmount,
+                    netTotal: data.netTotal ?? r.payroll.netTotal,
+                    grossTotal: data.grossTotal ?? r.payroll.grossTotal,
+                    totalDeductions: data.totalDeductions ?? r.payroll.totalDeductions,
+                  },
+                }
+              : r
+          )
         );
       } else {
         alert(data.error || "Kaydedilemedi");
@@ -620,6 +690,13 @@ export default function MaasTahakkukPage() {
   const savedTotalInCadre = savedRowsInCadre.reduce((sum, r) => sum + r.payroll.netTotal, 0);
   const pendingTotalInCadre = pendingRowsInCadre.reduce((sum, r) => sum + r.payroll.netTotal, 0);
   const totalInCadre = savedTotalInCadre + pendingTotalInCadre;
+
+  const officialTotalInCadre = cadreFilteredRows.reduce((sum, r) => sum + (r.payroll.officialAmount || 0), 0);
+  const unofficialTotalInCadre = cadreFilteredRows.reduce((sum, r) => sum + (r.payroll.unofficialAmount || 0), 0);
+  const savedOfficialInCadre = savedRowsInCadre.reduce((sum, r) => sum + (r.payroll.officialAmount || 0), 0);
+  const savedUnofficialInCadre = savedRowsInCadre.reduce((sum, r) => sum + (r.payroll.unofficialAmount || 0), 0);
+  const pendingOfficialInCadre = pendingRowsInCadre.reduce((sum, r) => sum + (r.payroll.officialAmount || 0), 0);
+  const pendingUnofficialInCadre = pendingRowsInCadre.reduce((sum, r) => sum + (r.payroll.unofficialAmount || 0), 0);
 
   return (
     <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto w-full space-y-6">
@@ -739,45 +816,87 @@ export default function MaasTahakkukPage() {
         </button>
       </div>
 
-      {/* Finansal Özet Banner (Toplam Tutar, Net Ödenecek Maaş, Tahmini Ödeme) */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        <div className="bg-white p-3.5 rounded-2xl border border-slate-200/90 shadow-2xs">
-          <div className="flex items-center justify-between text-xs text-slate-500">
-            <span>Seçili Kadro Toplam Tutar</span>
-            <Coins className="w-4 h-4 text-slate-400" />
+      {/* Finansal Özet Banner (Toplam Tutar, Net Ödenecek Maaş, Tahmini Ödeme + Resmî Banka & Elden Kırılımı) */}
+      <div className="space-y-3">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div className="bg-white p-3.5 rounded-2xl border border-slate-200/90 shadow-2xs">
+            <div className="flex items-center justify-between text-xs text-slate-500">
+              <span>Seçili Kadro Toplam Tutar</span>
+              <Coins className="w-4 h-4 text-slate-400" />
+            </div>
+            <p className="text-xl font-extrabold text-slate-900 mt-1 font-mono">{formatCurrency(totalInCadre)}</p>
+            <div className="flex items-center justify-between text-[10px] text-slate-500 mt-1.5 pt-1.5 border-t border-slate-100">
+              <span className="text-teal-800 font-semibold">🏛️ Banka: {formatCurrency(officialTotalInCadre)}</span>
+              <span className="text-amber-800 font-semibold">💵 Elden: {formatCurrency(unofficialTotalInCadre)}</span>
+            </div>
           </div>
-          <p className="text-xl font-extrabold text-slate-900 mt-1 font-mono">{formatCurrency(totalInCadre)}</p>
-          <span className="text-[10px] text-slate-400 block mt-0.5">
-            {cadreFilteredRows.length} personelin genel toplamı
-          </span>
+
+          <div className="bg-emerald-50/70 p-3.5 rounded-2xl border border-emerald-200 shadow-2xs">
+            <div className="flex items-center justify-between text-xs text-emerald-800 font-semibold">
+              <span className="flex items-center gap-1">
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                Net Ödenecek Maaş (Tahakkuk Yapılan)
+              </span>
+              <span className="px-1.5 py-0.2 rounded-full bg-emerald-100 text-emerald-900 text-[10px] font-bold">
+                {savedRowsInCadre.length} Kişi
+              </span>
+            </div>
+            <p className="text-xl font-extrabold text-emerald-800 mt-1 font-mono">{formatCurrency(savedTotalInCadre)}</p>
+            <div className="flex items-center justify-between text-[10px] mt-1.5 pt-1.5 border-t border-emerald-200/60">
+              <span className="text-teal-900 font-bold">🏛️ Banka: {formatCurrency(savedOfficialInCadre)}</span>
+              <span className="text-amber-900 font-bold">💵 Elden: {formatCurrency(savedUnofficialInCadre)}</span>
+            </div>
+          </div>
+
+          <div className="bg-amber-50/70 p-3.5 rounded-2xl border border-amber-200 shadow-2xs">
+            <div className="flex items-center justify-between text-xs text-amber-800 font-semibold">
+              <span className="flex items-center gap-1">
+                <Clock className="w-3.5 h-3.5 text-amber-600" />
+                Tahmini Ödeme (Tahakkuk Yapılmayan)
+              </span>
+              <span className="px-1.5 py-0.2 rounded-full bg-amber-100 text-amber-900 text-[10px] font-bold">
+                {pendingRowsInCadre.length} Kişi
+              </span>
+            </div>
+            <p className="text-xl font-extrabold text-amber-800 mt-1 font-mono">{formatCurrency(pendingTotalInCadre)}</p>
+            <div className="flex items-center justify-between text-[10px] mt-1.5 pt-1.5 border-t border-amber-200/60">
+              <span className="text-teal-900 font-bold">🏛️ Banka: {formatCurrency(pendingOfficialInCadre)}</span>
+              <span className="text-amber-900 font-bold">💵 Elden: {formatCurrency(pendingUnofficialInCadre)}</span>
+            </div>
+          </div>
         </div>
 
-        <div className="bg-emerald-50/70 p-3.5 rounded-2xl border border-emerald-200 shadow-2xs">
-          <div className="flex items-center justify-between text-xs text-emerald-800 font-semibold">
-            <span className="flex items-center gap-1">
-              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-              Net Ödenecek Maaş (Tahakkuk Yapılan)
-            </span>
-            <span className="px-1.5 py-0.2 rounded-full bg-emerald-100 text-emerald-900 text-[10px] font-bold">
-              {savedRowsInCadre.length} Kişi
-            </span>
+        {/* Resmî Bankadan Yatacak vs Elden Verilecek Özet Kartı */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-white p-3.5 rounded-2xl border border-slate-200/90 shadow-2xs">
+          <div className="flex items-center justify-between p-2.5 rounded-xl bg-teal-50/60 border border-teal-200/80">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-xl bg-teal-700 text-white flex items-center justify-center text-base shadow-2xs">
+                🏛️
+              </div>
+              <div>
+                <p className="text-xs font-bold text-teal-950">Resmî Bankadan Yatacak Toplam</p>
+                <p className="text-[11px] text-teal-700">
+                  Kesinleşen: <strong>{formatCurrency(savedOfficialInCadre)}</strong> • Tahmini: <strong>{formatCurrency(pendingOfficialInCadre)}</strong>
+                </p>
+              </div>
+            </div>
+            <p className="text-lg font-black text-teal-800 font-mono">{formatCurrency(officialTotalInCadre)}</p>
           </div>
-          <p className="text-xl font-extrabold text-emerald-800 mt-1 font-mono">{formatCurrency(savedTotalInCadre)}</p>
-          <span className="text-[10px] text-emerald-700 block mt-0.5">Kesinleşen net bordro toplamı</span>
-        </div>
 
-        <div className="bg-amber-50/70 p-3.5 rounded-2xl border border-amber-200 shadow-2xs">
-          <div className="flex items-center justify-between text-xs text-amber-800 font-semibold">
-            <span className="flex items-center gap-1">
-              <Clock className="w-3.5 h-3.5 text-amber-600" />
-              Tahmini Ödeme (Tahakkuk Yapılmayan)
-            </span>
-            <span className="px-1.5 py-0.2 rounded-full bg-amber-100 text-amber-900 text-[10px] font-bold">
-              {pendingRowsInCadre.length} Kişi
-            </span>
+          <div className="flex items-center justify-between p-2.5 rounded-xl bg-amber-50/70 border border-amber-200/90">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-xl bg-amber-600 text-white flex items-center justify-center text-base shadow-2xs">
+                💵
+              </div>
+              <div>
+                <p className="text-xs font-bold text-amber-950">Elden (Nakit) Verilecek Toplam</p>
+                <p className="text-[11px] text-amber-800">
+                  Kesinleşen: <strong>{formatCurrency(savedUnofficialInCadre)}</strong> • Tahmini: <strong>{formatCurrency(pendingUnofficialInCadre)}</strong>
+                </p>
+              </div>
+            </div>
+            <p className="text-lg font-black text-amber-900 font-mono">{formatCurrency(unofficialTotalInCadre)}</p>
           </div>
-          <p className="text-xl font-extrabold text-amber-800 mt-1 font-mono">{formatCurrency(pendingTotalInCadre)}</p>
-          <span className="text-[10px] text-amber-700 block mt-0.5">Kayıt bekleyen tahmini ücret toplamı</span>
         </div>
       </div>
 
@@ -861,7 +980,7 @@ export default function MaasTahakkukPage() {
                   <th className="py-3 px-3 text-center">Rapor / Ücretsiz</th>
                   <th className="py-3 px-3 text-right">Temel Hakediş</th>
                   <th className="py-3 px-3 text-center">Ek Ücret & Kesinti</th>
-                  <th className="py-3 px-3 text-right">Net Ödenecek</th>
+                  <th className="py-3 px-3 text-right">Net Ödenecek (Banka / Elden)</th>
                   <th className="py-3 px-3 text-center">İşlem</th>
                 </tr>
               </thead>
@@ -1101,18 +1220,26 @@ export default function MaasTahakkukPage() {
                         </button>
                       </td>
 
-                      {/* Net Ödeme */}
-                      <td className="py-3 px-3 text-right min-w-[150px]">
+                      {/* Net Ödeme (Resmî Banka & Elden Kırılımı) */}
+                      <td className="py-3 px-3 text-right min-w-[195px]">
                         <span className="font-extrabold text-teal-800 text-sm block">
                           {formatCurrency(p.netTotal)}
                         </span>
-                        <div className="flex items-center justify-end gap-1 mt-1">
-                          <span
-                            className="text-[10px] text-amber-900 bg-amber-100/90 border border-amber-300 px-1.5 py-0.5 rounded font-bold inline-block"
-                            title="Elden Ödenecek Gayriresmî Tutar"
-                          >
-                            💵 Elden: {formatCurrency(p.unofficialAmount)}
-                          </span>
+                        <div className="flex flex-col items-end gap-1 mt-1">
+                          <div className="flex flex-wrap items-center justify-end gap-1">
+                            <span
+                              className="text-[10px] text-teal-900 bg-teal-50 border border-teal-300 px-1.5 py-0.5 rounded font-bold inline-block"
+                              title="Resmî Banka Hesabından Yatacak Tutar"
+                            >
+                              🏛️ Banka: {formatCurrency(p.officialAmount)}
+                            </span>
+                            <span
+                              className="text-[10px] text-amber-900 bg-amber-100/90 border border-amber-300 px-1.5 py-0.5 rounded font-bold inline-block"
+                              title="Elden (Nakit) Verilecek Gayriresmî Tutar"
+                            >
+                              💵 Elden: {formatCurrency(p.unofficialAmount)}
+                            </span>
+                          </div>
                           <button
                             type="button"
                             onClick={() => openEldenModal(row)}
@@ -1120,7 +1247,7 @@ export default function MaasTahakkukPage() {
                             title="Elden / Banka Dağılımını Manuel Düzenle"
                           >
                             <Edit2 className="w-2.5 h-2.5" />
-                            <span>Düzenle</span>
+                            <span>Banka / Elden Düzenle</span>
                           </button>
                         </div>
                       </td>

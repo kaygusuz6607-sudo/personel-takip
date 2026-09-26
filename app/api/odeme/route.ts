@@ -30,6 +30,7 @@ export async function GET(request: Request) {
 
     // Her personelin atama tarihine göre elden ve resmi banka tutarını dinamik hesapla
     const updatedPayrolls = payrolls.map((p) => {
+      const isManualElden = Boolean(p.notes && p.notes.includes("[MANUEL_ELDEN]"));
       const split = calculateOfficialSplit({
         netTotal: p.netTotal,
         monthlySalary: p.staff.salaryConfig?.monthlySalary || 0,
@@ -42,6 +43,7 @@ export async function GET(request: Request) {
         sgkStartDate: p.staff.sgkStartDate,
         officialSalaryPart: p.staff.salaryConfig?.officialSalaryPart || 0,
         reportDays: p.reportDays,
+        manualUnofficialAmount: isManualElden ? p.unofficialAmount : null,
       });
 
       return {

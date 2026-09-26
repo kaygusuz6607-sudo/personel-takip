@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { calculatePayroll } from "@/lib/payroll-calculator";
+import { calculatePayroll, calculateOfficialSplit } from "@/lib/payroll-calculator";
 import { getMaxWorkDaysForPeriod } from "@/lib/date-utils";
 
 export async function GET(request: Request) {
@@ -73,6 +73,22 @@ export async function GET(request: Request) {
       const periodLimit = getMaxWorkDaysForPeriod(year, month, staff.hireDate, staff.terminationDate);
 
       if (existingPayroll) {
+        const isManualElden = Boolean(existingPayroll.notes && existingPayroll.notes.includes("[MANUEL_ELDEN]"));
+        const autoSplit = calculateOfficialSplit({
+          netTotal: existingPayroll.netTotal,
+          monthlySalary: config?.monthlySalary || 0,
+          salaryType: config?.salaryType || "MONTHLY",
+          title: staff.title,
+          year,
+          month,
+          hireDate: staff.hireDate,
+          mebAssignmentDate: staff.mebAssignmentDate,
+          sgkStartDate: staff.sgkStartDate,
+          officialSalaryPart: config?.officialSalaryPart || 0,
+          reportDays: existingPayroll.reportDays > 0 ? existingPayroll.reportDays : autoReportDays,
+          manualUnofficialAmount: isManualElden ? existingPayroll.unofficialAmount : null,
+        });
+
         return {
           staffId: staff.id,
           fullName: staff.fullName,
@@ -83,6 +99,7 @@ export async function GET(request: Request) {
           monthlySalary: config?.monthlySalary || 0,
           hourlyRate: config?.hourlyRate || 0,
           dailyRate: config?.dailyRate || 0,
+          officialSalaryPart: config?.officialSalaryPart || 0,
           hireDate: staff.hireDate,
           mebAssignmentDate: staff.mebAssignmentDate,
           sgkStartDate: staff.sgkStartDate,
@@ -94,8 +111,11 @@ export async function GET(request: Request) {
           isTerminated: periodLimit.isTerminated,
           terminationFormatted: periodLimit.terminationFormatted,
           isSaved: true,
+          isManualElden,
           payroll: {
             ...existingPayroll,
+            officialAmount: autoSplit.officialAmount,
+            unofficialAmount: autoSplit.unofficialAmount,
             reportDays: existingPayroll.reportDays > 0 ? existingPayroll.reportDays : autoReportDays,
             unpaidLeaveDays: existingPayroll.unpaidLeaveDays > 0 ? existingPayroll.unpaidLeaveDays : autoUnpaidDays,
           },
@@ -110,6 +130,7 @@ export async function GET(request: Request) {
         monthlySalary: config?.monthlySalary || 0,
         hourlyRate: config?.hourlyRate || 0,
         dailyRate: config?.dailyRate || 0,
+        title: staff.title,
         workDays: defaultWorkDays,
         reportDays: autoReportDays,
         unpaidLeaveDays: autoUnpaidDays,
@@ -139,6 +160,7 @@ export async function GET(request: Request) {
         monthlySalary: config?.monthlySalary || 0,
         hourlyRate: config?.hourlyRate || 0,
         dailyRate: config?.dailyRate || 0,
+        officialSalaryPart: config?.officialSalaryPart || 0,
         hireDate: staff.hireDate,
         mebAssignmentDate: staff.mebAssignmentDate,
         sgkStartDate: staff.sgkStartDate,
@@ -150,6 +172,7 @@ export async function GET(request: Request) {
         isTerminated: periodLimit.isTerminated,
         terminationFormatted: periodLimit.terminationFormatted,
         isSaved: false,
+        isManualElden: false,
         payroll: {
           year,
           month,
@@ -203,6 +226,7 @@ export async function POST(request: Request) {
       paidDate = null,
       notes = "",
       unofficialAmount: customUnofficialAmount,
+      isManualElden = false,
     } = body;
 
     const staff = await prisma.staff.findUnique({
@@ -244,12 +268,16 @@ export async function POST(request: Request) {
       hourlyRate: config.hourlyRate,
       dailyRate: config.dailyRate,
       officialSalaryPart: config.officialSalaryPart,
+      title: staff.title,
       year: Number(year),
       month: Number(month),
       hireDate: staff.hireDate,
       mebAssignmentDate: staff.mebAssignmentDate,
       sgkStartDate: staff.sgkStartDate,
-      manualUnofficialAmount: customUnofficialAmount !== undefined && customUnofficialAmount !== null ? Number(customUnofficialAmount) : null,
+      manualUnofficialAmount:
+        isManualElden && customUnofficialAmount !== undefined && customUnofficialAmount !== null
+          ? Number(customUnofficialAmount)
+          : null,
       workDays: workDays !== undefined && workDays !== null && workDays !== "" && !isNaN(Number(workDays)) ? Number(workDays) : 30,
       reportDays: Number(reportDays) || 0,
       unpaidLeaveDays: Number(unpaidLeaveDays) || 0,
@@ -272,6 +300,9 @@ export async function POST(request: Request) {
 
     const bonusItemsStr = typeof bonusItems === "string" ? bonusItems : bonusItems ? JSON.stringify(bonusItems) : null;
     const deductionItemsStr = typeof deductionItems === "string" ? deductionItems : deductionItems ? JSON.stringify(deductionItems) : null;
+
+    const cleanNotes = String(notes || "").replace(/\s*\[MANUEL_ELDEN\]/g, "").trim();
+    const finalNotes = isManualElden ? `${cleanNotes} [MANUEL_ELDEN]`.trim() : cleanNotes;
 
     const payroll = await prisma.payroll.upsert({
       where: {
@@ -311,7 +342,7 @@ export async function POST(request: Request) {
         unofficialAmount: calc.unofficialAmount,
         isPaid,
         paidDate: isPaid ? (paidDate ? new Date(paidDate) : new Date()) : null,
-        notes,
+        notes: finalNotes,
       },
       create: {
         staffId,
@@ -346,7 +377,7 @@ export async function POST(request: Request) {
         unofficialAmount: calc.unofficialAmount,
         isPaid,
         paidDate: isPaid ? (paidDate ? new Date(paidDate) : new Date()) : null,
-        notes,
+        notes: finalNotes,
       },
     });
 
