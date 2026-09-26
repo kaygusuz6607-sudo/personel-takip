@@ -23,7 +23,10 @@ export async function GET(request: Request) {
 
     const quotes = await prisma.priceQuote.findMany({
       where,
-      orderBy: { createdAt: "desc" },
+      orderBy: [
+        { date: "desc" },
+        { createdAt: "desc" },
+      ],
     });
 
     return NextResponse.json(quotes);

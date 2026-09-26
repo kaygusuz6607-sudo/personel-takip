@@ -449,5 +449,21 @@ model PriceQuote {
   updatedAt           DateTime @updatedAt
 }
 
+model QuoteSetting {
+  id              String   @id @default("default")
+  academicYear    String   @default("2026-2027")
+  educationPrice  Float    @default(220000)
+  diningPrice     Float    @default(80000)
+  stationeryPrice Float    @default(65000)
+  summerPrice     Float    @default(45000)
+  schoolName      String   @default("ÖZEL KAYSERİ SİMYA ÇOCUK ÜNİVERSİTESİ")
+  schoolAddress   String?  @default("ESENYURT MAH. YAVUZ CAD. PRESTİJ SİT. B BLOK NO:17/A MELİKGAZİ / KAYSERİ")
+  schoolPhone     String?  @default("0(352) 503 91 93 - 0(537) 380 0 380")
+  bankCampaigns   String?
+  policyNotes     String?
+  updatedAt       DateTime @updatedAt
+}
+
+
 
 
