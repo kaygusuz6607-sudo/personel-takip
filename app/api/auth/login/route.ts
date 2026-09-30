@@ -95,10 +95,14 @@ export async function POST(req: NextRequest) {
     });
 
     return response;
-  } catch (error) {
+  } catch (error: any) {
     console.error("Login hatası:", error);
     return NextResponse.json(
-      { error: "Giriş işlemi sırasında sunucu hatası oluştu." },
+      {
+        error: "Giriş işlemi sırasında sunucu hatası oluştu.",
+        details: error?.message || String(error),
+        code: error?.code,
+      },
       { status: 500 }
     );
   }
