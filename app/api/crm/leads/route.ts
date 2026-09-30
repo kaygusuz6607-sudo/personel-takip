@@ -22,11 +22,11 @@ export async function GET(request: NextRequest) {
 
     if (search) {
       where.OR = [
-        { studentName: { contains: search, mode: "insensitive" } },
-        { parentName: { contains: search, mode: "insensitive" } },
+        { studentName: { contains: search } },
+        { parentName: { contains: search } },
         { parentPhone: { contains: search } },
-        { currentSchool: { contains: search, mode: "insensitive" } },
-        { cityDistrict: { contains: search, mode: "insensitive" } },
+        { currentSchool: { contains: search } },
+        { cityDistrict: { contains: search } },
       ];
     }
 
@@ -63,7 +63,6 @@ export async function GET(request: NextRequest) {
         },
         interactions: {
           orderBy: { createdAt: "desc" },
-          take: 3,
         },
         registeredStudent: {
           select: {
@@ -149,18 +148,23 @@ export async function POST(request: NextRequest) {
       discountNote,
       notes,
       initialInteractionNote,
+      followUpDate,
+      followUpTime,
+      scheduleType,
     } = body;
 
-    if (!studentName?.trim() || !parentName?.trim() || !parentPhone?.trim()) {
+    if (!parentName?.trim() || !parentPhone?.trim()) {
       return NextResponse.json(
-        { error: "Öğrenci Adı, Veli Adı ve Veli Telefonu zorunludur." },
+        { error: "Veli Adı ve Telefon Numarası zorunludur." },
         { status: 400 }
       );
     }
 
+    const initialStatus = scheduleType === "APPOINTMENT" ? "APPOINTMENT" : "NEW";
+
     const lead = await prisma.lead.create({
       data: {
-        studentName: studentName.trim(),
+        studentName: studentName?.trim() || "",
         birthDate: birthDate ? new Date(birthDate) : null,
         gender: gender || null,
         currentSchool: currentSchool?.trim() || null,
@@ -171,7 +175,7 @@ export async function POST(request: NextRequest) {
         source: source || "OTHER",
         sourceDetail: sourceDetail?.trim() || null,
         campaignType: campaignType || null,
-        status: "NEW",
+        status: initialStatus,
         priority: priority || "MEDIUM",
         parentName: parentName.trim(),
         parentRelation: parentRelation || "MOTHER",
@@ -184,22 +188,25 @@ export async function POST(request: NextRequest) {
         assignedStaffId: assignedStaffId || null,
         offeredPrice: offeredPrice ? parseFloat(offeredPrice) : 0,
         discountNote: discountNote?.trim() || null,
-        notes: notes?.trim() || null,
+        notes: (notes || initialInteractionNote)?.trim() || null,
       },
       include: {
         assignedStaff: true,
       },
     });
 
-    // İlk görüşme notu varsa ekle
-    if (initialInteractionNote?.trim()) {
+    // İlk görüşme / açıklama notu veya arama/randevu tarihi varsa etkileşim olarak ekle
+    const firstNote = (initialInteractionNote || notes)?.trim();
+    if (firstNote || followUpDate) {
       await prisma.leadInteraction.create({
         data: {
           leadId: lead.id,
           staffId: assignedStaffId || null,
-          type: "PHONE_CALL",
-          result: "NO_ANSWER",
-          notes: initialInteractionNote.trim(),
+          type: scheduleType === "APPOINTMENT" ? "VISIT" : "PHONE_CALL",
+          result: scheduleType === "APPOINTMENT" ? "APPOINTMENT_SET" : "OFFER_GIVEN",
+          notes: firstNote || (scheduleType === "APPOINTMENT" ? "Kurum randevusu oluşturuldu" : "Arama / takip planlandı"),
+          followUpDate: followUpDate ? new Date(followUpDate) : null,
+          followUpTime: followUpTime || null,
         },
       });
     }

@@ -109,6 +109,9 @@ export async function PUT(
       offeredPrice,
       discountNote,
       notes,
+      followUpDate,
+      followUpTime,
+      scheduleType,
     } = body;
 
     const updated = await prisma.lead.update({
@@ -125,7 +128,12 @@ export async function PUT(
         source: source !== undefined ? source : undefined,
         sourceDetail: sourceDetail !== undefined ? sourceDetail : undefined,
         campaignType: campaignType !== undefined ? campaignType : undefined,
-        status: status !== undefined ? status : undefined,
+        status:
+          status !== undefined
+            ? status
+            : scheduleType === "APPOINTMENT"
+            ? "APPOINTMENT"
+            : undefined,
         lostReason: status === "LOST" ? lostReason || null : null,
         priority: priority !== undefined ? priority : undefined,
         parentName: parentName !== undefined ? parentName.trim() : undefined,
@@ -143,8 +151,37 @@ export async function PUT(
       },
       include: {
         assignedStaff: true,
+        interactions: {
+          orderBy: { createdAt: "desc" },
+        },
       },
     });
+
+    if (followUpDate !== undefined) {
+      const latestInter = updated.interactions[0];
+      if (latestInter) {
+        await prisma.leadInteraction.update({
+          where: { id: latestInter.id },
+          data: {
+            followUpDate: followUpDate ? new Date(followUpDate) : null,
+            followUpTime: followUpTime !== undefined ? followUpTime || null : latestInter.followUpTime,
+            type: scheduleType === "APPOINTMENT" ? "VISIT" : latestInter.type,
+            result: scheduleType === "APPOINTMENT" ? "APPOINTMENT_SET" : latestInter.result,
+          },
+        });
+      } else if (followUpDate) {
+        await prisma.leadInteraction.create({
+          data: {
+            leadId: id,
+            type: scheduleType === "APPOINTMENT" ? "VISIT" : "PHONE_CALL",
+            result: scheduleType === "APPOINTMENT" ? "APPOINTMENT_SET" : "OFFER_GIVEN",
+            notes: notes || "Arama / Randevu planlandı",
+            followUpDate: new Date(followUpDate),
+            followUpTime: followUpTime || null,
+          },
+        });
+      }
+    }
 
     return NextResponse.json(updated);
   } catch (error: any) {

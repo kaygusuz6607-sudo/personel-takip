@@ -20,12 +20,12 @@ export async function GET(request: NextRequest) {
 
     if (search) {
       where.OR = [
-        { fullName: { contains: search, mode: "insensitive" } },
+        { fullName: { contains: search } },
         { tcNo: { contains: search } },
         { studentNo: { contains: search } },
         { primaryPhone: { contains: search } },
-        { fatherName: { contains: search, mode: "insensitive" } },
-        { motherName: { contains: search, mode: "insensitive" } },
+        { fatherName: { contains: search } },
+        { motherName: { contains: search } },
       ];
     }
 

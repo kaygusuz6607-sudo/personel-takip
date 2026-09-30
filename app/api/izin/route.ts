@@ -35,8 +35,8 @@ export async function GET(request: Request) {
         status: "ACTIVE",
         NOT: [
           { salaryConfig: { salaryType: "HOURLY" } },
-          { title: { contains: "Branş", mode: "insensitive" } },
-          { title: { contains: "Ders Saat", mode: "insensitive" } },
+          { title: { contains: "Branş" } },
+          { title: { contains: "Ders Saat" } },
         ],
       },
       select: {

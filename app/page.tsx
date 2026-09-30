@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import Link from "next/link";
-import { Users, UserCheck, UserX, Clock, Building2, UserPlus, ArrowRight, Wallet, CheckCircle2, AlertCircle, Target, GraduationCap } from "lucide-react";
+import { Users, UserCheck, UserX, Clock, Building2, UserPlus, ArrowRight, Wallet, CheckCircle2, AlertCircle, Target, GraduationCap, Car, ShieldAlert, PhoneCall } from "lucide-react";
 import { DashboardSalarySchedule, SalaryStaffItem } from "@/components/DashboardSalarySchedule";
 
 export const dynamic = "force-dynamic";
@@ -215,6 +215,89 @@ export default async function DashboardPage() {
     }).format(val);
   };
 
+  // Araç & Mülk (Muayene, Kasko, Trafik Sigortası, DASK) Takip ve Uyarıları
+  const rawAssets = await prisma.assetTracking.findMany({
+    orderBy: [{ inspectionDate: "asc" }, { kaskoDate: "asc" }, { createdAt: "desc" }],
+  });
+
+  const calculateUrgencyDays = (date: Date | null) => {
+    if (!date) return null;
+    const target = new Date(date);
+    return Math.ceil((target.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+  };
+
+  const assetsWithAlerts = rawAssets.map((a) => {
+    const inspDays = calculateUrgencyDays(a.inspectionDate);
+    const insDays = calculateUrgencyDays(a.insuranceDate);
+    const kaskoDays = calculateUrgencyDays(a.kaskoDate);
+    const houseDays = calculateUrgencyDays(a.housingDate);
+
+    const hasWarning =
+      (inspDays !== null && inspDays <= 10) ||
+      (insDays !== null && insDays <= 10) ||
+      (kaskoDays !== null && kaskoDays <= 10) ||
+      (houseDays !== null && houseDays <= 10);
+
+    return {
+      ...a,
+      inspDays,
+      insDays,
+      kaskoDays,
+      houseDays,
+      hasWarning,
+    };
+  });
+
+  const warningAssets = assetsWithAlerts.filter((a) => a.hasWarning);
+
+  // Telefon Hatları (Vodafone vb.) Taahhüt Bitişine 10 Gün Kala Hatırlatma
+  const expensesWithPhoneLines = await prisma.schoolExpense.findMany({
+    where: { phoneLines: { not: null } },
+  });
+  const seenPhoneKeys = new Set<string>();
+  const warningPhoneLines: {
+    expenseId: string;
+    invoiceTitle: string;
+    number: string;
+    userTitle: string;
+    amount: number;
+    commitmentEnd: string;
+    daysLeft: number;
+  }[] = [];
+
+  const todayMidnight = new Date(now);
+  todayMidnight.setHours(0, 0, 0, 0);
+
+  for (const exp of expensesWithPhoneLines) {
+    if (!exp.phoneLines) continue;
+    try {
+      const parsed = JSON.parse(exp.phoneLines);
+      if (!Array.isArray(parsed)) continue;
+      parsed.forEach((pl: any, idx: number) => {
+        if (!pl || !pl.commitmentEnd) return;
+        const end = new Date(pl.commitmentEnd);
+        if (isNaN(end.getTime())) return;
+        end.setHours(0, 0, 0, 0);
+        const daysLeft = Math.ceil((end.getTime() - todayMidnight.getTime()) / (1000 * 60 * 60 * 24));
+        if (daysLeft <= 10) {
+          const key = `${exp.title}__${pl.number || idx}__${pl.commitmentEnd}`;
+          if (!seenPhoneKeys.has(key)) {
+            seenPhoneKeys.add(key);
+            warningPhoneLines.push({
+              expenseId: exp.id,
+              invoiceTitle: exp.title,
+              number: pl.number || `${idx + 1}. Hat`,
+              userTitle: pl.title || "Belirtilmedi",
+              amount: Number(pl.amount) || 0,
+              commitmentEnd: pl.commitmentEnd,
+              daysLeft,
+            });
+          }
+        }
+      });
+    } catch {}
+  }
+
   return (
     <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto w-full space-y-6">
       {/* Header */}
@@ -240,6 +323,175 @@ export default async function DashboardPage() {
           </Link>
         </div>
       </div>
+
+      {/* TELEFON HATLARI TAAHHÜT BİTİŞİ 10 GÜN KALA HATIRLATMA EKRANI */}
+      {warningPhoneLines.length > 0 && (
+        <div className="bg-rose-50 border-2 border-rose-300 rounded-2xl p-4 sm:p-5 shadow-sm space-y-3">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-start gap-3">
+              <div className="p-2 rounded-xl bg-rose-600 text-white shrink-0 animate-pulse">
+                <PhoneCall className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="font-extrabold text-sm sm:text-base text-rose-950">
+                  🔔 Telefon Numarası Taahhüt Bitiş Hatırlatması: Süresine 10 Günden Az Kalan Hatlar ({warningPhoneLines.length} Numara)
+                </h3>
+                <p className="text-xs text-rose-800 mt-0.5">
+                  Aşağıdaki telefon numaralarının taahhüt bitiş tarihine 10 gün veya daha az kalmıştır.
+                </p>
+              </div>
+            </div>
+            <Link
+              href="/giderler"
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold shadow-xs transition shrink-0 self-start sm:self-center"
+            >
+              <PhoneCall className="w-4 h-4" />
+              <span>Okul Giderleri & Hatları Aç</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </Link>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2.5 pt-1">
+            {warningPhoneLines.map((pl, idx) => (
+              <Link
+                key={idx}
+                href="/giderler"
+                className="bg-white hover:bg-rose-50/40 rounded-xl border border-rose-300 p-3 shadow-2xs transition flex items-center justify-between gap-2 text-xs"
+              >
+                <div>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className="font-extrabold text-slate-900">📞 {pl.number}</span>
+                    <span className="px-1.5 py-0.5 rounded bg-blue-50 text-blue-900 border border-blue-200 font-bold text-[10px]">
+                      👤 {pl.userTitle}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-600 mt-0.5">
+                    {pl.invoiceTitle} {pl.amount > 0 ? `• ${formatCurrency(pl.amount)}` : ""}
+                  </p>
+                  <p className="text-[10px] text-slate-500 font-semibold">
+                    Taahhüt Bitiş: {new Date(pl.commitmentEnd).toLocaleDateString("tr-TR")}
+                  </p>
+                </div>
+                <span className="px-2 py-1 rounded-lg bg-rose-600 text-white font-black text-[10px] shrink-0">
+                  {pl.daysLeft < 0
+                    ? `${Math.abs(pl.daysLeft)} Gün Geçti!`
+                    : pl.daysLeft === 0
+                    ? "Bugün Son!"
+                    : `${pl.daysLeft} Gün Kaldı`}
+                </span>
+              </Link>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ARAÇ KASKO, MUAYENE, TRAFİK SİGORTASI & MÜLK DASK ACİL UYARI EKRANI */}
+      {warningAssets.length > 0 && (
+        <div className="bg-rose-50 border-2 border-rose-300 rounded-2xl p-4 sm:p-5 shadow-sm space-y-3">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-start gap-3">
+              <div className="p-2 rounded-xl bg-rose-600 text-white shrink-0 animate-pulse">
+                <ShieldAlert className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="font-extrabold text-sm sm:text-base text-rose-950">
+                  ⚠️ Acil Hatırlatma: Muayene, Kasko veya Sigorta Süresine 10 Günden Az Kalan / Dolan Varlıklar ({warningAssets.length} Kalem)
+                </h3>
+                <p className="text-xs text-rose-800 mt-0.5">
+                  Trafik cezası ve sigortasız kalma riskini önlemek için muayene randevusu alınız ve poliçelerinizi yenileyiniz.
+                </p>
+              </div>
+            </div>
+            <Link
+              href="/giderler?tab=ASSETS"
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold shadow-xs transition shrink-0 self-start sm:self-center"
+            >
+              <Car className="w-4 h-4" />
+              <span>Araç & Mülk Takibini Aç</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </Link>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 pt-1">
+            {warningAssets.map((item) => (
+              <Link
+                key={item.id}
+                href="/giderler?tab=ASSETS"
+                className="bg-white hover:bg-rose-50/40 rounded-xl border border-rose-300 p-3.5 shadow-2xs transition flex flex-col justify-between gap-2"
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full bg-rose-100 text-rose-800">
+                      {item.assetType === "VEHICLE" ? "🚗 Araç / Servis" : "🏢 Gayrimenkul / Mülk"}
+                    </span>
+                    <h4 className="font-black text-slate-900 text-sm mt-1">{item.title}</h4>
+                    <p className="text-[11px] text-slate-500">Sahibi: {item.owner || "Kurum"}</p>
+                  </div>
+                </div>
+
+                <div className="space-y-1 text-xs border-t border-slate-100 pt-2">
+                  {item.assetType === "VEHICLE" ? (
+                    <>
+                      {item.inspectionDate && (
+                        <div className="flex items-center justify-between">
+                          <span className="text-slate-600 font-medium">TÜVTÜRK Muayene:</span>
+                          <span className={`font-bold ${item.inspDays !== null && item.inspDays <= 10 ? "text-rose-600" : "text-slate-800"}`}>
+                            {new Date(item.inspectionDate).toLocaleDateString("tr-TR")}{" "}
+                            {item.inspDays !== null && (
+                              <span className="text-[10px] font-black ml-1">
+                                ({item.inspDays <= 0 ? "Süresi Doldu!" : `${item.inspDays} gün kaldı`})
+                              </span>
+                            )}
+                          </span>
+                        </div>
+                      )}
+                      {item.kaskoDate && (
+                        <div className="flex items-center justify-between">
+                          <span className="text-slate-600 font-medium">Kasko Bitiş:</span>
+                          <span className={`font-bold ${item.kaskoDays !== null && item.kaskoDays <= 10 ? "text-rose-600" : "text-slate-800"}`}>
+                            {new Date(item.kaskoDate).toLocaleDateString("tr-TR")}{" "}
+                            {item.kaskoDays !== null && (
+                              <span className="text-[10px] font-black ml-1">
+                                ({item.kaskoDays <= 0 ? "Süresi Doldu!" : `${item.kaskoDays} gün kaldı`})
+                              </span>
+                            )}
+                          </span>
+                        </div>
+                      )}
+                      {item.insuranceDate && (
+                        <div className="flex items-center justify-between">
+                          <span className="text-slate-600 font-medium">Trafik Sigortası:</span>
+                          <span className={`font-bold ${item.insDays !== null && item.insDays <= 10 ? "text-rose-600" : "text-slate-800"}`}>
+                            {new Date(item.insuranceDate).toLocaleDateString("tr-TR")}{" "}
+                            {item.insDays !== null && (
+                              <span className="text-[10px] font-black ml-1">
+                                ({item.insDays <= 0 ? "Süresi Doldu!" : `${item.insDays} gün kaldı`})
+                              </span>
+                            )}
+                          </span>
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    item.housingDate && (
+                      <div className="flex items-center justify-between">
+                        <span className="text-slate-600 font-medium">DASK / Sigorta:</span>
+                        <span className={`font-bold ${item.houseDays !== null && item.houseDays <= 10 ? "text-rose-600" : "text-slate-800"}`}>
+                          {new Date(item.housingDate).toLocaleDateString("tr-TR")}{" "}
+                          {item.houseDays !== null && (
+                            <span className="text-[10px] font-black ml-1">
+                              ({item.houseDays <= 0 ? "Süresi Doldu!" : `${item.houseDays} gün kaldı`})
+                            </span>
+                          )}
+                        </span>
+                      </div>
+                    )
+                  )}
+                </div>
+              </Link>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* 4 Ana Sayaç Kartı */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -284,8 +536,8 @@ export default async function DashboardPage() {
         </div>
       </div>
 
-      {/* CRM & Öğrenci Yönetimi Hızlı Erişim Kartları */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      {/* CRM, Öğrenci Yönetimi & Araç/Mülk Muayene-Kasko Hızlı Erişim Kartları */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <Link
           href="/crm"
           className="bg-white p-5 rounded-2xl border border-slate-100 hover:border-teal-500 shadow-xs hover:shadow-md transition-all flex items-center justify-between group"
@@ -306,7 +558,7 @@ export default async function DashboardPage() {
                 )}
               </div>
               <p className="text-xs text-slate-500 mt-0.5">
-                {totalLeads} toplam aday veli • Satış hunisi, çağrı listeleri ve görüşmeler
+                {totalLeads} toplam aday veli • Satış hunisi ve görüşmeler
               </p>
             </div>
           </div>
@@ -331,13 +583,179 @@ export default async function DashboardPage() {
                 </span>
               </div>
               <p className="text-xs text-slate-500 mt-0.5">
-                Öğrenci dosyaları, taksit planları, yoklama ve MEB kayıt sözleşmesi
+                Öğrenci dosyaları, taksit planları ve MEB sözleşmesi
+              </p>
+            </div>
+          </div>
+          <ArrowRight className="w-5 h-5 text-slate-400 group-hover:text-teal-700 group-hover:translate-x-1 transition-all" />
+        </Link>
+
+        <Link
+          href="/giderler?tab=ASSETS"
+          className={`bg-white p-5 rounded-2xl border shadow-xs hover:shadow-md transition-all flex items-center justify-between group ${
+            warningAssets.length > 0
+              ? "border-rose-300 ring-2 ring-rose-200/50 hover:border-rose-500"
+              : "border-slate-100 hover:border-teal-500"
+          }`}
+        >
+          <div className="flex items-center gap-4">
+            <div
+              className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 ${
+                warningAssets.length > 0 ? "bg-rose-100 text-rose-600 animate-pulse" : "bg-amber-50 text-amber-600"
+              }`}
+            >
+              <Car className="w-6 h-6" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="font-bold text-slate-800 text-sm group-hover:text-teal-700 transition-colors">
+                  Araç Kasko & Muayene Takibi
+                </h3>
+                {warningAssets.length > 0 ? (
+                  <span className="px-2 py-0.5 rounded-full bg-rose-600 text-white font-bold text-[10px] animate-pulse">
+                    {warningAssets.length} Acil Uyarı
+                  </span>
+                ) : (
+                  <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 font-bold text-[10px]">
+                    {assetsWithAlerts.length} Kayıt
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-slate-500 mt-0.5">
+                TÜVTÜRK muayene, kasko, trafik sigortası ve DASK takibi
               </p>
             </div>
           </div>
           <ArrowRight className="w-5 h-5 text-slate-400 group-hover:text-teal-700 group-hover:translate-x-1 transition-all" />
         </Link>
       </div>
+
+      {/* Kayıtlı Araç & Mülk Muayene / Kasko Durum Tablosu (Kayıt Varsa Ana Ekranda Göster) */}
+      {assetsWithAlerts.length > 0 && (
+        <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-xs space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Car className="w-5 h-5 text-amber-600" />
+              <h2 className="font-bold text-slate-800 text-sm sm:text-base">
+                Araç Muayene, Kasko & Sigorta Takip Özeti
+              </h2>
+              {warningAssets.length > 0 && (
+                <span className="px-2.5 py-0.5 rounded-full bg-rose-100 text-rose-700 text-xs font-extrabold">
+                  {warningAssets.length} Yaklaşan / Geciken
+                </span>
+              )}
+            </div>
+            <Link
+              href="/giderler?tab=ASSETS"
+              className="text-xs font-bold text-teal-700 hover:underline flex items-center gap-1"
+            >
+              <span>Tümünü Yönet</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </Link>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+            {assetsWithAlerts.map((item) => (
+              <Link
+                key={item.id}
+                href="/giderler?tab=ASSETS"
+                className={`rounded-xl border p-3.5 transition-all flex flex-col justify-between gap-2 ${
+                  item.hasWarning
+                    ? "bg-rose-50/40 border-rose-300 ring-1 ring-rose-200"
+                    : "bg-slate-50/60 border-slate-200 hover:border-teal-400"
+                }`}
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full bg-white border border-slate-200 text-slate-700">
+                      {item.assetType === "VEHICLE" ? "🚗 Araç / Servis" : "🏢 Gayrimenkul / Mülk"}
+                    </span>
+                    <h3 className="font-extrabold text-slate-900 text-sm mt-1">{item.title}</h3>
+                    <p className="text-[11px] text-slate-500">Sahibi: {item.owner || "Kurum"}</p>
+                  </div>
+                  {item.hasWarning && (
+                    <span className="px-2 py-0.5 rounded-full bg-rose-600 text-white text-[10px] font-black animate-pulse">
+                      ACİL UYARI
+                    </span>
+                  )}
+                </div>
+
+                <div className="space-y-1 text-xs border-t border-slate-200/70 pt-2">
+                  {item.assetType === "VEHICLE" ? (
+                    <>
+                      <div className="flex items-center justify-between">
+                        <span className="text-slate-600">Muayene:</span>
+                        <span
+                          className={`font-bold ${
+                            item.inspDays !== null && item.inspDays <= 10 ? "text-rose-600" : "text-slate-800"
+                          }`}
+                        >
+                          {item.inspectionDate
+                            ? new Date(item.inspectionDate).toLocaleDateString("tr-TR")
+                            : "Belirtilmedi"}
+                          {item.inspDays !== null && (
+                            <span className="text-[10px] font-black ml-1">
+                              ({item.inspDays <= 0 ? "Süresi Doldu!" : `${item.inspDays} gün`})
+                            </span>
+                          )}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-slate-600">Kasko:</span>
+                        <span
+                          className={`font-bold ${
+                            item.kaskoDays !== null && item.kaskoDays <= 10 ? "text-rose-600" : "text-slate-800"
+                          }`}
+                        >
+                          {item.kaskoDate ? new Date(item.kaskoDate).toLocaleDateString("tr-TR") : "Belirtilmedi"}
+                          {item.kaskoDays !== null && (
+                            <span className="text-[10px] font-black ml-1">
+                              ({item.kaskoDays <= 0 ? "Süresi Doldu!" : `${item.kaskoDays} gün`})
+                            </span>
+                          )}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-slate-600">Trafik Sigortası:</span>
+                        <span
+                          className={`font-bold ${
+                            item.insDays !== null && item.insDays <= 10 ? "text-rose-600" : "text-slate-800"
+                          }`}
+                        >
+                          {item.insuranceDate
+                            ? new Date(item.insuranceDate).toLocaleDateString("tr-TR")
+                            : "Belirtilmedi"}
+                          {item.insDays !== null && (
+                            <span className="text-[10px] font-black ml-1">
+                              ({item.insDays <= 0 ? "Süresi Doldu!" : `${item.insDays} gün`})
+                            </span>
+                          )}
+                        </span>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-600">DASK / Sigorta:</span>
+                      <span
+                        className={`font-bold ${
+                          item.houseDays !== null && item.houseDays <= 10 ? "text-rose-600" : "text-slate-800"
+                        }`}
+                      >
+                        {item.housingDate ? new Date(item.housingDate).toLocaleDateString("tr-TR") : "Belirtilmedi"}
+                        {item.houseDays !== null && (
+                          <span className="text-[10px] font-black ml-1">
+                            ({item.houseDays <= 0 ? "Süresi Doldu!" : `${item.houseDays} gün`})
+                          </span>
+                        )}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </Link>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* 4 Farklı Maaş Ödeme Takvimi Kartı (10'u Öğretmen, 15'i Branş Öğretmenleri, 15'i Personel, 20'si İdari) ve Tıklanabilir Detay Modalı */}
       <DashboardSalarySchedule

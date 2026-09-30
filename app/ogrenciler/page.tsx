@@ -42,6 +42,11 @@ import {
   HeartHandshake,
 } from "lucide-react";
 import * as XLSX from "xlsx";
+import {
+  useSchoolCategory,
+  SchoolCategoryBadge,
+  SchoolCategoryModal,
+} from "@/components/SchoolCategoryGate";
 
 interface Classroom {
   id: string;
@@ -187,6 +192,15 @@ const ATTENDANCE_STATUS: { [key: string]: { label: string; color: string } } = {
 };
 
 export default function OgrencilerPage() {
+  const {
+    schoolSection,
+    hasSelectedCategory,
+    isSelectorOpen,
+    setIsSelectorOpen,
+    setSchoolSection,
+    activeCategory,
+  } = useSchoolCategory();
+
   const [students, setStudents] = useState<Student[]>([]);
   const [classrooms, setClassrooms] = useState<Classroom[]>([]);
   const [loading, setLoading] = useState(true);
@@ -268,6 +282,15 @@ export default function OgrencilerPage() {
     tags: [] as string[],
     notes: "",
   });
+
+  useEffect(() => {
+    if (!editingStudent) {
+      setFormData((prev) => ({
+        ...prev,
+        section: schoolSection,
+      }));
+    }
+  }, [schoolSection, editingStudent]);
 
   const fetchData = async () => {
     try {
@@ -432,7 +455,7 @@ export default function OgrencilerPage() {
       dietNotes: "",
       toiletTrained: true,
       napTime: true,
-      section: "ANAOKULU",
+      section: schoolSection,
       educationType: "TAM_GUN",
       mealUsed: true,
       serviceUsed: false,
@@ -611,6 +634,14 @@ export default function OgrencilerPage() {
 
   return (
     <div className="min-h-screen bg-slate-50/50 p-4 lg:p-8 space-y-6">
+      <SchoolCategoryModal
+        isOpen={isSelectorOpen}
+        currentSection={hasSelectedCategory ? schoolSection : null}
+        hasSelectedBefore={hasSelectedCategory}
+        onSelect={(sec) => setSchoolSection(sec)}
+        onClose={() => setIsSelectorOpen(false)}
+      />
+
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="flex items-center gap-3">
@@ -625,7 +656,11 @@ export default function OgrencilerPage() {
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <SchoolCategoryBadge
+            activeCategory={activeCategory}
+            onOpenSelector={() => setIsSelectorOpen(true)}
+          />
           <button
             onClick={handleExportExcel}
             className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 text-xs font-semibold shadow-xs transition-all"
@@ -760,27 +795,6 @@ export default function OgrencilerPage() {
               <option value="ETUT">Etüt Alan</option>
             </select>
           </div>
-        </div>
-
-        {/* Kademe Filtre Butonları */}
-        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 pt-2 border-t border-slate-100">
-          <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider shrink-0 mr-1 flex items-center gap-1">
-            <School className="w-3.5 h-3.5 text-teal-700" /> Kademe:
-          </span>
-          {SECTIONS.map((sec) => (
-            <button
-              key={sec.id}
-              onClick={() => setSectionFilter(sec.id)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 ${
-                sectionFilter === sec.id
-                  ? "bg-teal-700 text-white shadow-xs"
-                  : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-              }`}
-            >
-              <span>{sec.icon}</span>
-              <span>{sec.label}</span>
-            </button>
-          ))}
         </div>
       </div>
 
@@ -1800,35 +1814,15 @@ export default function OgrencilerPage() {
             </div>
 
             <form onSubmit={handleSaveStudent} className="p-6 space-y-6 overflow-y-auto flex-1 text-xs">
-              {/* BÖLÜM 1: EĞİTİM KADEMESİ & ÖĞRENİM ŞEKLİ */}
+              {/* BÖLÜM 1: ÖĞRENİM ŞEKLİ & ŞUBE */}
               <div className="p-4 rounded-2xl bg-teal-50/50 border border-teal-100 space-y-3">
                 <div className="flex items-center justify-between">
                   <span className="font-bold text-teal-950 flex items-center gap-1.5 text-xs uppercase tracking-wide">
-                    <School className="w-4 h-4 text-teal-700" /> 1. Eğitim Kademesi, Öğrenim Şekli & Şube
+                    <School className="w-4 h-4 text-teal-700" /> 1. Öğrenim Şekli & Sınıf / Şube Ataması
                   </span>
-                  <span className="text-[11px] text-teal-700 font-medium">Kademeye göre gelişim ve beslenme alanları açılır</span>
-                </div>
-
-                {/* Kademe Seçici Butonlar */}
-                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
-                  {SECTIONS.filter((sec) => sec.id !== "ALL").map((sec) => {
-                    const isSelected = formData.section === sec.id;
-                    return (
-                      <button
-                        key={sec.id}
-                        type="button"
-                        onClick={() => setFormData({ ...formData, section: sec.id as any })}
-                        className={`flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl border text-xs font-bold transition-all ${
-                          isSelected
-                            ? "bg-teal-700 text-white border-teal-700 shadow-xs"
-                            : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"
-                        }`}
-                      >
-                        <span>{sec.icon}</span>
-                        <span>{sec.label.split(" ")[0]}</span>
-                      </button>
-                    );
-                  })}
+                  <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-lg bg-white text-teal-800 border border-teal-200">
+                    {activeCategory.icon} {activeCategory.label}
+                  </span>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
@@ -1958,63 +1952,67 @@ export default function OgrencilerPage() {
                 </div>
               </div>
 
-              {/* BÖLÜM 3: OKUL ÖNCESİ BAKIM, BESLENME, SERVİS VE SAĞLIK PROTOKOLÜ */}
+              {/* BÖLÜM 3: SAĞLIK, BESLENME VE SERVİS PROTOKOLÜ */}
               <div className="p-4 rounded-2xl bg-amber-50/60 border border-amber-200 space-y-3">
                 <div className="flex items-center justify-between">
                   <span className="font-bold text-amber-950 flex items-center gap-1.5 text-xs uppercase tracking-wide">
-                    <Baby className="w-4 h-4 text-amber-700" /> 3. Okul Öncesi Gelişim, Sağlık, Beslenme & Servis
+                    <Baby className="w-4 h-4 text-amber-700" /> 3. Sağlık, Beslenme & Servis Bilgileri
                   </span>
-                  <span className="text-[10px] text-amber-800 font-semibold">Anaokulu & İlkokul Güvenlik Protokolü</span>
+                  <span className="text-[10px] text-amber-800 font-semibold">{activeCategory.label} Protokolü</span>
                 </div>
 
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                  <div className="p-3 bg-white rounded-xl border border-amber-200">
-                    <label className="block font-semibold text-slate-700 mb-1.5 text-[11px]">Tuvalet Eğitimi</label>
-                    <div className="flex gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setFormData({ ...formData, toiletTrained: true })}
-                        className={`flex-1 py-1.5 rounded-lg font-bold text-[11px] transition-all ${
-                          formData.toiletTrained ? "bg-emerald-600 text-white" : "bg-slate-100 text-slate-600"
-                        }`}
-                      >
-                        Tamamlandı
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setFormData({ ...formData, toiletTrained: false })}
-                        className={`flex-1 py-1.5 rounded-lg font-bold text-[11px] transition-all ${
-                          !formData.toiletTrained ? "bg-amber-600 text-white" : "bg-slate-100 text-slate-600"
-                        }`}
-                      >
-                        Destekleniyor
-                      </button>
-                    </div>
-                  </div>
+                  {formData.section === "ANAOKULU" && (
+                    <>
+                      <div className="p-3 bg-white rounded-xl border border-amber-200">
+                        <label className="block font-semibold text-slate-700 mb-1.5 text-[11px]">Tuvalet Eğitimi</label>
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setFormData({ ...formData, toiletTrained: true })}
+                            className={`flex-1 py-1.5 rounded-lg font-bold text-[11px] transition-all ${
+                              formData.toiletTrained ? "bg-emerald-600 text-white" : "bg-slate-100 text-slate-600"
+                            }`}
+                          >
+                            Tamamlandı
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setFormData({ ...formData, toiletTrained: false })}
+                            className={`flex-1 py-1.5 rounded-lg font-bold text-[11px] transition-all ${
+                              !formData.toiletTrained ? "bg-amber-600 text-white" : "bg-slate-100 text-slate-600"
+                            }`}
+                          >
+                            Destekleniyor
+                          </button>
+                        </div>
+                      </div>
 
-                  <div className="p-3 bg-white rounded-xl border border-amber-200">
-                    <label className="block font-semibold text-slate-700 mb-1.5 text-[11px]">Öğle Uykusu Odası</label>
-                    <div className="flex gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setFormData({ ...formData, napTime: true })}
-                        className={`flex-1 py-1.5 rounded-lg font-bold text-[11px] transition-all ${
-                          formData.napTime ? "bg-teal-600 text-white" : "bg-slate-100 text-slate-600"
-                        }`}
-                      >
-                        Uyku Var
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setFormData({ ...formData, napTime: false })}
-                        className={`flex-1 py-1.5 rounded-lg font-bold text-[11px] transition-all ${
-                          !formData.napTime ? "bg-slate-400 text-white" : "bg-slate-100 text-slate-600"
-                        }`}
-                      >
-                        Uyku Yok
-                      </button>
-                    </div>
-                  </div>
+                      <div className="p-3 bg-white rounded-xl border border-amber-200">
+                        <label className="block font-semibold text-slate-700 mb-1.5 text-[11px]">Öğle Uykusu Odası</label>
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setFormData({ ...formData, napTime: true })}
+                            className={`flex-1 py-1.5 rounded-lg font-bold text-[11px] transition-all ${
+                              formData.napTime ? "bg-teal-600 text-white" : "bg-slate-100 text-slate-600"
+                            }`}
+                          >
+                            Uyku Var
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setFormData({ ...formData, napTime: false })}
+                            className={`flex-1 py-1.5 rounded-lg font-bold text-[11px] transition-all ${
+                              !formData.napTime ? "bg-slate-400 text-white" : "bg-slate-100 text-slate-600"
+                            }`}
+                          >
+                            Uyku Yok
+                          </button>
+                        </div>
+                      </div>
+                    </>
+                  )}
 
                   <div className="p-3 bg-white rounded-xl border border-amber-200">
                     <label className="block font-semibold text-slate-700 mb-1.5 text-[11px]">Yemek / Öğün Hizmeti</label>

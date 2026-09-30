@@ -12,10 +12,10 @@ export async function GET(request: Request) {
     const where: any = {};
     if (search) {
       where.OR = [
-        { name: { contains: search, mode: "insensitive" } },
-        { phone: { contains: search, mode: "insensitive" } },
-        { tcNo: { contains: search, mode: "insensitive" } },
-        { notes: { contains: search, mode: "insensitive" } },
+        { name: { contains: search } },
+        { phone: { contains: search } },
+        { tcNo: { contains: search } },
+        { notes: { contains: search } },
       ];
     }
 

@@ -42,6 +42,11 @@ import {
   Clock3,
 } from "lucide-react";
 import * as XLSX from "xlsx";
+import {
+  useSchoolCategory,
+  SchoolCategoryBadge,
+  SchoolCategoryModal,
+} from "@/components/SchoolCategoryGate";
 
 interface Staff {
   id: string;
@@ -116,7 +121,7 @@ interface Classroom {
 
 const SECTIONS = [
   { id: "ALL", label: "Tüm Kademeler", icon: "🏫" },
-  { id: "ANAOKULU", label: "Anaokulu (3-5 Yaş)", icon: "🧸" },
+  { id: "ANAOKULU", label: "Anaokulu (2-5 Yaş)", icon: "🧸" },
   { id: "ILKOKUL", label: "İlkokul (1-4)", icon: "🎒" },
   { id: "ORTAOKUL", label: "Ortaokul (5-8)", icon: "📚" },
   { id: "LISE", label: "Lise (9-12)", icon: "🎓" },
@@ -124,7 +129,7 @@ const SECTIONS = [
 ];
 
 const SECTION_GRADES: Record<string, string[]> = {
-  ANAOKULU: ["3 Yaş (Oyun Grubu)", "4 Yaş (Küçük Yaş)", "5 Yaş (Hazırlık Sınıfı)"],
+  ANAOKULU: ["2 Yaş (Oyun Grubu)", "3 Yaş (Oyun Grubu)", "4 Yaş (Küçük Yaş)", "5 Yaş (Hazırlık Sınıfı)"],
   ILKOKUL: ["1. Sınıf", "2. Sınıf", "3. Sınıf", "4. Sınıf"],
   ORTAOKUL: ["5. Sınıf", "6. Sınıf", "7. Sınıf", "8. Sınıf (LGS)"],
   LISE: ["9. Sınıf", "10. Sınıf", "11. Sınıf", "12. Sınıf (YKS)"],
@@ -156,12 +161,12 @@ const STAGES = [
 ];
 
 const SOURCES: { [key: string]: string } = {
-  INSTAGRAM: "Instagram / Meta Reklamı",
-  GOOGLE: "Google Arama / SEO",
+  WALK_IN: "Kurumsal Ziyaret / Kapıdan Giriş",
+  INSTAGRAM: "Instagram / Sosyal Medya",
   RECOMMENDATION: "Veli Tavsiyesi / Referans",
-  BROCHURE: "Broşür / Afiş / Dış Tanıtım",
-  WALK_IN: "Kapıdan Giriş / Ziyaret",
   PHONE_IN: "Telefonla Arayan",
+  GOOGLE: "Google Arama / Web",
+  BROCHURE: "Broşür / Afiş / Dış Tanıtım",
   OTHER: "Diğer",
 };
 
@@ -173,11 +178,27 @@ const PRIORITIES: { [key: string]: { label: string; color: string } } = {
 };
 
 export default function CRMPage() {
+  const {
+    schoolSection,
+    hasSelectedCategory,
+    isSelectorOpen,
+    setIsSelectorOpen,
+    setSchoolSection,
+    activeCategory,
+  } = useSchoolCategory();
+
   const [leads, setLeads] = useState<Lead[]>([]);
   const [staffList, setStaffList] = useState<Staff[]>([]);
   const [classrooms, setClassrooms] = useState<Classroom[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<"kanban" | "table" | "calls" | "stats">("kanban");
+  const [activeTab, setActiveTab] = useState<"kanban" | "table" | "calls" | "stats">("calls");
+
+  // Takvim Durumu (Yıl, Ay, Seçili Gün)
+  const todayIso = new Date().toISOString().split("T")[0];
+  const [calYear, setCalYear] = useState<number>(() => new Date().getFullYear());
+  const [calMonth, setCalMonth] = useState<number>(() => new Date().getMonth());
+  const [selectedCalDate, setSelectedCalDate] = useState<string>(todayIso);
+  const [calEventFilter, setCalEventFilter] = useState<"ALL" | "CALL" | "APPOINTMENT">("ALL");
 
   // Arama & Filtreler
   const [search, setSearch] = useState("");
@@ -201,12 +222,12 @@ export default function CRMPage() {
     birthDate: "",
     gender: "UNSPECIFIED",
     currentSchool: "",
-    section: "ORTAOKUL" as "ANAOKULU" | "ILKOKUL" | "ORTAOKUL" | "LISE" | "KURS",
-    targetGrade: "8. Sınıf (LGS)",
+    section: "ANAOKULU" as "ANAOKULU" | "ILKOKUL" | "ORTAOKUL" | "LISE" | "KURS",
+    targetGrade: "2 Yaş (Oyun Grubu)",
     educationType: "TAM_GUN" as "TAM_GUN" | "YARIM_GUN_SABAH" | "YARIM_GUN_OGLE",
     programInterest: "Tam Zamanlı Grup",
     campaignType: "",
-    source: "INSTAGRAM",
+    source: "WALK_IN",
     sourceDetail: "",
     priority: "MEDIUM" as "LOW" | "MEDIUM" | "HIGH" | "URGENT",
     parentName: "",
@@ -222,7 +243,21 @@ export default function CRMPage() {
     discountNote: "",
     notes: "",
     initialInteractionNote: "",
+    followUpDate: todayIso,
+    followUpTime: "",
+    scheduleType: "PHONE_CALL" as "PHONE_CALL" | "APPOINTMENT",
   });
+
+  useEffect(() => {
+    if (!editingLead) {
+      const grades = SECTION_GRADES[schoolSection] || [];
+      setFormData((prev) => ({
+        ...prev,
+        section: schoolSection,
+        targetGrade: grades[0] || prev.targetGrade,
+      }));
+    }
+  }, [schoolSection, editingLead]);
 
   // Yeni Görüşme Formu (Timeline içinde)
   const [interactionForm, setInteractionForm] = useState({
@@ -309,19 +344,114 @@ export default function CRMPage() {
     });
   }, [leads, search, filterSection, filterStatus, filterStaff, filterSource, filterPriority]);
 
-  // Aranacaklar Listesi (Follow-up takibi)
+  // Takvim Etkinlikleri (Gün bazlı aramalar ve randevular)
+  const calendarEventsByDate = useMemo(() => {
+    const map: Record<
+      string,
+      {
+        id: string;
+        lead: Lead;
+        kind: "CALL" | "APPOINTMENT";
+        time: string;
+        note: string;
+        label: string;
+      }[]
+    > = {};
+
+    const addEvent = (
+      dateStr: string,
+      item: {
+        id: string;
+        lead: Lead;
+        kind: "CALL" | "APPOINTMENT";
+        time: string;
+        note: string;
+        label: string;
+      }
+    ) => {
+      if (!dateStr) return;
+      if (!map[dateStr]) map[dateStr] = [];
+      // Aynı gün aynı aday için mükerrer kayıt olmasın
+      if (!map[dateStr].some((x) => x.lead.id === item.lead.id && x.kind === item.kind)) {
+        map[dateStr].push(item);
+      }
+    };
+
+    for (const lead of filteredLeads) {
+      let hasScheduledFollowUp = false;
+
+      for (const inter of lead.interactions || []) {
+        if (inter.followUpDate) {
+          hasScheduledFollowUp = true;
+          const fDate = inter.followUpDate.split("T")[0];
+          const isAppt =
+            lead.status === "APPOINTMENT" ||
+            inter.result === "APPOINTMENT_SET" ||
+            inter.type === "VISIT";
+          addEvent(fDate, {
+            id: `${lead.id}-${inter.id}-followup`,
+            lead,
+            kind: isAppt ? "APPOINTMENT" : "CALL",
+            time: inter.followUpTime || "",
+            note: inter.notes || lead.notes || "",
+            label: isAppt ? "Randevu / Ziyaret" : "Planlanan Arama",
+          });
+        } else if (inter.createdAt) {
+          const cDate = inter.createdAt.split("T")[0];
+          const isAppt = inter.type === "VISIT" || inter.result === "APPOINTMENT_SET";
+          addEvent(cDate, {
+            id: `${lead.id}-${inter.id}-created`,
+            lead,
+            kind: isAppt ? "APPOINTMENT" : "CALL",
+            time: new Date(inter.createdAt).toLocaleTimeString("tr-TR", {
+              hour: "2-digit",
+              minute: "2-digit",
+            }),
+            note: inter.notes || lead.notes || "",
+            label: isAppt ? "Kurum Görüşmesi" : "Yapılan Arama",
+          });
+        }
+      }
+
+      if (!hasScheduledFollowUp && lead.createdAt) {
+        const createdDate = lead.createdAt.split("T")[0];
+        const isAppt = lead.status === "APPOINTMENT";
+        addEvent(createdDate, {
+          id: `${lead.id}-initial`,
+          lead,
+          kind: isAppt ? "APPOINTMENT" : "CALL",
+          time: "",
+          note: lead.notes || "",
+          label: isAppt ? "Randevu" : "Yeni Aday / Arama",
+        });
+      }
+    }
+
+    // Saat sırasına göre diz
+    for (const d of Object.keys(map)) {
+      map[d].sort((a, b) => (a.time || "23:59").localeCompare(b.time || "23:59"));
+    }
+
+    return map;
+  }, [filteredLeads]);
+
+  const selectedDayEvents = useMemo(() => {
+    const list = calendarEventsByDate[selectedCalDate] || [];
+    if (calEventFilter === "ALL") return list;
+    return list.filter((item) => item.kind === calEventFilter);
+  }, [calendarEventsByDate, selectedCalDate, calEventFilter]);
+
+  // Aranacaklar Listesi (Bugün ve bekleyenler KPI için)
   const callList = useMemo(() => {
     const todayStr = new Date().toISOString().split("T")[0];
     return leads
       .filter((lead) => {
         if (lead.status === "REGISTERED" || lead.status === "LOST") return false;
-        // Son interaction'daki followUpDate
         const lastInterWithFollowUp = lead.interactions.find((i) => i.followUpDate);
         if (lastInterWithFollowUp && lastInterWithFollowUp.followUpDate) {
           const followStr = lastInterWithFollowUp.followUpDate.split("T")[0];
           return followStr <= todayStr;
         }
-        // Hiç görüşme yapılmamış yeni adaylar da çağrı listesine düşer
         return lead.interactions.length === 0;
       })
       .sort((a, b) => (b.priority === "URGENT" ? 1 : -1));
@@ -358,6 +488,15 @@ export default function CRMPage() {
         return;
       }
 
+      if (formData.followUpDate) {
+        setSelectedCalDate(formData.followUpDate);
+        const [y, m] = formData.followUpDate.split("-").map(Number);
+        if (y && m) {
+          setCalYear(y);
+          setCalMonth(m - 1);
+        }
+      }
+
       setIsAddModalOpen(false);
       setEditingLead(null);
       resetForm();
@@ -367,18 +506,19 @@ export default function CRMPage() {
     }
   };
 
-  const resetForm = () => {
+  const resetForm = (targetDate = selectedCalDate) => {
+    const grades = SECTION_GRADES[schoolSection] || [];
     setFormData({
       studentName: "",
       birthDate: "",
       gender: "UNSPECIFIED",
       currentSchool: "",
-      section: "ORTAOKUL",
-      targetGrade: "8. Sınıf (LGS)",
+      section: schoolSection,
+      targetGrade: grades[0] || "2 Yaş (Oyun Grubu)",
       educationType: "TAM_GUN",
       programInterest: "Tam Zamanlı Grup",
       campaignType: "",
-      source: "INSTAGRAM",
+      source: "WALK_IN",
       sourceDetail: "",
       priority: "MEDIUM",
       parentName: "",
@@ -394,22 +534,36 @@ export default function CRMPage() {
       discountNote: "",
       notes: "",
       initialInteractionNote: "",
+      followUpDate: targetDate || todayIso,
+      followUpTime: "",
+      scheduleType: "PHONE_CALL",
     });
   };
 
   const openEditModal = (lead: Lead) => {
     setEditingLead(lead);
+    const interWithDate = lead.interactions?.find((i) => i.followUpDate);
+    const fDate = interWithDate?.followUpDate
+      ? interWithDate.followUpDate.split("T")[0]
+      : lead.createdAt
+      ? lead.createdAt.split("T")[0]
+      : todayIso;
+    const isAppt =
+      lead.status === "APPOINTMENT" ||
+      interWithDate?.type === "VISIT" ||
+      interWithDate?.result === "APPOINTMENT_SET";
+
     setFormData({
       studentName: lead.studentName,
       birthDate: lead.birthDate ? lead.birthDate.split("T")[0] : "",
       gender: lead.gender || "UNSPECIFIED",
       currentSchool: lead.currentSchool || "",
-      section: (lead.section as any) || "ORTAOKUL",
-      targetGrade: lead.targetGrade || "8. Sınıf (LGS)",
+      section: (lead.section as any) || schoolSection,
+      targetGrade: lead.targetGrade || "2 Yaş (Oyun Grubu)",
       educationType: (lead.educationType as any) || "TAM_GUN",
       programInterest: lead.programInterest || "Tam Zamanlı Grup",
       campaignType: lead.campaignType || "",
-      source: lead.source || "INSTAGRAM",
+      source: lead.source || "WALK_IN",
       sourceDetail: lead.sourceDetail || "",
       priority: lead.priority || "MEDIUM",
       parentName: lead.parentName,
@@ -425,6 +579,9 @@ export default function CRMPage() {
       discountNote: lead.discountNote || "",
       notes: lead.notes || "",
       initialInteractionNote: "",
+      followUpDate: fDate,
+      followUpTime: interWithDate?.followUpTime || "",
+      scheduleType: isAppt ? "APPOINTMENT" : "PHONE_CALL",
     });
     setIsAddModalOpen(true);
   };
@@ -572,6 +729,14 @@ export default function CRMPage() {
   return (
     <div className="min-h-screen bg-slate-50/50 p-4 lg:p-8 space-y-6">
       {/* Header & KPI Paneli */}
+      <SchoolCategoryModal
+        isOpen={isSelectorOpen}
+        currentSection={hasSelectedCategory ? schoolSection : null}
+        hasSelectedBefore={hasSelectedCategory}
+        onSelect={(sec) => setSchoolSection(sec)}
+        onClose={() => setIsSelectorOpen(false)}
+      />
+
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2">
@@ -587,7 +752,11 @@ export default function CRMPage() {
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <SchoolCategoryBadge
+            activeCategory={activeCategory}
+            onOpenSelector={() => setIsSelectorOpen(true)}
+          />
           <button
             onClick={handleExportExcel}
             className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 text-xs font-semibold shadow-xs transition-all"
@@ -666,6 +835,17 @@ export default function CRMPage() {
           {/* Sekmeler */}
           <div className="flex items-center gap-1 p-1 bg-slate-100 rounded-xl max-w-fit">
             <button
+              onClick={() => setActiveTab("calls")}
+              className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                activeTab === "calls"
+                  ? "bg-white text-teal-800 shadow-xs"
+                  : "text-slate-500 hover:text-slate-800"
+              }`}
+            >
+              <Calendar className="w-3.5 h-3.5 text-teal-700" />
+              <span>Arama & Randevu Takvimi</span>
+            </button>
+            <button
               onClick={() => setActiveTab("kanban")}
               className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
                 activeTab === "kanban"
@@ -677,17 +857,6 @@ export default function CRMPage() {
               <span>Kanban Panosu</span>
             </button>
             <button
-              onClick={() => setActiveTab("calls")}
-              className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                activeTab === "calls"
-                  ? "bg-white text-purple-700 shadow-xs"
-                  : "text-slate-500 hover:text-slate-800"
-              }`}
-            >
-              <PhoneCall className="w-3.5 h-3.5" />
-              <span>Arama Listesi ({callList.length})</span>
-            </button>
-            <button
               onClick={() => setActiveTab("table")}
               className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
                 activeTab === "table"
@@ -696,7 +865,7 @@ export default function CRMPage() {
               }`}
             >
               <Users className="w-3.5 h-3.5" />
-              <span>Aday Listesi ({filteredLeads.length})</span>
+              <span>Tüm Aday Listesi ({filteredLeads.length})</span>
             </button>
           </div>
 
@@ -705,7 +874,7 @@ export default function CRMPage() {
             <Search className="w-4 h-4 absolute left-3 top-3 text-slate-400" />
             <input
               type="text"
-              placeholder="Öğrenci adı, veli adı, telefon, okul veya ilçe ara..."
+              placeholder="Öğrenci adı, veli adı veya telefon ara..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="w-full pl-9 pr-4 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs focus:ring-2 focus:ring-teal-600 focus:bg-white focus:outline-none"
@@ -713,29 +882,8 @@ export default function CRMPage() {
           </div>
         </div>
 
-        {/* Kademe Filtre Butonları */}
-        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 pt-1 border-t border-slate-100">
-          <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider shrink-0 mr-1 flex items-center gap-1">
-            <School className="w-3.5 h-3.5 text-teal-700" /> Kademe:
-          </span>
-          {SECTIONS.map((sec) => (
-            <button
-              key={sec.id}
-              onClick={() => setFilterSection(sec.id)}
-              className={`flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 ${
-                filterSection === sec.id
-                  ? "bg-teal-700 text-white shadow-xs"
-                  : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-              }`}
-            >
-              <span>{sec.icon}</span>
-              <span>{sec.label}</span>
-            </button>
-          ))}
-        </div>
-
         {/* Filtre Açılır Menüleri */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-2 pt-2 border-t border-slate-100">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-2 pt-2 border-t border-slate-100">
           <select
             value={filterStatus}
             onChange={(e) => setFilterStatus(e.target.value)}
@@ -750,25 +898,11 @@ export default function CRMPage() {
           </select>
 
           <select
-            value={filterStaff}
-            onChange={(e) => setFilterStaff(e.target.value)}
-            className="px-3 py-1.5 rounded-xl border border-slate-200 bg-slate-50 text-xs font-medium text-slate-700 focus:outline-none"
-          >
-            <option value="ALL">Tüm Danışmanlar</option>
-            <option value="UNASSIGNED">Atanmamış Adaylar</option>
-            {staffList.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.fullName} ({s.title || "Personel"})
-              </option>
-            ))}
-          </select>
-
-          <select
             value={filterSource}
             onChange={(e) => setFilterSource(e.target.value)}
             className="px-3 py-1.5 rounded-xl border border-slate-200 bg-slate-50 text-xs font-medium text-slate-700 focus:outline-none"
           >
-            <option value="ALL">Tüm Kaynaklar</option>
+            <option value="ALL">Tüm Kaynaklar (Nereden Alındı)</option>
             {Object.entries(SOURCES).map(([k, v]) => (
               <option key={k} value={k}>
                 {v}
@@ -830,7 +964,7 @@ export default function CRMPage() {
                           <div className="flex items-start justify-between gap-1">
                             <div>
                               <h4 className="text-xs font-bold text-slate-800 group-hover:text-teal-700 transition-colors">
-                                {lead.studentName}
+                                {lead.studentName?.trim() || `${lead.parentName} (Öğrencisi)`}
                               </h4>
                               <p className="text-[11px] text-slate-500 font-medium">
                                 {lead.targetGrade || "Sınıf belirtilmedi"}
@@ -852,7 +986,9 @@ export default function CRMPage() {
                                   ? "Anne"
                                   : lead.parentRelation === "FATHER"
                                   ? "Baba"
-                                  : "Vasi"}
+                                  : lead.parentRelation === "GUARDIAN"
+                                  ? "Yasal Vasi"
+                                  : "Diğer"}
                               </span>
                             </div>
                             <div className="flex items-center gap-1.5 text-teal-700 font-mono text-[10px]">
@@ -861,10 +997,10 @@ export default function CRMPage() {
                             </div>
                           </div>
 
-                          {/* Danışman ve Kaynak */}
+                          {/* Teklif ve Kaynak */}
                           <div className="flex items-center justify-between text-[10px] text-slate-500 pt-1 border-t border-slate-100">
-                            <span className="truncate max-w-[120px]">
-                              👤 {lead.assignedStaff?.fullName || "Danışman Yok"}
+                            <span className="font-bold text-slate-700 font-mono">
+                              {lead.offeredPrice ? `${lead.offeredPrice.toLocaleString("tr-TR")} ₺` : "Teklif Yok"}
                             </span>
                             <span className="text-[9px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-600">
                               {SOURCES[lead.source] ? SOURCES[lead.source].split("/")[0] : lead.source}
@@ -880,7 +1016,7 @@ export default function CRMPage() {
                                   setConvertingLead(lead);
                                   setConvertForm((prev) => ({
                                     ...prev,
-                                    fullName: lead.studentName,
+                                    fullName: lead.studentName || "",
                                     contractAmount: lead.offeredPrice ? lead.offeredPrice.toString() : "",
                                   }));
                                 }}
@@ -912,92 +1048,412 @@ export default function CRMPage() {
         </div>
       )}
 
-      {/* ================= TAB 2: BUGÜN ARANACAKLAR / ÇAĞRI LİSTESİ ================= */}
-      {activeTab === "calls" && (
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
-          <div className="p-4 border-b border-slate-100 bg-purple-50/50 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <div className="p-1.5 rounded-lg bg-purple-600 text-white">
-                <CalendarClock className="w-4 h-4" />
-              </div>
-              <div>
-                <h3 className="text-sm font-bold text-slate-800">Günlük Arama ve Takip Listesi</h3>
-                <p className="text-xs text-slate-500">
-                  Bugün aranması gereken, takip tarihi geçmiş veya hiç aranmamış adaylar
-                </p>
-              </div>
-            </div>
-            <span className="text-xs font-bold px-2.5 py-1 rounded-full bg-purple-100 text-purple-800">
-              {callList.length} Aday Bekliyor
-            </span>
-          </div>
+      {/* ================= TAB 2: ARAMA & RANDEVU TAKVİMİ (YIL / AY / GÜN SEÇİMLİ) ================= */}
+      {activeTab === "calls" && (() => {
+        const MONTHS_TR = [
+          "Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran",
+          "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık",
+        ];
+        const DAYS_TR = ["Pzt", "Sal", "Çar", "Per", "Cum", "Cmt", "Paz"];
+        const YEARS = [2024, 2025, 2026, 2027, 2028];
 
-          <div className="divide-y divide-slate-100">
-            {callList.length === 0 ? (
-              <div className="p-8 text-center space-y-2">
-                <CheckCircle2 className="w-8 h-8 text-emerald-500 mx-auto" />
-                <p className="text-sm font-bold text-slate-700">Tebrikler! Bekleyen aramanız bulunmuyor.</p>
-                <p className="text-xs text-slate-400">Tüm takipler ve görüşmeler başarıyla tamamlandı.</p>
-              </div>
-            ) : (
-              callList.map((lead) => {
-                const lastInter = lead.interactions[0];
-                return (
-                  <div
-                    key={lead.id}
-                    className="p-4 hover:bg-slate-50/80 transition-colors flex flex-col md:flex-row md:items-center justify-between gap-4"
-                  >
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2">
-                        <span className="font-bold text-sm text-slate-800">{lead.studentName}</span>
-                        <span className="text-xs text-slate-500">({lead.targetGrade || "Sınıf Yok"})</span>
-                        <span
-                          className={`text-[9px] font-bold px-2 py-0.5 rounded-full uppercase ${
-                            PRIORITIES[lead.priority]?.color
-                          }`}
-                        >
-                          {PRIORITIES[lead.priority]?.label}
-                        </span>
-                      </div>
-                      <div className="flex flex-wrap items-center gap-3 text-xs text-slate-600">
-                        <span>
-                          <strong>Veli:</strong> {lead.parentName} ({lead.parentRelation === "MOTHER" ? "Anne" : "Baba"})
-                        </span>
-                        <span className="font-mono text-teal-700 font-semibold flex items-center gap-1">
-                          <Phone className="w-3 h-3" /> {lead.parentPhone}
-                        </span>
-                        {lead.cityDistrict && <span>📍 {lead.cityDistrict}</span>}
-                        <span>👤 Danışman: {lead.assignedStaff?.fullName || "Atanmadı"}</span>
-                      </div>
-                      {lastInter && (
-                        <p className="text-[11px] text-slate-500 bg-slate-100 p-1.5 rounded-lg max-w-xl">
-                          <strong>Son Not:</strong> {lastInter.notes || "Not girilmemiş"}
-                        </p>
-                      )}
+        const daysInMonth = new Date(calYear, calMonth + 1, 0).getDate();
+        // Pazartesi = 0 .. Pazar = 6
+        const firstDayOfWeek = (new Date(calYear, calMonth, 1).getDay() + 6) % 7;
+
+        const goPrevMonth = () => {
+          if (calMonth === 0) {
+            setCalMonth(11);
+            setCalYear((y) => y - 1);
+          } else {
+            setCalMonth((m) => m - 1);
+          }
+        };
+
+        const goNextMonth = () => {
+          if (calMonth === 11) {
+            setCalMonth(0);
+            setCalYear((y) => y + 1);
+          } else {
+            setCalMonth((m) => m + 1);
+          }
+        };
+
+        const goToday = () => {
+          const now = new Date();
+          setCalYear(now.getFullYear());
+          setCalMonth(now.getMonth());
+          setSelectedCalDate(now.toISOString().split("T")[0]);
+        };
+
+        const selectedDateFormatted = new Date(`${selectedCalDate}T12:00:00`).toLocaleDateString("tr-TR", {
+          day: "numeric",
+          month: "long",
+          year: "numeric",
+          weekday: "long",
+        });
+
+        const allDayEvents = calendarEventsByDate[selectedCalDate] || [];
+        const callCountOnDay = allDayEvents.filter((x) => x.kind === "CALL").length;
+        const apptCountOnDay = allDayEvents.filter((x) => x.kind === "APPOINTMENT").length;
+
+        return (
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
+            {/* SOL PANEL: YIL, AY VE GÜN SEÇİMLİ TAKVİM */}
+            <div className="lg:col-span-5 bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
+              {/* Takvim Üst Başlık: Yıl ve Ay Seçimi */}
+              <div className="p-4 border-b border-slate-100 bg-slate-50/80 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className="p-2 rounded-xl bg-teal-800 text-white">
+                      <Calendar className="w-4 h-4" />
                     </div>
-
-                    <div className="flex items-center gap-2 shrink-0">
-                      <a
-                        href={`tel:${lead.parentPhone}`}
-                        className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-teal-600 hover:bg-teal-700 text-white text-xs font-semibold shadow-xs"
-                      >
-                        <Phone className="w-3.5 h-3.5" />
-                        <span>Hemen Ara</span>
-                      </a>
-                      <button
-                        onClick={() => setSelectedLead(lead)}
-                        className="px-3 py-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold shadow-xs"
-                      >
-                        Görüşme Kaydet
-                      </button>
+                    <div>
+                      <h3 className="text-sm font-bold text-slate-800">Arama & Randevu Takvimi</h3>
+                      <p className="text-[11px] text-slate-500">Yıl, ay ve gün seçerek aramaları inceleyin</p>
                     </div>
                   </div>
-                );
-              })
-            )}
+                  <button
+                    type="button"
+                    onClick={goToday}
+                    className="px-2.5 py-1.5 rounded-lg bg-teal-50 hover:bg-teal-100 text-teal-800 border border-teal-200 text-xs font-bold transition-colors"
+                  >
+                    Bugün
+                  </button>
+                </div>
+
+                {/* Yıl ve Ay Seçiciler */}
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={goPrevMonth}
+                    className="px-2.5 py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-100 text-slate-700 text-xs font-bold"
+                    title="Önceki Ay"
+                  >
+                    &larr;
+                  </button>
+
+                  <select
+                    value={calMonth}
+                    onChange={(e) => {
+                      const newM = Number(e.target.value);
+                      setCalMonth(newM);
+                      const dStr = `${calYear}-${String(newM + 1).padStart(2, "0")}-01`;
+                      setSelectedCalDate(dStr);
+                    }}
+                    className="flex-1 px-3 py-1.5 rounded-xl border border-slate-200 bg-white text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-600"
+                  >
+                    {MONTHS_TR.map((mName, idx) => (
+                      <option key={mName} value={idx}>
+                        {mName}
+                      </option>
+                    ))}
+                  </select>
+
+                  <select
+                    value={calYear}
+                    onChange={(e) => {
+                      const newY = Number(e.target.value);
+                      setCalYear(newY);
+                      const dStr = `${newY}-${String(calMonth + 1).padStart(2, "0")}-01`;
+                      setSelectedCalDate(dStr);
+                    }}
+                    className="w-24 px-3 py-1.5 rounded-xl border border-slate-200 bg-white text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-600"
+                  >
+                    {YEARS.map((y) => (
+                      <option key={y} value={y}>
+                        {y}
+                      </option>
+                    ))}
+                  </select>
+
+                  <button
+                    type="button"
+                    onClick={goNextMonth}
+                    className="px-2.5 py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-100 text-slate-700 text-xs font-bold"
+                    title="Sonraki Ay"
+                  >
+                    &rarr;
+                  </button>
+                </div>
+              </div>
+
+              {/* Gün İsimleri Başlığı */}
+              <div className="p-3">
+                <div className="grid grid-cols-7 gap-1 mb-1 text-center">
+                  {DAYS_TR.map((d) => (
+                    <div key={d} className="text-[11px] font-bold text-slate-400 py-1">
+                      {d}
+                    </div>
+                  ))}
+                </div>
+
+                {/* Gün Kutucukları */}
+                <div className="grid grid-cols-7 gap-1">
+                  {Array.from({ length: firstDayOfWeek }).map((_, idx) => (
+                    <div key={`empty-${idx}`} className="h-16 rounded-xl bg-slate-50/40" />
+                  ))}
+
+                  {Array.from({ length: daysInMonth }).map((_, idx) => {
+                    const dayNum = idx + 1;
+                    const dateStr = `${calYear}-${String(calMonth + 1).padStart(2, "0")}-${String(dayNum).padStart(2, "0")}`;
+                    const isSelected = selectedCalDate === dateStr;
+                    const isToday = todayIso === dateStr;
+                    const dayEvents = calendarEventsByDate[dateStr] || [];
+                    const callsCount = dayEvents.filter((x) => x.kind === "CALL").length;
+                    const apptsCount = dayEvents.filter((x) => x.kind === "APPOINTMENT").length;
+
+                    return (
+                      <button
+                        key={dateStr}
+                        type="button"
+                        onClick={() => setSelectedCalDate(dateStr)}
+                        className={`h-16 p-1.5 rounded-xl border text-left flex flex-col justify-between transition-all relative ${
+                          isSelected
+                            ? "border-2 border-teal-700 bg-teal-50/80 shadow-xs"
+                            : isToday
+                            ? "border-teal-300 bg-teal-50/30 hover:border-teal-500"
+                            : dayEvents.length > 0
+                            ? "border-slate-200 bg-white hover:border-teal-500 hover:bg-slate-50"
+                            : "border-slate-100 bg-white hover:border-slate-300"
+                        }`}
+                      >
+                        <div className="flex items-center justify-between w-full">
+                          <span
+                            className={`text-xs font-extrabold ${
+                              isSelected
+                                ? "text-teal-900"
+                                : isToday
+                                ? "text-teal-700"
+                                : "text-slate-700"
+                            }`}
+                          >
+                            {dayNum}
+                          </span>
+                          {isToday && (
+                            <span className="w-1.5 h-1.5 rounded-full bg-teal-600" title="Bugün" />
+                          )}
+                        </div>
+
+                        <div className="space-y-0.5 w-full">
+                          {callsCount > 0 && (
+                            <div className="text-[9px] font-bold px-1 py-0.2 rounded bg-blue-100 text-blue-800 truncate">
+                              📞 {callsCount} Arama
+                            </div>
+                          )}
+                          {apptsCount > 0 && (
+                            <div className="text-[9px] font-bold px-1 py-0.2 rounded bg-purple-100 text-purple-800 truncate">
+                              📅 {apptsCount} Randevu
+                            </div>
+                          )}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Renk Açıklaması */}
+                <div className="flex items-center justify-center gap-4 pt-3 mt-3 border-t border-slate-100 text-[11px] text-slate-500 font-medium">
+                  <span className="flex items-center gap-1">
+                    <span className="w-2.5 h-2.5 rounded bg-blue-100 border border-blue-300 inline-block" /> 📞 Arama / Takip
+                  </span>
+                  <span className="flex items-center gap-1">
+                    <span className="w-2.5 h-2.5 rounded bg-purple-100 border border-purple-300 inline-block" /> 📅 Randevu / Ziyaret
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* SAĞ PANEL: SEÇİLEN GÜNÜN ARAMALARI VE RANDEVULARI */}
+            <div className="lg:col-span-7 bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
+              <div className="p-4 border-b border-slate-100 bg-slate-50/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div>
+                  <span className="text-[11px] font-bold text-teal-700 uppercase tracking-wider block">
+                    Seçilen Gün Detayı
+                  </span>
+                  <h3 className="text-base font-extrabold text-slate-800">{selectedDateFormatted}</h3>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      resetForm(selectedCalDate);
+                      setEditingLead(null);
+                      setIsAddModalOpen(true);
+                    }}
+                    className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-teal-700 hover:bg-teal-800 text-white text-xs font-bold shadow-xs transition-all"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Bu Güne Arama / Randevu Ekle</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Tür Filtresi (Tümü / Aramalar / Randevular) */}
+              <div className="px-4 py-2.5 bg-white border-b border-slate-100 flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setCalEventFilter("ALL")}
+                    className={`px-3 py-1 rounded-lg text-xs font-bold transition-all ${
+                      calEventFilter === "ALL"
+                        ? "bg-slate-800 text-white"
+                        : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                    }`}
+                  >
+                    Tümü ({allDayEvents.length})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCalEventFilter("CALL")}
+                    className={`px-3 py-1 rounded-lg text-xs font-bold transition-all ${
+                      calEventFilter === "CALL"
+                        ? "bg-blue-600 text-white"
+                        : "bg-blue-50 text-blue-700 hover:bg-blue-100"
+                    }`}
+                  >
+                    📞 Aramalar ({callCountOnDay})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCalEventFilter("APPOINTMENT")}
+                    className={`px-3 py-1 rounded-lg text-xs font-bold transition-all ${
+                      calEventFilter === "APPOINTMENT"
+                        ? "bg-purple-600 text-white"
+                        : "bg-purple-50 text-purple-700 hover:bg-purple-100"
+                    }`}
+                  >
+                    📅 Randevular ({apptCountOnDay})
+                  </button>
+                </div>
+              </div>
+
+              {/* Seçili Günün Kayıtları Listesi */}
+              <div className="divide-y divide-slate-100">
+                {selectedDayEvents.length === 0 ? (
+                  <div className="p-10 text-center space-y-2">
+                    <CalendarClock className="w-8 h-8 text-slate-300 mx-auto" />
+                    <p className="text-sm font-bold text-slate-700">
+                      {selectedDateFormatted} günü için kayıtlı arama veya randevu bulunmuyor.
+                    </p>
+                    <p className="text-xs text-slate-400">
+                      Sol taraftaki takvimden başka bir gün seçebilir veya yukarıdaki butondan bu güne yeni arama/randevu ekleyebilirsiniz.
+                    </p>
+                  </div>
+                ) : (
+                  selectedDayEvents.map((item) => {
+                    const { lead } = item;
+                    const stage = STAGES.find((s) => s.id === lead.status) || STAGES[0];
+                    return (
+                      <div
+                        key={item.id}
+                        className="p-4 hover:bg-slate-50/80 transition-colors flex flex-col md:flex-row md:items-center justify-between gap-4"
+                      >
+                        <div className="space-y-1.5">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span
+                              className={`text-[10px] font-extrabold px-2.5 py-0.5 rounded-lg border ${
+                                item.kind === "APPOINTMENT"
+                                  ? "bg-purple-50 text-purple-800 border-purple-200"
+                                  : "bg-blue-50 text-blue-800 border-blue-200"
+                              }`}
+                            >
+                              {item.kind === "APPOINTMENT" ? "📅 Randevu / Ziyaret" : "📞 Arama / Takip"}
+                            </span>
+
+                            {item.time && (
+                              <span className="text-[11px] font-mono font-bold px-2 py-0.5 rounded-lg bg-amber-50 text-amber-800 border border-amber-200">
+                                ⏰ Saat: {item.time}
+                              </span>
+                            )}
+
+                            <span
+                              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border ${stage.color}`}
+                            >
+                              {stage.label}
+                            </span>
+                          </div>
+
+                          <div className="flex flex-wrap items-center gap-3 text-xs text-slate-700 pt-0.5">
+                            <span className="font-bold text-sm text-slate-900">
+                              {lead.parentName}{" "}
+                              <span className="text-xs font-normal text-slate-500">
+                                ({lead.parentRelation === "MOTHER"
+                                  ? "Anne"
+                                  : lead.parentRelation === "FATHER"
+                                  ? "Baba"
+                                  : lead.parentRelation === "GUARDIAN"
+                                  ? "Yasal Vasi"
+                                  : "Diğer"})
+                              </span>
+                            </span>
+
+                            <span className="font-mono text-teal-700 font-bold flex items-center gap-1">
+                              <Phone className="w-3.5 h-3.5" /> {lead.parentPhone}
+                            </span>
+
+                            {lead.studentName?.trim() && (
+                              <span className="text-slate-600">
+                                👧 <strong>Öğrenci:</strong> {lead.studentName}
+                              </span>
+                            )}
+
+                            {lead.targetGrade && (
+                              <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-700 text-[11px] font-semibold">
+                                {lead.targetGrade}
+                              </span>
+                            )}
+                          </div>
+
+                          <div className="flex flex-wrap items-center gap-3 text-[11px] text-slate-500">
+                            <span>📌 Kaynak: <strong>{SOURCES[lead.source] || lead.source}</strong></span>
+                            {lead.offeredPrice ? (
+                              <span className="font-mono font-bold text-teal-800">
+                                💰 Verilen Son Teklif: {lead.offeredPrice.toLocaleString("tr-TR")} ₺
+                              </span>
+                            ) : null}
+                          </div>
+
+                          {item.note && (
+                            <p className="text-xs text-slate-700 bg-slate-100/90 p-2 rounded-xl border border-slate-200/70 max-w-xl">
+                              <strong>Açıklama / Not:</strong> {item.note}
+                            </p>
+                          )}
+                        </div>
+
+                        <div className="flex flex-wrap items-center gap-2 shrink-0">
+                          <a
+                            href={`tel:${lead.parentPhone}`}
+                            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-teal-600 hover:bg-teal-700 text-white text-xs font-semibold shadow-xs"
+                          >
+                            <Phone className="w-3.5 h-3.5" />
+                            <span>Ara</span>
+                          </a>
+                          <button
+                            type="button"
+                            onClick={() => openEditModal(lead)}
+                            className="px-3 py-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold shadow-xs"
+                          >
+                            Düzenle / Tarih Değiştir
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setSelectedLead(lead)}
+                            className="px-3 py-2 rounded-xl border border-teal-200 bg-teal-50 hover:bg-teal-100 text-teal-800 text-xs font-bold shadow-xs"
+                          >
+                            Görüşme Notu Ekle
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* ================= TAB 3: TABLO GÖRÜNÜMÜ ================= */}
       {activeTab === "table" && (
@@ -1006,20 +1462,19 @@ export default function CRMPage() {
             <table className="w-full text-left text-xs text-slate-700">
               <thead className="bg-slate-50 text-[11px] uppercase tracking-wider text-slate-500 font-semibold border-b border-slate-200">
                 <tr>
-                  <th className="py-3 px-4">Öğrenci & Okul</th>
+                  <th className="py-3 px-4">Öğrenci & Sınıf</th>
                   <th className="py-3 px-4">Veli & İletişim</th>
                   <th className="py-3 px-4">Aşama / Durum</th>
-                  <th className="py-3 px-4">Öncelik</th>
-                  <th className="py-3 px-4">Kaynak</th>
-                  <th className="py-3 px-4">Danışman</th>
-                  <th className="py-3 px-4">Teklif (TL)</th>
+                  <th className="py-3 px-4">Nereden Alındı</th>
+                  <th className="py-3 px-4">Verilen Son Teklif</th>
+                  <th className="py-3 px-4">Açıklama</th>
                   <th className="py-3 px-4 text-right">İşlemler</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 font-medium">
                 {filteredLeads.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="py-8 text-center text-slate-400">
+                    <td colSpan={7} className="py-8 text-center text-slate-400">
                       Arama kriterlerine uygun aday bulunamadı.
                     </td>
                   </tr>
@@ -1029,11 +1484,18 @@ export default function CRMPage() {
                     return (
                       <tr key={lead.id} className="hover:bg-slate-50/80 transition-colors">
                         <td className="py-3.5 px-4">
-                          <p className="font-bold text-slate-800">{lead.studentName}</p>
-                          <p className="text-[11px] text-slate-400">{lead.targetGrade || lead.currentSchool || "-"}</p>
+                          <p className="font-bold text-slate-800">
+                            {lead.studentName?.trim() || <span className="text-slate-400 italic">Belirtilmedi</span>}
+                          </p>
+                          <p className="text-[11px] text-slate-400">{lead.targetGrade || "-"}</p>
                         </td>
                         <td className="py-3.5 px-4">
-                          <p className="font-semibold text-slate-800">{lead.parentName}</p>
+                          <p className="font-semibold text-slate-800">
+                            {lead.parentName}{" "}
+                            <span className="text-[10px] text-slate-400 font-normal">
+                              ({lead.parentRelation === "MOTHER" ? "Anne" : lead.parentRelation === "FATHER" ? "Baba" : "Veli"})
+                            </span>
+                          </p>
                           <p className="font-mono text-teal-700 text-[11px]">{lead.parentPhone}</p>
                         </td>
                         <td className="py-3.5 px-4">
@@ -1044,27 +1506,15 @@ export default function CRMPage() {
                             {stage.label}
                           </span>
                         </td>
-                        <td className="py-3.5 px-4">
-                          <span
-                            className={`text-[9px] font-bold px-2 py-0.5 rounded uppercase ${
-                              PRIORITIES[lead.priority]?.color
-                            }`}
-                          >
-                            {PRIORITIES[lead.priority]?.label}
-                          </span>
-                        </td>
                         <td className="py-3.5 px-4 text-[11px] text-slate-600">
-                          {SOURCES[lead.source] || lead.source}
-                        </td>
-                        <td className="py-3.5 px-4 text-[11px]">
-                          {lead.assignedStaff?.fullName ? (
-                            <span className="font-semibold text-slate-700">👤 {lead.assignedStaff.fullName}</span>
-                          ) : (
-                            <span className="text-slate-400 italic">Atanmadı</span>
-                          )}
+                          <p>{SOURCES[lead.source] || lead.source}</p>
+                          {lead.sourceDetail && <p className="text-[10px] text-slate-400">{lead.sourceDetail}</p>}
                         </td>
                         <td className="py-3.5 px-4 font-mono font-bold text-slate-800">
                           {lead.offeredPrice ? `${lead.offeredPrice.toLocaleString("tr-TR")} ₺` : "-"}
+                        </td>
+                        <td className="py-3.5 px-4 text-[11px] text-slate-600 max-w-xs truncate">
+                          {lead.notes || lead.interactions[0]?.notes || "-"}
                         </td>
                         <td className="py-3.5 px-4 text-right">
                           <div className="flex items-center justify-end gap-1.5">
@@ -1088,7 +1538,7 @@ export default function CRMPage() {
                                   setConvertingLead(lead);
                                   setConvertForm((prev) => ({
                                     ...prev,
-                                    fullName: lead.studentName,
+                                    fullName: lead.studentName || "",
                                     contractAmount: lead.offeredPrice ? lead.offeredPrice.toString() : "",
                                   }));
                                 }}
@@ -1113,7 +1563,7 @@ export default function CRMPage() {
       {/* ================= MODAL 1: YENİ ADAY / ADAY DÜZENLEME ================= */}
       {isAddModalOpen && (
         <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full overflow-hidden border border-slate-100 my-8">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-xl w-full overflow-hidden border border-slate-100 my-8">
             <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50">
               <div className="flex items-center gap-2">
                 <div className="w-8 h-8 rounded-lg bg-teal-800 text-white flex items-center justify-center font-bold text-xs">
@@ -1121,9 +1571,9 @@ export default function CRMPage() {
                 </div>
                 <div>
                   <h3 className="font-bold text-slate-800 text-sm">
-                    {editingLead ? "Aday Öğrenciyi Güncelle" : "Yeni Aday Öğrenci Girişi"}
+                    {editingLead ? "Aday Bilgilerini Güncelle" : "Yeni Aday Öğrenci Girişi"}
                   </h3>
-                  <p className="text-[11px] text-slate-500">Öğrenci, veli ve kayıt potansiyeli bilgilerini giriniz</p>
+                  <p className="text-[11px] text-slate-500">Veli iletişim, arama/randevu tarihi ve teklif bilgilerini giriniz</p>
                 </div>
               </div>
               <button
@@ -1135,137 +1585,18 @@ export default function CRMPage() {
             </div>
 
             <form onSubmit={handleSaveLead} className="p-6 space-y-4 max-h-[80vh] overflow-y-auto">
-              {/* Öğrenci Bilgileri */}
+              {/* Veli & Öğrenci Bilgileri */}
               <div className="space-y-3">
-                <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
-                  <GraduationCap className="w-4 h-4 text-teal-700" /> Aday Öğrenci Bilgileri & Kademe
-                </h4>
-
-                {/* Kademe Seçimi */}
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                    Okul Kademesi *
-                  </label>
-                  <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
-                    {SECTIONS.filter(s => s.id !== "ALL").map((sec) => (
-                      <button
-                        type="button"
-                        key={sec.id}
-                        onClick={() => {
-                          const grades = SECTION_GRADES[sec.id] || [];
-                          setFormData({
-                            ...formData,
-                            section: sec.id as any,
-                            targetGrade: grades[0] || formData.targetGrade,
-                          });
-                        }}
-                        className={`flex items-center justify-center gap-1.5 py-2 px-2.5 rounded-xl border text-xs font-bold transition-all ${
-                          formData.section === sec.id
-                            ? "bg-teal-700 text-white border-teal-700 shadow-xs"
-                            : "bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100"
-                        }`}
-                      >
-                        <span>{sec.icon}</span>
-                        <span>{sec.label.split(" ")[0]}</span>
-                      </button>
-                    ))}
-                  </div>
+                <div className="flex items-center justify-between">
+                  <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
+                    <Users className="w-4 h-4 text-teal-700" /> Veli & Öğrenci Bilgileri
+                  </h4>
+                  <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-lg bg-teal-50 text-teal-800 border border-teal-200">
+                    {activeCategory.icon} {activeCategory.label}
+                  </span>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">
-                      Öğrenci Adı Soyadı *
-                    </label>
-                    <input
-                      type="text"
-                      required
-                      value={formData.studentName}
-                      onChange={(e) => setFormData({ ...formData, studentName: e.target.value })}
-                      placeholder="Örn: Deniz Kaya"
-                      className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 text-xs focus:ring-2 focus:ring-teal-600 focus:bg-white focus:outline-none"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">
-                      Eğitim Şekli / Zamanı
-                    </label>
-                    <select
-                      value={formData.educationType}
-                      onChange={(e) => setFormData({ ...formData, educationType: e.target.value as any })}
-                      className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 text-xs focus:ring-2 focus:ring-teal-600 focus:bg-white focus:outline-none font-semibold text-slate-800"
-                    >
-                      <option value="TAM_GUN">Tam Gün (08:30 - 17:30)</option>
-                      <option value="YARIM_GUN_SABAH">Yarım Gün Sabah (08:30 - 12:30)</option>
-                      <option value="YARIM_GUN_OGLE">Yarım Gün Öğle (13:00 - 17:30)</option>
-                    </select>
-                  </div>
-
-                  <div className="md:col-span-2">
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">
-                      Hedef Sınıf / Yaş Grubu *
-                    </label>
-                    <div className="flex flex-wrap gap-1.5 mb-2">
-                      {(SECTION_GRADES[formData.section] || []).map((grade) => (
-                        <button
-                          type="button"
-                          key={grade}
-                          onClick={() => setFormData({ ...formData, targetGrade: grade })}
-                          className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all border ${
-                            formData.targetGrade === grade
-                              ? "bg-teal-50 border-teal-600 text-teal-800 font-bold"
-                              : "bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100"
-                          }`}
-                        >
-                          {grade}
-                        </button>
-                      ))}
-                    </div>
-                    <input
-                      type="text"
-                      required
-                      value={formData.targetGrade}
-                      onChange={(e) => setFormData({ ...formData, targetGrade: e.target.value })}
-                      placeholder="Örn: 3 Yaş (Oyun Grubu), 8. Sınıf (LGS), vb."
-                      className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 text-xs focus:ring-2 focus:ring-teal-600 focus:bg-white focus:outline-none"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">
-                      Mevcut Okulu / Yuvası
-                    </label>
-                    <input
-                      type="text"
-                      value={formData.currentSchool}
-                      onChange={(e) => setFormData({ ...formData, currentSchool: e.target.value })}
-                      placeholder="Örn: Minik Kalpler Anaokulu"
-                      className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 text-xs focus:ring-2 focus:ring-teal-600 focus:bg-white focus:outline-none"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">
-                      İlgilendiği Program / Beklenti
-                    </label>
-                    <input
-                      type="text"
-                      value={formData.programInterest}
-                      onChange={(e) => setFormData({ ...formData, programInterest: e.target.value })}
-                      placeholder="Örn: İngilizce Ağırlıklı, Oyun Tabanlı, Etüt"
-                      className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 text-xs focus:ring-2 focus:ring-teal-600 focus:bg-white focus:outline-none"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* Veli Bilgileri */}
-              <div className="space-y-3 pt-3 border-t border-slate-100">
-                <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
-                  <Users className="w-4 h-4 text-teal-700" /> Veli & İletişim Bilgileri
-                </h4>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                   <div>
                     <label className="block text-xs font-semibold text-slate-700 mb-1">
                       Veli Adı Soyadı *
@@ -1298,7 +1629,7 @@ export default function CRMPage() {
 
                   <div>
                     <label className="block text-xs font-semibold text-slate-700 mb-1">
-                      Veli Telefonu *
+                      Telefon Numarası *
                     </label>
                     <input
                       type="tel"
@@ -1312,59 +1643,101 @@ export default function CRMPage() {
 
                   <div>
                     <label className="block text-xs font-semibold text-slate-700 mb-1">
-                      Veli Mesleği
+                      Öğrenci Adı Soyadı <span className="text-slate-400 font-normal">(Opsiyonel)</span>
                     </label>
                     <input
                       type="text"
-                      value={formData.parentJob}
-                      onChange={(e) => setFormData({ ...formData, parentJob: e.target.value })}
-                      placeholder="Örn: Mühendis, Doktor, Esnaf"
+                      value={formData.studentName}
+                      onChange={(e) => setFormData({ ...formData, studentName: e.target.value })}
+                      placeholder="Örn: Deniz Kaya (Boş bırakılabilir)"
                       className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 text-xs focus:ring-2 focus:ring-teal-600 focus:bg-white focus:outline-none"
+                    />
+                  </div>
+
+                  <div className="md:col-span-2">
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      Hedef Sınıf / Yaş Grubu
+                    </label>
+                    <div className="flex flex-wrap gap-1.5">
+                      {(SECTION_GRADES[formData.section] || []).map((grade) => (
+                        <button
+                          type="button"
+                          key={grade}
+                          onClick={() => setFormData({ ...formData, targetGrade: grade })}
+                          className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-all border ${
+                            formData.targetGrade === grade
+                              ? "bg-teal-50 border-teal-600 text-teal-800 font-bold"
+                              : "bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100"
+                          }`}
+                        >
+                          {grade}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Takvim Planı: Arama veya Randevu Tarihi */}
+              <div className="space-y-3 pt-3 border-t border-slate-100">
+                <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
+                  <Calendar className="w-4 h-4 text-teal-700" /> Takvim: Arama & Randevu Planı
+                </h4>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      İşlem Türü
+                    </label>
+                    <select
+                      value={formData.scheduleType}
+                      onChange={(e) => setFormData({ ...formData, scheduleType: e.target.value as any })}
+                      className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 text-xs font-semibold text-slate-800 focus:ring-2 focus:ring-teal-600 focus:bg-white focus:outline-none"
+                    >
+                      <option value="PHONE_CALL">📞 Telefon Araması</option>
+                      <option value="APPOINTMENT">📅 Kurum Randevusu</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      Arama / Randevu Tarihi
+                    </label>
+                    <input
+                      type="date"
+                      value={formData.followUpDate}
+                      onChange={(e) => setFormData({ ...formData, followUpDate: e.target.value })}
+                      className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 text-xs font-semibold text-slate-800 focus:ring-2 focus:ring-teal-600 focus:bg-white focus:outline-none"
                     />
                   </div>
 
                   <div>
                     <label className="block text-xs font-semibold text-slate-700 mb-1">
-                      İlçe / Bölge
+                      Saat <span className="text-slate-400 font-normal">(Opsiyonel)</span>
                     </label>
                     <input
-                      type="text"
-                      value={formData.cityDistrict}
-                      onChange={(e) => setFormData({ ...formData, cityDistrict: e.target.value })}
-                      placeholder="Örn: Kadıköy / Moda"
-                      className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 text-xs focus:ring-2 focus:ring-teal-600 focus:bg-white focus:outline-none"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">
-                      Veli E-Posta
-                    </label>
-                    <input
-                      type="email"
-                      value={formData.parentEmail}
-                      onChange={(e) => setFormData({ ...formData, parentEmail: e.target.value })}
-                      placeholder="veli@example.com"
-                      className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 text-xs focus:ring-2 focus:ring-teal-600 focus:bg-white focus:outline-none"
+                      type="time"
+                      value={formData.followUpTime}
+                      onChange={(e) => setFormData({ ...formData, followUpTime: e.target.value })}
+                      className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 text-xs font-semibold text-slate-800 focus:ring-2 focus:ring-teal-600 focus:bg-white focus:outline-none"
                     />
                   </div>
                 </div>
               </div>
 
-              {/* Pazarlama, Danışman & Teklif */}
+              {/* Nereden Alındığı & Teklif Bilgisi */}
               <div className="space-y-3 pt-3 border-t border-slate-100">
                 <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
-                  <Target className="w-4 h-4 text-teal-700" /> Kaynak, Danışman & Fiyat Teklifi
+                  <Target className="w-4 h-4 text-teal-700" /> Kaynak & Verilen Teklif
                 </h4>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <div>
                     <label className="block text-xs font-semibold text-slate-700 mb-1">
-                      Aday Kaynağı
+                      Nereden Alındığı (Kaynak)
                     </label>
                     <select
                       value={formData.source}
                       onChange={(e) => setFormData({ ...formData, source: e.target.value })}
-                      className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 text-xs focus:ring-2 focus:ring-teal-600 focus:bg-white focus:outline-none"
+                      className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 text-xs focus:ring-2 focus:ring-teal-600 focus:bg-white focus:outline-none font-semibold text-slate-800"
                     >
                       {Object.entries(SOURCES).map(([k, v]) => (
                         <option key={k} value={k}>
@@ -1376,111 +1749,30 @@ export default function CRMPage() {
 
                   <div>
                     <label className="block text-xs font-semibold text-slate-700 mb-1">
-                      Kaynak Detayı / Referans Veli
-                    </label>
-                    <input
-                      type="text"
-                      value={formData.sourceDetail}
-                      onChange={(e) => setFormData({ ...formData, sourceDetail: e.target.value })}
-                      placeholder="Örn: Ahmet Bey'in tavsiyesi"
-                      className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 text-xs focus:ring-2 focus:ring-teal-600 focus:bg-white focus:outline-none"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">
-                      Kayıt Danışmanı (Personel)
-                    </label>
-                    <select
-                      value={formData.assignedStaffId}
-                      onChange={(e) => setFormData({ ...formData, assignedStaffId: e.target.value })}
-                      className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 text-xs focus:ring-2 focus:ring-teal-600 focus:bg-white focus:outline-none"
-                    >
-                      <option value="">Danışman Seçin...</option>
-                      {staffList.map((s) => (
-                        <option key={s.id} value={s.id}>
-                          {s.fullName} ({s.title || "Personel"})
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">
-                      Öncelik Seviyesi
-                    </label>
-                    <select
-                      value={formData.priority}
-                      onChange={(e) => setFormData({ ...formData, priority: e.target.value as any })}
-                      className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 text-xs focus:ring-2 focus:ring-teal-600 focus:bg-white focus:outline-none"
-                    >
-                      {Object.entries(PRIORITIES).map(([k, v]) => (
-                        <option key={k} value={k}>
-                          {v.label}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">
-                      Kampanya Türü
-                    </label>
-                    <select
-                      value={formData.campaignType}
-                      onChange={(e) => setFormData({ ...formData, campaignType: e.target.value })}
-                      className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 text-xs focus:ring-2 focus:ring-teal-600 focus:bg-white focus:outline-none"
-                    >
-                      <option value="">Standart Fiyat / Kampanyasız</option>
-                      {CAMPAIGN_PRESETS.map((c) => (
-                        <option key={c} value={c}>
-                          {c}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">
-                      Önerilen Teklif Tutarı (TL)
+                      Verilen En Son Teklif Fiyatı (TL)
                     </label>
                     <input
                       type="number"
                       value={formData.offeredPrice}
                       onChange={(e) => setFormData({ ...formData, offeredPrice: e.target.value })}
                       placeholder="Örn: 95000"
-                      className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 text-xs focus:ring-2 focus:ring-teal-600 focus:bg-white focus:outline-none font-mono"
-                    />
-                  </div>
-
-                  <div className="md:col-span-3">
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">
-                      İndirim / Kampanya Açıklaması
-                    </label>
-                    <input
-                      type="text"
-                      value={formData.discountNote}
-                      onChange={(e) => setFormData({ ...formData, discountNote: e.target.value })}
-                      placeholder="Örn: Erken Kayıt %10 İndirimi + Peşin Ödeme Avantajı"
-                      className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 text-xs focus:ring-2 focus:ring-teal-600 focus:bg-white focus:outline-none"
+                      className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 text-xs focus:ring-2 focus:ring-teal-600 focus:bg-white focus:outline-none font-mono font-bold text-slate-800"
                     />
                   </div>
                 </div>
 
-                {!editingLead && (
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">
-                      İlk Görüşme Notu (Opsiyonel)
-                    </label>
-                    <textarea
-                      rows={2}
-                      value={formData.initialInteractionNote}
-                      onChange={(e) => setFormData({ ...formData, initialInteractionNote: e.target.value })}
-                      placeholder="Veli ile yapılan ilk temas özeti..."
-                      className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 text-xs focus:ring-2 focus:ring-teal-600 focus:bg-white focus:outline-none"
-                    />
-                  </div>
-                )}
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Açıklama / Görüşme Notu
+                  </label>
+                  <textarea
+                    rows={3}
+                    value={formData.notes}
+                    onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+                    placeholder="Veli ile yapılan görüşme detayı, özel notlar veya açıklama..."
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 text-xs focus:ring-2 focus:ring-teal-600 focus:bg-white focus:outline-none"
+                  />
+                </div>
               </div>
 
               <div className="pt-4 flex items-center justify-end gap-2 border-t border-slate-100">
@@ -1495,7 +1787,7 @@ export default function CRMPage() {
                   type="submit"
                   className="px-5 py-2.5 rounded-xl bg-teal-700 hover:bg-teal-800 text-white text-xs font-semibold shadow-xs"
                 >
-                  {editingLead ? "Değişiklikleri Kaydet" : "Adayı Oluştur"}
+                  {editingLead ? "Değişiklikleri Kaydet" : "Adayı Kaydet"}
                 </button>
               </div>
             </form>
@@ -1513,7 +1805,9 @@ export default function CRMPage() {
                 <span className="text-[10px] font-bold text-teal-700 uppercase tracking-wider block">
                   Aday Detayı & Görüşme Geçmişi
                 </span>
-                <h3 className="text-base font-bold text-slate-800">{selectedLead.studentName}</h3>
+                <h3 className="text-base font-bold text-slate-800">
+                  {selectedLead.studentName?.trim() || `${selectedLead.parentName} (Öğrencisi)`}
+                </h3>
               </div>
               <button
                 onClick={() => setSelectedLead(null)}
@@ -1558,7 +1852,7 @@ export default function CRMPage() {
                         setConvertingLead(selectedLead);
                         setConvertForm((prev) => ({
                           ...prev,
-                          fullName: selectedLead.studentName,
+                          fullName: selectedLead.studentName || "",
                           contractAmount: selectedLead.offeredPrice ? selectedLead.offeredPrice.toString() : "",
                         }));
                       }}
@@ -1581,59 +1875,42 @@ export default function CRMPage() {
               </div>
 
               {/* Temel Bilgiler Kartı */}
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-xs">
+              <div className="grid grid-cols-2 gap-3 text-xs">
                 <div className="p-3 rounded-xl bg-slate-50 border border-slate-100 space-y-1">
-                  <span className="text-slate-400 font-medium">Kademe & Sınıf</span>
-                  <div className="flex items-center gap-1">
-                    {selectedLead.section && (
-                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-teal-100 text-teal-800">
-                        {selectedLead.section === "ANAOKULU" ? "🧸 Anaokulu" :
-                         selectedLead.section === "ILKOKUL" ? "🎒 İlkokul" :
-                         selectedLead.section === "ORTAOKUL" ? "📚 Ortaokul" :
-                         selectedLead.section === "LISE" ? "🎓 Lise" : "🎯 Kurs"}
-                      </span>
-                    )}
-                  </div>
-                  <p className="font-bold text-slate-800">{selectedLead.targetGrade || "Belirtilmedi"}</p>
-                </div>
-
-                <div className="p-3 rounded-xl bg-slate-50 border border-slate-100 space-y-1">
-                  <span className="text-slate-400 font-medium">Eğitim Şekli</span>
+                  <span className="text-slate-400 font-medium">Veli & Yakınlık</span>
                   <p className="font-bold text-slate-800">
-                    {selectedLead.educationType === "TAM_GUN"
-                      ? "Tam Gün (08:30 - 17:30)"
-                      : selectedLead.educationType === "YARIM_GUN_SABAH"
-                      ? "Yarım Gün (Sabah)"
-                      : selectedLead.educationType === "YARIM_GUN_OGLE"
-                      ? "Yarım Gün (Öğle)"
-                      : "Tam Gün"}
+                    {selectedLead.parentName}{" "}
+                    <span className="text-slate-500 font-normal">
+                      ({selectedLead.parentRelation === "MOTHER" ? "Anne" : selectedLead.parentRelation === "FATHER" ? "Baba" : "Veli"})
+                    </span>
                   </p>
-                </div>
-
-                <div className="p-3 rounded-xl bg-slate-50 border border-slate-100 space-y-1">
-                  <span className="text-slate-400 font-medium">Veli İletişim</span>
-                  <p className="font-bold text-slate-800">{selectedLead.parentName}</p>
                   <p className="font-mono text-teal-700">{selectedLead.parentPhone}</p>
                 </div>
 
                 <div className="p-3 rounded-xl bg-slate-50 border border-slate-100 space-y-1">
-                  <span className="text-slate-400 font-medium">Kayıt Danışmanı</span>
-                  <p className="font-bold text-slate-800">{selectedLead.assignedStaff?.fullName || "Atanmadı"}</p>
+                  <span className="text-slate-400 font-medium">Öğrenci & Hedef Sınıf</span>
+                  <p className="font-bold text-slate-800">{selectedLead.studentName?.trim() || "Öğrenci Adı Belirtilmedi"}</p>
+                  <p className="text-slate-600">{selectedLead.targetGrade || "Belirtilmedi"}</p>
                 </div>
 
                 <div className="p-3 rounded-xl bg-slate-50 border border-slate-100 space-y-1">
-                  <span className="text-slate-400 font-medium">Teklif Tutarı</span>
-                  <p className="font-bold text-slate-800">
-                    {selectedLead.offeredPrice ? `${selectedLead.offeredPrice.toLocaleString("tr-TR")} ₺` : "Teklif yok"}
-                  </p>
+                  <span className="text-slate-400 font-medium">Nereden Alındığı</span>
+                  <p className="font-bold text-slate-800">{SOURCES[selectedLead.source] || selectedLead.source}</p>
                 </div>
 
                 <div className="p-3 rounded-xl bg-slate-50 border border-slate-100 space-y-1">
-                  <span className="text-slate-400 font-medium">Uygulanan Kampanya</span>
-                  <p className="font-semibold text-slate-800 truncate">
-                    {selectedLead.campaignType || selectedLead.discountNote || "Standart"}
+                  <span className="text-slate-400 font-medium">Verilen En Son Teklif Fiyatı</span>
+                  <p className="font-bold text-teal-800 font-mono text-sm">
+                    {selectedLead.offeredPrice ? `${selectedLead.offeredPrice.toLocaleString("tr-TR")} ₺` : "Teklif verilmedi"}
                   </p>
                 </div>
+
+                {selectedLead.notes && (
+                  <div className="col-span-2 p-3 rounded-xl bg-amber-50/60 border border-amber-200/80 space-y-1">
+                    <span className="text-amber-800 font-bold text-[11px]">Açıklama / Not</span>
+                    <p className="text-slate-700 whitespace-pre-wrap">{selectedLead.notes}</p>
+                  </div>
+                )}
               </div>
 
               {/* Yeni Görüşme / Etkileşim Ekleme Formu */}

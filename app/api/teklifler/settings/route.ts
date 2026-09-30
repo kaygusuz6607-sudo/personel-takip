@@ -12,7 +12,7 @@ export async function GET() {
         data: {
           id: "default",
           academicYear: "2026-2027",
-          educationPrice: 220000,
+          educationPrice: 176000,
           diningPrice: 80000,
           stationeryPrice: 65000,
           summerPrice: 45000,
@@ -23,14 +23,28 @@ export async function GET() {
       });
     }
 
-    return NextResponse.json(setting);
+    const scheduleRecord = await prisma.quoteSetting.findUnique({
+      where: { id: "monthly_schedule" },
+    });
+
+    let monthlyScheduleData = null;
+    if (scheduleRecord?.policyNotes) {
+      try {
+        monthlyScheduleData = JSON.parse(scheduleRecord.policyNotes);
+      } catch {}
+    }
+
+    return NextResponse.json({
+      ...setting,
+      monthlyScheduleData,
+    });
   } catch (error) {
     console.error("Fiyat ayarları alma hatası:", error);
     return NextResponse.json(
       {
         id: "default",
         academicYear: "2026-2027",
-        educationPrice: 220000,
+        educationPrice: 176000,
         diningPrice: 80000,
         stationeryPrice: 65000,
         summerPrice: 45000,
@@ -45,7 +59,7 @@ export async function POST(request: Request) {
     const body = await request.json();
     const {
       academicYear = "2026-2027",
-      educationPrice = 220000,
+      educationPrice = 176000,
       diningPrice = 80000,
       stationeryPrice = 65000,
       summerPrice = 45000,
@@ -54,6 +68,7 @@ export async function POST(request: Request) {
       schoolPhone,
       bankCampaigns,
       policyNotes,
+      monthlyScheduleData,
     } = body;
 
     const setting = await prisma.quoteSetting.upsert({
@@ -67,8 +82,12 @@ export async function POST(request: Request) {
         ...(schoolName && { schoolName }),
         ...(schoolAddress && { schoolAddress }),
         ...(schoolPhone && { schoolPhone }),
-        ...(bankCampaigns && { bankCampaigns: typeof bankCampaigns === "string" ? bankCampaigns : JSON.stringify(bankCampaigns) }),
-        ...(policyNotes && { policyNotes: typeof policyNotes === "string" ? policyNotes : JSON.stringify(policyNotes) }),
+        ...(bankCampaigns && {
+          bankCampaigns: typeof bankCampaigns === "string" ? bankCampaigns : JSON.stringify(bankCampaigns),
+        }),
+        ...(policyNotes && {
+          policyNotes: typeof policyNotes === "string" ? policyNotes : JSON.stringify(policyNotes),
+        }),
       },
       create: {
         id: "default",
@@ -80,12 +99,44 @@ export async function POST(request: Request) {
         schoolName: schoolName || "ÖZEL KAYSERİ SİMYA ÇOCUK ÜNİVERSİTESİ",
         schoolAddress: schoolAddress || "ESENYURT MAH. YAVUZ CAD. PRESTİJ SİT. B BLOK NO:17/A MELİKGAZİ / KAYSERİ",
         schoolPhone: schoolPhone || "0(352) 503 91 93 - 0(537) 380 0 380",
-        bankCampaigns: bankCampaigns ? (typeof bankCampaigns === "string" ? bankCampaigns : JSON.stringify(bankCampaigns)) : null,
-        policyNotes: policyNotes ? (typeof policyNotes === "string" ? policyNotes : JSON.stringify(policyNotes)) : null,
+        bankCampaigns: bankCampaigns
+          ? typeof bankCampaigns === "string"
+            ? bankCampaigns
+            : JSON.stringify(bankCampaigns)
+          : null,
+        policyNotes: policyNotes
+          ? typeof policyNotes === "string"
+            ? policyNotes
+            : JSON.stringify(policyNotes)
+          : null,
       },
     });
 
-    return NextResponse.json(setting);
+    if (monthlyScheduleData) {
+      const jsonStr =
+        typeof monthlyScheduleData === "string" ? monthlyScheduleData : JSON.stringify(monthlyScheduleData);
+      await prisma.quoteSetting.upsert({
+        where: { id: "monthly_schedule" },
+        update: {
+          academicYear,
+          policyNotes: jsonStr,
+        },
+        create: {
+          id: "monthly_schedule",
+          academicYear,
+          educationPrice: Number(educationPrice) || 176000,
+          diningPrice: Number(diningPrice) || 80000,
+          stationeryPrice: Number(stationeryPrice) || 65000,
+          summerPrice: Number(summerPrice) || 45000,
+          policyNotes: jsonStr,
+        },
+      });
+    }
+
+    return NextResponse.json({
+      ...setting,
+      monthlyScheduleData,
+    });
   } catch (error) {
     console.error("Fiyat ayarları kaydetme hatası:", error);
     return NextResponse.json({ error: "Fiyat ayarları kaydedilemedi" }, { status: 500 });

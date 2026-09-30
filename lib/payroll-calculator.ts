@@ -152,8 +152,8 @@ export function calculateOfficialSplit(params: {
     startDay = hireParsed.day;
   }
 
-  // Atamaya kadar geçen gün sayısı (Ayın 1'inden atama gününe kadar olan gün sayısı, örn: ayın 10'una kadar -> 10 gün; ayın 1'inde atandıysa 0 gün elden)
-  const unofficialDays = assignDay <= 1 && startDay <= 1 ? 0 : Math.max(0, assignDay - startDay + 1);
+  // Atamaya kadar geçen gün sayısı (İşe giriş / ay başından atama gününe kadar olan gün sayısı: örn. 14'ünden 24'üne -> 10 gün elden, 24'ünden 30'una -> 7 gün banka)
+  const unofficialDays = Math.max(0, assignDay - startDay);
 
   const dailyBase = monthlySalary > 0 ? monthlySalary / 30 : netTotal / 30;
 

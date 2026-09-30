@@ -100,6 +100,51 @@ export async function PUT(
       return NextResponse.json(updated);
     }
 
+    // Fatura içi çoklu telefon hatlarını (5 numara, kullanan kişi, ücret, taahhüt bitiş tarihi) güncelleme
+    if (body.action === "UPDATE_PHONE_LINES") {
+      const serializedLines =
+        body.phoneLines === null
+          ? null
+          : typeof body.phoneLines === "object"
+          ? JSON.stringify(body.phoneLines)
+          : body.phoneLines;
+
+      const updateAmount = Boolean(body.syncAmountToTotal) && Number(body.linesTotalAmount) > 0;
+      const nextDue = updateAmount ? Number(body.linesTotalAmount) : existing.amountDue;
+      const nextRemaining = Math.max(0, Number((nextDue - existing.amountPaid).toFixed(2)));
+      const nextStatus =
+        existing.amountPaid >= nextDue ? "PAID" : existing.amountPaid > 0 ? "PARTIAL" : "PENDING";
+
+      const updated = await prisma.schoolExpense.update({
+        where: { id },
+        data: {
+          phoneLines: serializedLines,
+          isCommitment: serializedLines ? true : existing.isCommitment,
+          ...(updateAmount
+            ? {
+                amountDue: nextDue,
+                amountRemaining: nextRemaining,
+                status: nextStatus,
+              }
+            : {}),
+        },
+      });
+
+      // Aynı fatura başlığına sahip diğer ay/dönem kayıtlarında da telefon numaralarını ve taahhüt tarihlerini eşitle
+      await prisma.schoolExpense.updateMany({
+        where: {
+          title: existing.title,
+          id: { not: id },
+        },
+        data: {
+          phoneLines: serializedLines,
+          isCommitment: serializedLines ? true : existing.isCommitment,
+        },
+      });
+
+      return NextResponse.json(updated);
+    }
+
     // Genel güncelleme
     const {
       title,
@@ -129,6 +174,27 @@ export async function PUT(
     const numAmountRemaining = Math.max(0, Number((numAmountDue - numAmountPaid).toFixed(2)));
     const status = numAmountPaid >= numAmountDue ? "PAID" : numAmountPaid > 0 ? "PARTIAL" : "PENDING";
 
+    let computedDueDateStr = dueDateStr ?? existing.dueDateStr;
+    if (dueDate) {
+      const d = new Date(dueDate);
+      if (!isNaN(d.getTime())) {
+        const months = [
+          "Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran",
+          "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"
+        ];
+        computedDueDateStr = `${d.getDate()} ${months[d.getMonth()]} ${d.getFullYear()}`;
+      }
+    }
+
+    const serializedPhoneLines =
+      phoneLines !== undefined
+        ? phoneLines === null
+          ? null
+          : typeof phoneLines === "object"
+          ? JSON.stringify(phoneLines)
+          : phoneLines
+        : existing.phoneLines;
+
     const updated = await prisma.schoolExpense.update({
       where: { id },
       data: {
@@ -137,7 +203,7 @@ export async function PUT(
         subCategory: subCategory ?? existing.subCategory,
         period: period ?? existing.period,
         installmentInfo: installmentInfo !== undefined ? installmentInfo : existing.installmentInfo,
-        dueDateStr: dueDateStr ?? existing.dueDateStr,
+        dueDateStr: computedDueDateStr,
         dueDate: dueDate ? new Date(dueDate) : existing.dueDate,
         amountDue: numAmountDue,
         amountRemaining: numAmountRemaining,
@@ -147,15 +213,27 @@ export async function PUT(
         isCommitment: isCommitment !== undefined ? Boolean(isCommitment) : existing.isCommitment,
         commitmentEndDate: commitmentEndDate ? new Date(commitmentEndDate) : existing.commitmentEndDate,
         commitmentMonths: commitmentMonths !== undefined ? Number(commitmentMonths) : existing.commitmentMonths,
-        paymentMethod: paymentMethod ?? existing.paymentMethod,
+        paymentMethod: (category ?? existing.category) === "CREDIT_CARD" ? "CASH" : (paymentMethod ?? existing.paymentMethod),
         cardHolder: cardHolder !== undefined ? cardHolder : existing.cardHolder,
         cardBank: cardBank !== undefined ? cardBank : existing.cardBank,
         monthIndex: monthIndex !== undefined ? (monthIndex ? Number(monthIndex) : null) : existing.monthIndex,
-        phoneLines: phoneLines !== undefined ? (typeof phoneLines === "object" ? JSON.stringify(phoneLines) : phoneLines) : existing.phoneLines,
+        phoneLines: serializedPhoneLines,
         chequeNo: chequeNo !== undefined ? chequeNo : existing.chequeNo,
         chequeBank: chequeBank !== undefined ? chequeBank : existing.chequeBank,
       },
     });
+
+    if (phoneLines !== undefined) {
+      await prisma.schoolExpense.updateMany({
+        where: {
+          title: updated.title,
+          id: { not: id },
+        },
+        data: {
+          phoneLines: serializedPhoneLines,
+        },
+      });
+    }
 
     return NextResponse.json(updated);
   } catch (error: any) {

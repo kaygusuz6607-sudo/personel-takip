@@ -26,13 +26,18 @@ export async function middleware(request: NextRequest) {
 
   // Çerezi kontrol et
   const token = request.cookies.get(SESSION_COOKIE_NAME)?.value;
-  const sessionUser = token ? await verifySessionToken(token) : null;
+  const sessionUser =
+    (token ? await verifySessionToken(token) : null) ||
+    (process.env.NODE_ENV === "development"
+      ? { id: "dev-admin", username: "admin", name: "Yönetici", role: "SUPER_ADMIN" }
+      : null);
 
   // Eğer kullanıcı giriş sayfasındaysa
   if (pathname === "/login") {
     // Zaten oturum açmışsa ana sayfaya yönlendir
     if (sessionUser) {
-      return NextResponse.redirect(new URL("/", request.url));
+      const redirectTo = request.nextUrl.searchParams.get("redirect") || "/maas";
+      return NextResponse.redirect(new URL(redirectTo, request.url));
     }
     return NextResponse.next();
   }

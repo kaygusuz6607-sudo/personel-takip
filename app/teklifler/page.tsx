@@ -51,8 +51,7 @@ export interface QuoteItem {
 export interface BankCampaign {
   id: string;
   bankName: string;
-  installmentCount: number;
-  monthlyAmount?: number | string;
+  installmentCount: number | string;
   campaignText: string;
 }
 
@@ -61,16 +60,105 @@ export interface MasterPrices {
   educationPrice: number;
   diningPrice: number;
   stationeryPrice: number;
+  stationeryProportionalPrice: number;
+  publicationFixedPrice: number;
+  totalServiceDays: number;
   summerPrice: number;
 }
 
+export interface MonthlyPriceRow {
+  id: string;
+  year: string; // Örn: "2026", "2027", "2028"
+  monthName: string; // Örn: "Eylül", "Ekim"...
+  month: string; // Birleşik etiket: Örn: "Eylül 2026"
+  remainingDays: number;
+  education: number;
+  dining: number;
+  stationeryTotal: number;
+  stationeryProportional: number;
+  publicationFixed: number;
+  totalPrice: number;
+  roundedPrice: number;
+}
+
+const TURKISH_MONTHS = [
+  "Ocak",
+  "Şubat",
+  "Mart",
+  "Nisan",
+  "Mayıs",
+  "Haziran",
+  "Temmuz",
+  "Ağustos",
+  "Eylül",
+  "Ekim",
+  "Kasım",
+  "Aralık",
+];
+
 const DEFAULT_MASTER_PRICES: MasterPrices = {
   academicYear: "2026-2027",
-  educationPrice: 220000,
+  educationPrice: 176000,
   diningPrice: 80000,
   stationeryPrice: 65000,
+  stationeryProportionalPrice: 40000,
+  publicationFixedPrice: 25000,
+  totalServiceDays: 183.5,
   summerPrice: 45000,
 };
+
+const DEFAULT_MONTHLY_PRICES: MonthlyPriceRow[] = [
+  { id: "m1", year: "2026", monthName: "Eylül", month: "Eylül 2026", remainingDays: 183.5, education: 176000, dining: 80000, stationeryTotal: 65000, stationeryProportional: 40000, publicationFixed: 25000, totalPrice: 321000, roundedPrice: 321000 },
+  { id: "m2", year: "2026", monthName: "Ekim", month: "Ekim 2026", remainingDays: 165.5, education: 158736, dining: 72153, stationeryTotal: 61076, stationeryProportional: 36076, publicationFixed: 25000, totalPrice: 291965, roundedPrice: 292000 },
+  { id: "m3", year: "2026", monthName: "Kasım", month: "Kasım 2026", remainingDays: 145.0, education: 139074, dining: 63215, stationeryTotal: 56608, stationeryProportional: 31608, publicationFixed: 25000, totalPrice: 258896, roundedPrice: 259000 },
+  { id: "m4", year: "2026", monthName: "Aralık", month: "Aralık 2026", remainingDays: 129.0, education: 123728, dining: 56240, stationeryTotal: 53120, stationeryProportional: 28120, publicationFixed: 25000, totalPrice: 233087, roundedPrice: 233000 },
+  { id: "m5", year: "2027", monthName: "Ocak", month: "Ocak 2027", remainingDays: 106.0, education: 101668, dining: 46213, stationeryTotal: 48106, stationeryProportional: 23106, publicationFixed: 25000, totalPrice: 195986, roundedPrice: 196000 },
+  { id: "m6", year: "2027", monthName: "Şubat", month: "Şubat 2027", remainingDays: 91.0, education: 87281, dining: 39673, stationeryTotal: 44837, stationeryProportional: 19837, publicationFixed: 25000, totalPrice: 171790, roundedPrice: 172000 },
+  { id: "m7", year: "2027", monthName: "Mart", month: "Mart 2027", remainingDays: 76.0, education: 72894, dining: 33134, stationeryTotal: 41567, stationeryProportional: 16567, publicationFixed: 25000, totalPrice: 147594, roundedPrice: 148000 },
+  { id: "m8", year: "2027", monthName: "Nisan", month: "Nisan 2027", remainingDays: 58.0, education: 55629, dining: 25286, stationeryTotal: 37643, stationeryProportional: 12643, publicationFixed: 25000, totalPrice: 118559, roundedPrice: 119000 },
+  { id: "m9", year: "2027", monthName: "Mayıs", month: "Mayıs 2027", remainingDays: 37.0, education: 35488, dining: 16131, stationeryTotal: 33065, stationeryProportional: 8065, publicationFixed: 25000, totalPrice: 84684, roundedPrice: 85000 },
+  { id: "m10", year: "2027", monthName: "Haziran", month: "Haziran 2027", remainingDays: 19.0, education: 18223, dining: 8283, stationeryTotal: 16642, stationeryProportional: 4142, publicationFixed: 12500, totalPrice: 43128, roundedPrice: 43000 },
+];
+
+function normalizeMonthlyRow(raw: any, idx = 0): MonthlyPriceRow {
+  const rawLabel = String(raw?.month || raw?.monthName || `Eylül 2026`).trim();
+  const parts = rawLabel.split(/\s+/);
+  const detectedYear =
+    raw?.year ||
+    (parts.length > 1 && /^\d{4}$/.test(parts[parts.length - 1]) ? parts[parts.length - 1] : "2026");
+  const detectedMonthName =
+    raw?.monthName && !/\d{4}/.test(String(raw.monthName))
+      ? String(raw.monthName).trim()
+      : parts.filter((p) => !/^\d{4}$/.test(p)).join(" ") || "Eylül";
+
+  const education = Number(raw?.education) || 0;
+  const dining = Number(raw?.dining) || 0;
+  const stationeryProportional = Number(raw?.stationeryProportional ?? raw?.stationeryProRated ?? 0);
+  const publicationFixed = Number(raw?.publicationFixed ?? raw?.publicationsFixed ?? 0);
+  const stationeryTotal =
+    raw?.stationeryTotal !== undefined
+      ? Number(raw.stationeryTotal) || 0
+      : stationeryProportional + publicationFixed;
+  const totalPrice =
+    Number(raw?.totalPrice ?? raw?.totalFee) || education + dining + stationeryTotal;
+  const roundedPrice =
+    Number(raw?.roundedPrice ?? raw?.roundedFee) || Math.round(totalPrice / 1000) * 1000;
+
+  return {
+    id: String(raw?.id || `m_${idx + 1}`),
+    year: String(detectedYear),
+    monthName: detectedMonthName,
+    month: `${detectedMonthName} ${detectedYear}`.trim(),
+    remainingDays: Number(raw?.remainingDays ?? 183.5),
+    education,
+    dining,
+    stationeryTotal,
+    stationeryProportional,
+    publicationFixed,
+    totalPrice,
+    roundedPrice,
+  };
+}
 
 const DEFAULT_POLICY_NOTES = [
   "2026-2027 eğitim-öğretim yılı için geçerli olan erken kayıt kampanyası, yalnızca kampanyanın uygulandığı ve teklifin verildiği ay için geçerlidir. Takip eden aylarda eğitim ücretlerinde artış uygulanacaktır. %20 Kurumsal İndirim yalnızca eğitim ücreti ve yaz okulu ücreti için geçerlidir.",
@@ -108,10 +196,26 @@ export default function TekliflerPage() {
   // Editör İçi Görünüm: "PREVIEW" (A4 Belge Görünümü) | "EDIT" (Form Giriş Modu)
   const [editorView, setEditorView] = useState<"PREVIEW" | "EDIT">("EDIT");
 
-  // Önceden Kaydedilen Standart Fiyatlar (Master Pricing)
+  // Önceden Kaydedilen Standart Fiyatlar & Aylık Kayıt Ücretleri Tablosu
   const [masterPrices, setMasterPrices] = useState<MasterPrices>(DEFAULT_MASTER_PRICES);
+  const [monthlyPrices, setMonthlyPrices] = useState<MonthlyPriceRow[]>(DEFAULT_MONTHLY_PRICES);
+  const [selectedMonthId, setSelectedMonthId] = useState<string>("m1");
+  const [splitStationeryItems, setSplitStationeryItems] = useState<boolean>(false);
   const [masterModalOpen, setMasterModalOpen] = useState(false);
   const [savingMaster, setSavingMaster] = useState(false);
+  const [tableYearFilter, setTableYearFilter] = useState<string>("ALL");
+
+  // Hızlı Yıl & Aya Özel Fiyat Tanımlama Formu (Modal içinde üstte)
+  const [quickMonthForm, setQuickMonthForm] = useState({
+    year: "2026",
+    monthName: "Eylül",
+    remainingDays: 183.5,
+    education: 176000,
+    dining: 80000,
+    stationeryTotal: 65000,
+    stationeryProportional: 40000,
+    publicationFixed: 25000,
+  });
 
   // "Teklif Ver" İlk Adım Modalı
   const [newQuoteModalOpen, setNewQuoteModalOpen] = useState(false);
@@ -120,10 +224,13 @@ export default function TekliflerPage() {
     phone: "",
     studentName: "",
     quoteDate: new Date().toISOString().split("T")[0],
+    selectedMonthId: "m1",
     includeEducation: true,
     includeDining: true,
     includeStationery: true,
-    includeSummer: true,
+    includePublication: true,
+    includeSummer: false,
+    splitStationeryRows: false,
   });
 
   // Aktif Teklif State'leri
@@ -191,8 +298,42 @@ export default function TekliflerPage() {
   const kdvTotal = 0;
   const grandTotal = netTotal;
 
-  // Başlangıç: Standart fiyatları ve teklif listesini çek
+  // Başlangıç: Standart fiyatları, aylık tabloyu, banka kampanyalarını ve teklif listesini çek
   useEffect(() => {
+    try {
+      const savedLocal = localStorage.getItem("cosmos_teklif_bank_campaigns_v1");
+      if (savedLocal) {
+        const parsed = JSON.parse(savedLocal);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setBankCampaigns(parsed);
+        }
+      }
+      const savedSchedule = localStorage.getItem("cosmos_monthly_price_schedule_v1");
+      if (savedSchedule) {
+        const parsedSched = JSON.parse(savedSchedule);
+        if (parsedSched?.monthlyPrices && Array.isArray(parsedSched.monthlyPrices)) {
+          setMonthlyPrices(parsedSched.monthlyPrices.map((r: any, i: number) => normalizeMonthlyRow(r, i)));
+        }
+        if (parsedSched?.masterPrices) {
+          setMasterPrices((prev) => ({
+            ...prev,
+            ...parsedSched.masterPrices,
+            stationeryProportionalPrice:
+              Number(
+                parsedSched.masterPrices.stationeryProportionalPrice ??
+                  parsedSched.masterPrices.stationeryProRatedPrice ??
+                  40000
+              ),
+            publicationFixedPrice:
+              Number(
+                parsedSched.masterPrices.publicationFixedPrice ??
+                  parsedSched.masterPrices.publicationsFixedPrice ??
+                  25000
+              ),
+          }));
+        }
+      }
+    } catch {}
     fetchMasterPrices();
     fetchQuotesList();
   }, []);
@@ -203,13 +344,51 @@ export default function TekliflerPage() {
       if (res.ok) {
         const data = await res.json();
         if (data && data.educationPrice) {
-          setMasterPrices({
+          setMasterPrices((prev) => ({
+            ...prev,
             academicYear: data.academicYear || "2026-2027",
-            educationPrice: Number(data.educationPrice) || 220000,
+            educationPrice: Number(data.educationPrice) || 176000,
             diningPrice: Number(data.diningPrice) || 80000,
             stationeryPrice: Number(data.stationeryPrice) || 65000,
             summerPrice: Number(data.summerPrice) || 45000,
-          });
+          }));
+        }
+        if (data && data.monthlyScheduleData) {
+          const sched = data.monthlyScheduleData;
+          if (sched.monthlyPrices && Array.isArray(sched.monthlyPrices) && sched.monthlyPrices.length > 0) {
+            setMonthlyPrices(sched.monthlyPrices.map((r: any, i: number) => normalizeMonthlyRow(r, i)));
+          }
+          if (sched.masterPrices) {
+            setMasterPrices((prev) => ({
+              ...prev,
+              ...sched.masterPrices,
+              stationeryProportionalPrice: Number(
+                sched.masterPrices.stationeryProportionalPrice ??
+                  sched.masterPrices.stationeryProRatedPrice ??
+                  40000
+              ),
+              publicationFixedPrice: Number(
+                sched.masterPrices.publicationFixedPrice ??
+                  sched.masterPrices.publicationsFixedPrice ??
+                  25000
+              ),
+            }));
+          }
+          try {
+            localStorage.setItem("cosmos_monthly_price_schedule_v1", JSON.stringify(sched));
+          } catch {}
+        }
+        if (data && data.bankCampaigns) {
+          try {
+            const parsedBanks =
+              typeof data.bankCampaigns === "string"
+                ? JSON.parse(data.bankCampaigns)
+                : data.bankCampaigns;
+            if (Array.isArray(parsedBanks) && parsedBanks.length > 0) {
+              setBankCampaigns(parsedBanks);
+              localStorage.setItem("cosmos_teklif_bank_campaigns_v1", JSON.stringify(parsedBanks));
+            }
+          } catch {}
         }
       }
     } catch (err) {
@@ -224,7 +403,6 @@ export default function TekliflerPage() {
       if (res.ok) {
         const data = await res.json();
         if (Array.isArray(data)) {
-          // Tarih sıralı (en yeniden eskiye)
           const sorted = [...data].sort((a, b) => {
             const dateA = new Date(a.date || a.createdAt).getTime();
             const dateB = new Date(b.date || b.createdAt).getTime();
@@ -240,20 +418,248 @@ export default function TekliflerPage() {
     }
   };
 
-  // Standart Fiyatları Kaydet (Settings API)
+  // Hızlı Formda Yıl veya Ay Seçildiğinde Mevcut Kayıt Varsa Otomatik Doldur
+  const handleQuickYearMonthSelect = (yearVal: string, monthNameVal: string) => {
+    const existing = monthlyPrices.find(
+      (r) => r.year === yearVal && r.monthName.toLowerCase() === monthNameVal.toLowerCase()
+    );
+    if (existing) {
+      setQuickMonthForm({
+        year: yearVal,
+        monthName: monthNameVal,
+        remainingDays: existing.remainingDays,
+        education: existing.education,
+        dining: existing.dining,
+        stationeryTotal: existing.stationeryTotal,
+        stationeryProportional: existing.stationeryProportional,
+        publicationFixed: existing.publicationFixed,
+      });
+    } else {
+      setQuickMonthForm((prev) => ({
+        ...prev,
+        year: yearVal,
+        monthName: monthNameVal,
+      }));
+    }
+  };
+
+  // Hızlı Formdan Yıl ve Aya Özel Eğitim, Yemek, Kırtasiye Fiyatını Tabloya Ekle / Güncelle
+  const handleUpsertQuickYearMonth = () => {
+    const y = String(quickMonthForm.year || "2026").trim();
+    const mName = String(quickMonthForm.monthName || "Eylül").trim();
+    const fullLabel = `${mName} ${y}`;
+    const edu = Number(quickMonthForm.education) || 0;
+    const dine = Number(quickMonthForm.dining) || 0;
+    const statTotal = Number(quickMonthForm.stationeryTotal) || 0;
+    const pubFixed = Number(quickMonthForm.publicationFixed) || 0;
+    const statPro = Math.max(0, statTotal - pubFixed);
+    const totalPrice = edu + dine + statTotal;
+    const roundedPrice = Math.round(totalPrice / 1000) * 1000;
+
+    setMonthlyPrices((prev) => {
+      const idx = prev.findIndex(
+        (r) => r.year === y && r.monthName.toLowerCase() === mName.toLowerCase()
+      );
+      if (idx >= 0) {
+        const updated = [...prev];
+        updated[idx] = {
+          ...updated[idx],
+          year: y,
+          monthName: mName,
+          month: fullLabel,
+          remainingDays: Number(quickMonthForm.remainingDays) || updated[idx].remainingDays,
+          education: edu,
+          dining: dine,
+          stationeryTotal: statTotal,
+          stationeryProportional: statPro,
+          publicationFixed: pubFixed,
+          totalPrice,
+          roundedPrice,
+        };
+        return updated;
+      } else {
+        return [
+          ...prev,
+          {
+            id: `m_${Date.now()}`,
+            year: y,
+            monthName: mName,
+            month: fullLabel,
+            remainingDays: Number(quickMonthForm.remainingDays) || 183.5,
+            education: edu,
+            dining: dine,
+            stationeryTotal: statTotal,
+            stationeryProportional: statPro,
+            publicationFixed: pubFixed,
+            totalPrice,
+            roundedPrice,
+          },
+        ];
+      }
+    });
+  };
+
+  // Üstteki Baz Değerlere ve Hizmet Günlerine Göre Tüm Ayları Otomatik Oranla
+  const handleRecalculateAllMonthsFromBase = () => {
+    const totalDays = Number(masterPrices.totalServiceDays) || 183.5;
+    const baseEdu = Number(masterPrices.educationPrice) || 176000;
+    const baseDine = Number(masterPrices.diningPrice) || 80000;
+    const baseStatPro = Number(masterPrices.stationeryProportionalPrice) || 40000;
+    const basePubFixed = Number(masterPrices.publicationFixedPrice) || 25000;
+
+    setMonthlyPrices((prev) =>
+      prev.map((row) => {
+        const ratio = totalDays > 0 ? row.remainingDays / totalDays : 1;
+        const edu = Math.round(baseEdu * ratio);
+        const dine = Math.round(baseDine * ratio);
+        const statPro = Math.round(baseStatPro * ratio);
+        const pubFixed = row.monthName.toLowerCase().includes("haziran")
+          ? Math.round(basePubFixed / 2)
+          : basePubFixed;
+        const stationeryTotal = statPro + pubFixed;
+        const totalPrice = edu + dine + stationeryTotal;
+        const roundedPrice = Math.round(totalPrice / 1000) * 1000;
+        return {
+          ...row,
+          education: edu,
+          dining: dine,
+          stationeryTotal,
+          stationeryProportional: statPro,
+          publicationFixed: pubFixed,
+          totalPrice,
+          roundedPrice,
+        };
+      })
+    );
+  };
+
+  // Aylık Tablodaki Tek Bir Hücreyi Güncelleme (Yıl, Ay, Eğitim, Yemek, Kırtasiye vb.)
+  const handleMonthlyRowChange = (id: string, field: keyof MonthlyPriceRow, val: any) => {
+    const totalDays = Number(masterPrices.totalServiceDays) || 183.5;
+    const baseEdu = Number(masterPrices.educationPrice) || 176000;
+    const baseDine = Number(masterPrices.diningPrice) || 80000;
+    const baseStatPro = Number(masterPrices.stationeryProportionalPrice) || 40000;
+
+    setMonthlyPrices((prev) =>
+      prev.map((row) => {
+        if (row.id !== id) return row;
+
+        if (field === "year") {
+          const y = String(val);
+          return { ...row, year: y, month: `${row.monthName} ${y}`.trim() };
+        }
+
+        if (field === "monthName") {
+          const mName = String(val);
+          return { ...row, monthName: mName, month: `${mName} ${row.year}`.trim() };
+        }
+
+        if (field === "month") {
+          const rawLabel = String(val);
+          const parts = rawLabel.trim().split(/\s+/);
+          const y = parts.length > 1 && /^\d{4}$/.test(parts[parts.length - 1]) ? parts[parts.length - 1] : row.year;
+          const mName = parts.filter((p) => !/^\d{4}$/.test(p)).join(" ") || row.monthName;
+          return { ...row, month: rawLabel, year: y, monthName: mName };
+        }
+
+        const numVal = parseFloat(val) || 0;
+        const updated = { ...row, [field]: numVal };
+
+        // Kalan Hizmet Günü değişirse o satırın oranlı kalemlerini otomatik hesapla
+        if (field === "remainingDays") {
+          const ratio = totalDays > 0 ? numVal / totalDays : 1;
+          updated.education = Math.round(baseEdu * ratio);
+          updated.dining = Math.round(baseDine * ratio);
+          updated.stationeryProportional = Math.round(baseStatPro * ratio);
+          updated.stationeryTotal = updated.stationeryProportional + updated.publicationFixed;
+          updated.totalPrice = updated.education + updated.dining + updated.stationeryTotal;
+          updated.roundedPrice = Math.round(updated.totalPrice / 1000) * 1000;
+        } else if (field === "stationeryTotal") {
+          // Doğrudan Toplam Kırtasiye fiyatı girildiğinde
+          updated.stationeryTotal = numVal;
+          updated.stationeryProportional = Math.max(0, numVal - updated.publicationFixed);
+          updated.totalPrice = updated.education + updated.dining + updated.stationeryTotal;
+          updated.roundedPrice = Math.round(updated.totalPrice / 1000) * 1000;
+        } else if (field === "stationeryProportional" || field === "publicationFixed") {
+          updated.stationeryTotal = updated.stationeryProportional + updated.publicationFixed;
+          updated.totalPrice = updated.education + updated.dining + updated.stationeryTotal;
+          updated.roundedPrice = Math.round(updated.totalPrice / 1000) * 1000;
+        } else if (field === "education" || field === "dining") {
+          updated.totalPrice = updated.education + updated.dining + updated.stationeryTotal;
+          updated.roundedPrice = Math.round(updated.totalPrice / 1000) * 1000;
+        }
+
+        return updated;
+      })
+    );
+  };
+
+  const addMonthlyRow = () => {
+    const defaultYear = tableYearFilter !== "ALL" ? tableYearFilter : "2027";
+    const edu = Number(masterPrices.educationPrice) || 176000;
+    const dine = Number(masterPrices.diningPrice) || 80000;
+    const statPro = Number(masterPrices.stationeryProportionalPrice) || 40000;
+    const pubFixed = Number(masterPrices.publicationFixedPrice) || 25000;
+    const statTotal = statPro + pubFixed;
+    const totalPrice = edu + dine + statTotal;
+
+    const newRow: MonthlyPriceRow = {
+      id: `m_${Date.now()}`,
+      year: defaultYear,
+      monthName: "Temmuz",
+      month: `Temmuz ${defaultYear}`,
+      remainingDays: 183.5,
+      education: edu,
+      dining: dine,
+      stationeryTotal: statTotal,
+      stationeryProportional: statPro,
+      publicationFixed: pubFixed,
+      totalPrice,
+      roundedPrice: Math.round(totalPrice / 1000) * 1000,
+    };
+    setMonthlyPrices((prev) => [...prev, newRow]);
+  };
+
+  const removeMonthlyRow = (id: string) => {
+    if (monthlyPrices.length <= 1) return;
+    setMonthlyPrices((prev) => prev.filter((r) => r.id !== id));
+  };
+
+  // Standart Fiyatları ve Aylık Tabloyu Kaydet (Settings API + LocalStorage)
   const handleSaveMasterPrices = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
       setSavingMaster(true);
+      const totalStat =
+        (Number(masterPrices.stationeryProportionalPrice) || 0) +
+        (Number(masterPrices.publicationFixedPrice) || 0);
+      const updatedMaster: MasterPrices = {
+        ...masterPrices,
+        stationeryPrice: totalStat,
+      };
+      setMasterPrices(updatedMaster);
+
+      const monthlyScheduleData = {
+        masterPrices: updatedMaster,
+        monthlyPrices,
+      };
+
+      try {
+        localStorage.setItem("cosmos_monthly_price_schedule_v1", JSON.stringify(monthlyScheduleData));
+      } catch {}
+
       const res = await fetch("/api/teklifler/settings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(masterPrices),
+        body: JSON.stringify({
+          ...updatedMaster,
+          monthlyScheduleData,
+        }),
       });
 
       if (res.ok) {
         setMasterModalOpen(false);
-        setSaveSuccessMsg("2026-2027 Standart Fiyatları Başarıyla Kaydedildi!");
+        setSaveSuccessMsg("Yıl ve Aylara Özel Kayıt Ücretleri ve Liste Fiyatları Başarıyla Kaydedildi!");
         setTimeout(() => setSaveSuccessMsg(null), 3000);
       } else {
         alert("Fiyatlar kaydedilemedi.");
@@ -265,6 +671,97 @@ export default function TekliflerPage() {
     }
   };
 
+  // Seçilen Ayın Liste Fiyatlarından Teklif Kalemlerini Oluşturma Yardımcı Fonksiyonu
+  const buildQuoteItemsForMonth = (
+    monthId: string,
+    opts: {
+      includeEducation: boolean;
+      includeDining: boolean;
+      includeStationery: boolean;
+      includePublication?: boolean;
+      includeSummer: boolean;
+      splitStationery?: boolean;
+    }
+  ): QuoteItem[] => {
+    const mRow = monthlyPrices.find((m) => m.id === monthId) || monthlyPrices[0] || DEFAULT_MONTHLY_PRICES[0];
+    const mLabel = mRow ? mRow.month.toUpperCase() : masterPrices.academicYear;
+    const newItems: QuoteItem[] = [];
+
+    if (opts.includeSummer) {
+      newItems.push({
+        id: `item_summer_${Date.now()}`,
+        desc: `Yaz Okulu (${masterPrices.academicYear} Dönemi)`,
+        qty: 1,
+        unit: "dnm",
+        listPrice: masterPrices.summerPrice,
+        discountPercent: 0,
+        netPrice: masterPrices.summerPrice,
+        total: masterPrices.summerPrice,
+      });
+    }
+
+    if (opts.includeEducation && mRow) {
+      newItems.push({
+        id: `item_edu_${Date.now()}_1`,
+        desc: `Eğitim Ücreti (${mLabel} Kayıt Dönemi)`,
+        qty: 1,
+        unit: "dnm",
+        listPrice: mRow.education,
+        discountPercent: 0,
+        netPrice: mRow.education,
+        total: mRow.education,
+      });
+    }
+
+    if (opts.includeDining && mRow) {
+      newItems.push({
+        id: `item_dine_${Date.now()}_2`,
+        desc: `Yemek Ücreti (${mLabel} Kayıt Dönemi)`,
+        qty: 1,
+        unit: "dnm",
+        listPrice: mRow.dining,
+        discountPercent: 0,
+        netPrice: mRow.dining,
+        total: mRow.dining,
+      });
+    }
+
+    if (opts.includeStationery && mRow) {
+      const statAmount =
+        mRow.stationeryTotal > 0
+          ? mRow.stationeryTotal
+          : (mRow.stationeryProportional || 0) + (mRow.publicationFixed || 0);
+      newItems.push({
+        id: `item_stat_${Date.now()}_3`,
+        desc: `Kırtasiye / Yayın Set Ücreti (${mLabel} Kayıt Dönemi)`,
+        qty: 1,
+        unit: "ad",
+        listPrice: statAmount,
+        discountPercent: 0,
+        netPrice: statAmount,
+        total: statAmount,
+      });
+    }
+
+    return newItems;
+  };
+
+  // Editör İçinden Seçilen Ayın Liste Fiyatlarını Mevcut Teklife Uygulama
+  const applyMonthlyPricesToCurrentQuote = (monthId: string, splitStat = splitStationeryItems) => {
+    setSelectedMonthId(monthId);
+    const mRow = monthlyPrices.find((m) => m.id === monthId);
+    if (!mRow) return;
+    const generated = buildQuoteItemsForMonth(monthId, {
+      includeEducation: true,
+      includeDining: true,
+      includeStationery: true,
+      includePublication: true,
+      includeSummer: false,
+      splitStationery: splitStat,
+    });
+    setItems(generated);
+  };
+
   // 1. ADIM: "Teklif Ver" Butonuna Basıldığında Modalı Aç
   const handleOpenNewQuoteModal = () => {
     setInitForm({
@@ -272,10 +769,13 @@ export default function TekliflerPage() {
       phone: "",
       studentName: "",
       quoteDate: new Date().toISOString().split("T")[0],
+      selectedMonthId: selectedMonthId || (monthlyPrices[0]?.id ?? "m1"),
       includeEducation: true,
       includeDining: true,
       includeStationery: true,
-      includeSummer: true,
+      includePublication: true,
+      includeSummer: false,
+      splitStationeryRows: splitStationeryItems,
     });
     setNewQuoteModalOpen(true);
   };
@@ -292,63 +792,19 @@ export default function TekliflerPage() {
     setPhone(initForm.phone.trim());
     setStudentName(initForm.studentName.toUpperCase().trim());
     setQuoteDate(initForm.quoteDate);
+    setSelectedMonthId(initForm.selectedMonthId);
+    setSplitStationeryItems(initForm.splitStationeryRows);
     setSavedQuoteId(null);
     setQuoteNo(null);
 
-    // Önceden kayıtlı standart fiyatları otomatik kalem olarak yükle
-    const newItems: QuoteItem[] = [];
-
-    if (initForm.includeSummer) {
-      newItems.push({
-        id: `item_summer_${Date.now()}`,
-        desc: `Yaz Okulu *HAZİRAN* ${masterPrices.academicYear} Dönemi`,
-        qty: 1,
-        unit: "dnm",
-        listPrice: masterPrices.summerPrice,
-        discountPercent: 24, // varsayılan erken kayıt indirimi
-        netPrice: Number((masterPrices.summerPrice * 0.76).toFixed(2)),
-        total: Number((masterPrices.summerPrice * 0.76).toFixed(2)),
-      });
-    }
-
-    if (initForm.includeEducation) {
-      newItems.push({
-        id: `item_edu_${Date.now()}`,
-        desc: `Eğitim Ücreti *HAZİRAN* ${masterPrices.academicYear} Dönemi`,
-        qty: 1,
-        unit: "dnm",
-        listPrice: masterPrices.educationPrice,
-        discountPercent: 24,
-        netPrice: Number((masterPrices.educationPrice * 0.76).toFixed(2)),
-        total: Number((masterPrices.educationPrice * 0.76).toFixed(2)),
-      });
-    }
-
-    if (initForm.includeDining) {
-      newItems.push({
-        id: `item_dine_${Date.now()}`,
-        desc: `Yemek Ücreti ${masterPrices.academicYear} Dönemi`,
-        qty: 1,
-        unit: "dnm",
-        listPrice: masterPrices.diningPrice,
-        discountPercent: 0,
-        netPrice: masterPrices.diningPrice,
-        total: masterPrices.diningPrice,
-      });
-    }
-
-    if (initForm.includeStationery) {
-      newItems.push({
-        id: `item_stat_${Date.now()}`,
-        desc: `Kırtasiye ${masterPrices.academicYear} Dönemi`,
-        qty: 1,
-        unit: "ad",
-        listPrice: masterPrices.stationeryPrice,
-        discountPercent: 0,
-        netPrice: masterPrices.stationeryPrice,
-        total: masterPrices.stationeryPrice,
-      });
-    }
+    const newItems = buildQuoteItemsForMonth(initForm.selectedMonthId, {
+      includeEducation: initForm.includeEducation,
+      includeDining: initForm.includeDining,
+      includeStationery: initForm.includeStationery,
+      includePublication: initForm.includePublication,
+      includeSummer: initForm.includeSummer,
+      splitStationery: initForm.splitStationeryRows,
+    });
 
     setItems(newItems);
     setNewQuoteModalOpen(false);
@@ -422,23 +878,22 @@ export default function TekliflerPage() {
     setItems(items.filter((i) => i.id !== id));
   };
 
-  // Banka Kampanyası Aylık Tutarı veya Kampanya Metnini Güncelleme
-  const handleBankChange = (id: string, field: keyof BankCampaign, val: any) => {
-    setBankCampaigns((prev) =>
-      prev.map((bank) => {
-        if (bank.id !== id) return bank;
-        return { ...bank, [field]: val };
-      })
-    );
+  // Banka Kampanyası Taksit Sayısı veya Kampanya Metnini Manuel Güncelleme (Otomatik tutar bölme yok)
+  const persistBanksLocal = (updated: BankCampaign[]) => {
+    try {
+      localStorage.setItem("cosmos_teklif_bank_campaigns_v1", JSON.stringify(updated));
+    } catch {}
   };
 
-  // Bankanın Aylık Taksit Tutarını Hesaplama (Otomatik veya Kullanıcının Elle Girdiği)
-  const getMonthlyAmount = (bank: BankCampaign) => {
-    if (bank.monthlyAmount !== undefined && bank.monthlyAmount !== null && bank.monthlyAmount !== "") {
-      return Number(bank.monthlyAmount);
-    }
-    const count = Number(bank.installmentCount) || 1;
-    return count > 0 ? Math.round(netTotal / count) : netTotal;
+  const handleBankChange = (id: string, field: keyof BankCampaign, val: any) => {
+    setBankCampaigns((prev) => {
+      const updated = prev.map((bank) => {
+        if (bank.id !== id) return bank;
+        return { ...bank, [field]: val };
+      });
+      persistBanksLocal(updated);
+      return updated;
+    });
   };
 
   // Banka Ekle / Sil
@@ -449,11 +904,31 @@ export default function TekliflerPage() {
       installmentCount: 6,
       campaignText: "K.K PEŞİN FİYATINA 6 TAKSİT",
     };
-    setBankCampaigns([...bankCampaigns, newBank]);
+    const updated = [...bankCampaigns, newBank];
+    setBankCampaigns(updated);
+    persistBanksLocal(updated);
   };
 
   const removeBankCampaign = (id: string) => {
-    setBankCampaigns(bankCampaigns.filter((b) => b.id !== id));
+    const updated = bankCampaigns.filter((b) => b.id !== id);
+    setBankCampaigns(updated);
+    persistBanksLocal(updated);
+  };
+
+  const saveBankCampaignsToSettings = async () => {
+    try {
+      persistBanksLocal(bankCampaigns);
+      await fetch("/api/teklifler/settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...masterPrices,
+          bankCampaigns,
+        }),
+      });
+      setSaveSuccessMsg("Bu ayın eğitime özel banka taksit kampanyaları kaydedildi!");
+      setTimeout(() => setSaveSuccessMsg(null), 3000);
+    } catch {}
   };
 
   // Teklifi Kaydet (API)
@@ -702,15 +1177,15 @@ export default function TekliflerPage() {
             <span>Teklif Ver</span>
           </button>
 
-          {/* Standart Fiyatları Kaydetme Modalı Butonu */}
+          {/* Aylık Liste Fiyatlarını Kaydetme Modalı Butonu */}
           <button
             onClick={() => setMasterModalOpen(true)}
-            className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-semibold text-xs transition"
-            title="Eğitim, Yemek ve Kırtasiye Standart Liste Fiyatlarını Önceden Belirle"
+            className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-amber-50 hover:bg-amber-100 border border-amber-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-amber-900 dark:text-slate-200 font-bold text-xs transition"
+            title="Simya Anaokulu 2026-2027 Aylık Kayıt Ücretleri ve Liste Fiyatlarını Tanımla"
           >
-            <Settings className="w-4 h-4 text-slate-500" />
-            <span className="hidden sm:inline">2026-2027 Fiyat Ayarları</span>
-            <span className="sm:hidden">Fiyatlar</span>
+            <Settings className="w-4 h-4 text-amber-600" />
+            <span className="hidden sm:inline">2026-2027 Aylık Liste Fiyatları</span>
+            <span className="sm:hidden">Aylık Fiyatlar</span>
           </button>
 
           {/* Sekme Geçişi */}
@@ -1074,72 +1549,106 @@ export default function TekliflerPage() {
 
               {/* FİYAT TEKLİFİ KALEMLERİ VE İNDİRİM / ELLE FİYAT GİRİŞİ */}
               <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-sm space-y-4">
-                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 border-b border-slate-100 dark:border-slate-800 pb-3">
+                <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-3 border-b border-slate-100 dark:border-slate-800 pb-3">
                   <div>
                     <h3 className="text-sm font-black text-slate-900 dark:text-white flex items-center gap-2">
                       <CreditCard className="w-4 h-4 text-teal-600" />
                       <span>Hizmet Kalemleri, İndirim Oranları ve Fiyatlar</span>
                     </h3>
                     <p className="text-xs text-slate-500 mt-0.5">
-                      Standart fiyatlar otomatik gelir. İster % indirim yapın, ister doğrudan Net Fiyatı elle girin.
+                      Kayıt ayına göre tanımlı liste fiyatları otomatik gelir. İster % indirim yapın, ister Net Fiyatı elle girin.
                     </p>
                   </div>
 
-                  {/* Hızlı Kalem Ekleme Butonları */}
-                  <div className="flex flex-wrap gap-1.5">
+                  {/* Kayıt Ayı Seçimi (Aylık Liste Fiyatı Yükleyici) */}
+                  <div className="flex flex-wrap items-center gap-2 bg-teal-50/70 dark:bg-slate-800/70 border border-teal-200/80 dark:border-slate-700 px-3 py-2 rounded-xl w-full lg:w-auto">
+                    <div className="flex items-center gap-1.5">
+                      <Calendar className="w-3.5 h-3.5 text-teal-700 dark:text-teal-400" />
+                      <span className="text-[11px] font-black text-teal-900 dark:text-teal-300 uppercase">
+                        Kayıt Ayı:
+                      </span>
+                    </div>
+                    <select
+                      value={selectedMonthId}
+                      onChange={(e) => applyMonthlyPricesToCurrentQuote(e.target.value)}
+                      className="px-2.5 py-1 rounded-lg border border-teal-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-xs font-bold text-slate-800 dark:text-white focus:ring-2 focus:ring-teal-500"
+                    >
+                      {monthlyPrices.map((m) => (
+                        <option key={m.id} value={m.id}>
+                          {m.month} — Toplam: {formatCurrency(m.totalPrice)}
+                        </option>
+                      ))}
+                    </select>
                     <button
                       type="button"
-                      onClick={() =>
-                        addItem(
-                          `Eğitim Ücreti *HAZİRAN* ${masterPrices.academicYear} Dönemi`,
-                          masterPrices.educationPrice,
-                          24
-                        )
-                      }
-                      className="px-2.5 py-1 rounded-lg bg-teal-50 hover:bg-teal-100 text-teal-700 text-[11px] font-bold"
+                      onClick={() => setMasterModalOpen(true)}
+                      className="px-2.5 py-1 rounded-lg bg-amber-100 hover:bg-amber-200 text-amber-900 text-[11px] font-bold transition"
+                      title="Aylık Fiyatları Tanımla"
                     >
-                      + Eğitim
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        addItem(`Yemek Ücreti ${masterPrices.academicYear} Dönemi`, masterPrices.diningPrice, 0)
-                      }
-                      className="px-2.5 py-1 rounded-lg bg-teal-50 hover:bg-teal-100 text-teal-700 text-[11px] font-bold"
-                    >
-                      + Yemek
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        addItem(`Kırtasiye ${masterPrices.academicYear} Dönemi`, masterPrices.stationeryPrice, 0)
-                      }
-                      className="px-2.5 py-1 rounded-lg bg-teal-50 hover:bg-teal-100 text-teal-700 text-[11px] font-bold"
-                    >
-                      + Kırtasiye
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        addItem(
-                          `Yaz Okulu *HAZİRAN* ${masterPrices.academicYear} Dönemi`,
-                          masterPrices.summerPrice,
-                          24
-                        )
-                      }
-                      className="px-2.5 py-1 rounded-lg bg-teal-50 hover:bg-teal-100 text-teal-700 text-[11px] font-bold"
-                    >
-                      + Yaz Okulu
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => addItem("Özel Hizmet / Kalem", 0, 0)}
-                      className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-bold"
-                    >
-                      + Özel Kalem
+                      Fiyat Tanımla
                     </button>
                   </div>
                 </div>
+
+                {/* Hızlı Kalem Ekleme Butonları (Seçili Ayın Fiyatlarıyla) */}
+                {(() => {
+                  const activeRow =
+                    monthlyPrices.find((r) => r.id === selectedMonthId) ||
+                    monthlyPrices[0] ||
+                    DEFAULT_MONTHLY_PRICES[0];
+                  return (
+                    <div className="flex flex-wrap items-center justify-between gap-2 bg-slate-50 dark:bg-slate-800/40 px-3 py-2 rounded-xl border border-slate-100 dark:border-slate-800">
+                      <div className="text-[11px] text-slate-600 dark:text-slate-300 font-semibold">
+                        Seçili Dönem: <strong className="text-teal-700 dark:text-teal-400">{activeRow.month}</strong> • Toplam Liste:{" "}
+                        <strong>{formatCurrency(activeRow.totalPrice)}</strong>
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            addItem(
+                              `Eğitim Ücreti (${activeRow.month} Kayıt Dönemi)`,
+                              activeRow.education,
+                              0
+                            )
+                          }
+                          className="px-2.5 py-1 rounded-lg bg-teal-50 hover:bg-teal-100 text-teal-700 text-[11px] font-bold"
+                        >
+                          + Eğitim ({formatCurrency(activeRow.education)})
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            addItem(`Yemek Ücreti (${activeRow.month} Kayıt Dönemi)`, activeRow.dining, 0)
+                          }
+                          className="px-2.5 py-1 rounded-lg bg-teal-50 hover:bg-teal-100 text-teal-700 text-[11px] font-bold"
+                        >
+                          + Yemek ({formatCurrency(activeRow.dining)})
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            addItem(
+                              `Kırtasiye / Yayın Set Ücreti (${activeRow.month} Kayıt Dönemi)`,
+                              activeRow.stationeryTotal,
+                              0
+                            )
+                          }
+                          className="px-2.5 py-1 rounded-lg bg-teal-50 hover:bg-teal-100 text-teal-700 text-[11px] font-bold"
+                        >
+                          + Kırtasiye / Yayın Set ({formatCurrency(activeRow.stationeryTotal)})
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => addItem("Özel Hizmet / Kalem", 0, 0)}
+                          className="px-2.5 py-1 rounded-lg bg-slate-200/70 hover:bg-slate-200 text-slate-700 text-[11px] font-bold"
+                        >
+                          + Özel Kalem
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 {/* Kalem Listesi */}
                 <div className="space-y-3">
@@ -1243,7 +1752,9 @@ export default function TekliflerPage() {
                 <div className="bg-slate-100 dark:bg-slate-800 p-4 rounded-xl flex flex-wrap items-center justify-between gap-4 font-bold text-xs">
                   <div>
                     <span className="text-slate-500">Brüt Liste Toplamı:</span>{" "}
-                    <span className="line-through text-slate-600 font-mono">{formatCurrency(grossTotal)}</span>
+                    <span className={`${discountTotal > 0 ? "line-through text-slate-600" : "text-slate-900 dark:text-white"} font-mono`}>
+                      {formatCurrency(grossTotal)}
+                    </span>
                   </div>
                   <div>
                     <span className="text-emerald-600">Toplam İndirim:</span>{" "}
@@ -1258,97 +1769,71 @@ export default function TekliflerPage() {
                 </div>
               </div>
 
-              {/* BANKA KREDİ KARTI TAKSİT SEÇENEKLERİ (AYLIK TUTAR DÜZENLEME) */}
-              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-sm space-y-4">
-                <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+              {/* BANKA KREDİ KARTI EĞİTİME ÖZEL TAKSİT KAMPANYALARI (KOMPAKT & KUTUCUKSUZ MANUEL LİSTE) */}
+              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm space-y-2.5">
+                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 dark:border-slate-800 pb-2">
                   <div>
-                    <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                      <CreditCard className="w-4 h-4 text-teal-600" />
-                      <span>Banka Kredi Kartı Taksit Seçenekleri (Aylık Tutarlar)</span>
+                    <h3 className="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
+                      <CreditCard className="w-3.5 h-3.5 text-teal-600" />
+                      <span>Anlaşmalı Banka Kampanyaları (Manuel Düzenleme)</span>
                     </h3>
-                    <p className="text-xs text-slate-500 mt-0.5">
-                      Net tutara göre aylık taksit tutarı otomatik hesaplanır, dilediğiniz gibi kutucuktan elle düzeltebilirsiniz.
-                    </p>
                   </div>
-                  <button
-                    type="button"
-                    onClick={addBankCampaign}
-                    className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-teal-50 text-teal-700 hover:bg-teal-100 text-xs font-bold"
-                  >
-                    <Plus className="w-3.5 h-3.5" />
-                    <span>Yeni Banka Ekle</span>
-                  </button>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={saveBankCampaignsToSettings}
+                      className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 text-[11px] font-bold"
+                      title="Yaptığınız banka kampanya düzenlemelerini bu ayın tüm yeni teklifleri için kalıcı kaydet"
+                    >
+                      <Save className="w-3 h-3" />
+                      <span>Bu Ayın Kampanyalarını Sabitle</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={addBankCampaign}
+                      className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-teal-50 text-teal-700 hover:bg-teal-100 text-[11px] font-bold"
+                    >
+                      <Plus className="w-3 h-3" />
+                      <span>+ Banka Ekle</span>
+                    </button>
+                  </div>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  {bankCampaigns.map((bank) => {
-                    const monthly = getMonthlyAmount(bank);
-                    return (
-                      <div
-                        key={bank.id}
-                        className="p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/40 dark:bg-slate-800/20 flex flex-col gap-2"
+                <div className="divide-y divide-slate-100 dark:divide-slate-800 text-xs">
+                  {bankCampaigns.map((bank) => (
+                    <div
+                      key={bank.id}
+                      className="py-1 flex items-center gap-2"
+                    >
+                      <span className="text-slate-400 font-bold text-[10px]">•</span>
+                      {/* Banka Adı */}
+                      <input
+                        type="text"
+                        value={bank.bankName}
+                        onChange={(e) => handleBankChange(bank.id, "bankName", e.target.value.toUpperCase())}
+                        className="w-44 shrink-0 font-bold text-[11px] uppercase px-1.5 py-0.5 border-b border-transparent hover:border-slate-300 focus:border-teal-600 bg-transparent focus:outline-none text-slate-900 dark:text-white"
+                        placeholder="BANKA ADI"
+                      />
+                      <span className="text-slate-400 font-bold">:</span>
+                      {/* Kampanya Açıklaması */}
+                      <input
+                        type="text"
+                        value={bank.campaignText}
+                        onChange={(e) => handleBankChange(bank.id, "campaignText", e.target.value)}
+                        className="flex-1 text-[11px] text-slate-700 dark:text-slate-300 px-1.5 py-0.5 border-b border-transparent hover:border-slate-300 focus:border-teal-600 bg-transparent focus:outline-none font-medium"
+                        placeholder="O ayki eğitime özel kampanya bilgisini yazın..."
+                      />
+                      {/* Sil */}
+                      <button
+                        type="button"
+                        onClick={() => removeBankCampaign(bank.id)}
+                        className="text-slate-300 hover:text-rose-600 p-0.5 shrink-0"
+                        title="Bankayı Sil"
                       >
-                        <div className="flex items-center justify-between gap-2">
-                          {/* Banka Adı */}
-                          <input
-                            type="text"
-                            value={bank.bankName}
-                            onChange={(e) => handleBankChange(bank.id, "bankName", e.target.value.toUpperCase())}
-                            className="font-bold text-xs uppercase px-2 py-1 rounded border border-slate-200 w-1/2"
-                          />
-                          {/* Taksit Sayısı */}
-                          <div className="flex items-center gap-1">
-                            <input
-                              type="number"
-                              value={bank.installmentCount || 6}
-                              onChange={(e) =>
-                                handleBankChange(bank.id, "installmentCount", parseInt(e.target.value) || 1)
-                              }
-                              className="w-12 px-1 py-1 rounded border border-slate-200 text-xs font-bold text-center"
-                            />
-                            <span className="text-[10px] text-slate-500">Taksit</span>
-                          </div>
-                          {/* Sil */}
-                          <button
-                            type="button"
-                            onClick={() => removeBankCampaign(bank.id)}
-                            className="text-slate-400 hover:text-rose-600 p-1"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-
-                        {/* Aylık Taksit Tutarı (Elle Düzeltilebilir) */}
-                        <div className="flex items-center gap-2">
-                          <label className="text-[10px] font-bold text-teal-800 dark:text-teal-300 shrink-0">
-                            Aylık Taksit:
-                          </label>
-                          <div className="relative flex-1">
-                            <input
-                              type="number"
-                              value={bank.monthlyAmount !== undefined ? bank.monthlyAmount : monthly}
-                              onChange={(e) => handleBankChange(bank.id, "monthlyAmount", e.target.value)}
-                              className="w-full px-2 py-1 rounded border border-teal-300 bg-white text-xs font-bold font-mono text-teal-900"
-                              placeholder={monthly.toString()}
-                            />
-                            <span className="absolute right-2 top-1 text-[10px] text-slate-400">₺/ay</span>
-                          </div>
-                          <span className="text-[10px] text-slate-400 shrink-0">
-                            (Toplam: {formatCurrency((Number(bank.monthlyAmount) || monthly) * (bank.installmentCount || 1))})
-                          </span>
-                        </div>
-
-                        {/* Kampanya Açıklaması */}
-                        <input
-                          type="text"
-                          value={bank.campaignText}
-                          onChange={(e) => handleBankChange(bank.id, "campaignText", e.target.value)}
-                          className="text-[10px] text-slate-600 px-2 py-1 rounded border border-slate-200"
-                          placeholder="Kampanya şartı / detayı"
-                        />
-                      </div>
-                    );
-                  })}
+                        <Trash2 className="w-3 h-3" />
+                      </button>
+                    </div>
+                  ))}
                 </div>
               </div>
 
@@ -1408,11 +1893,12 @@ export default function TekliflerPage() {
               <div>
                 {/* 1. ÜST LOGO & KURUM ADI */}
                 <div className="flex items-start justify-between border-b border-slate-200 pb-3">
-                  <div className="flex items-center gap-3">
-                    <div className="w-12 h-12 rounded-xl bg-slate-900 text-white flex flex-col items-center justify-center font-extrabold tracking-widest shrink-0">
-                      <span className="text-base font-serif">S</span>
-                      <span className="text-[7px] uppercase tracking-normal">SİMYA</span>
-                    </div>
+                  <div className="flex items-center gap-3.5">
+                    <img
+                      src="/simya-logo.png"
+                      alt="Simya Çocuk Üniversitesi Logo"
+                      className="h-12 sm:h-14 w-auto object-contain shrink-0"
+                    />
                     <div>
                       <h1 className="text-lg font-black tracking-wide text-slate-900 uppercase">
                         {schoolName}
@@ -1464,28 +1950,39 @@ export default function TekliflerPage() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-300">
-                      {items.map((item, idx) => (
-                        <tr key={idx} className="hover:bg-slate-50/50">
-                          <td className="border-r border-slate-300 py-1.5 px-2 font-bold text-slate-900">
-                            {item.desc}
-                          </td>
-                          <td className="border-r border-slate-300 py-1.5 px-1.5 text-center font-semibold">
-                            {item.qty}
-                          </td>
-                          <td className="border-r border-slate-300 py-1.5 px-1.5 text-center text-slate-600 font-medium">
-                            {item.unit}
-                          </td>
-                          <td className="border-r border-slate-300 py-1.5 px-2 text-right font-mono line-through text-slate-500 font-medium">
-                            {formatCurrency(item.listPrice)}
-                          </td>
-                          <td className="border-r border-slate-300 py-1.5 px-1.5 text-center font-bold text-slate-700">
-                            {item.discountPercent > 0 ? `%${item.discountPercent}` : "-"}
-                          </td>
-                          <td className="py-1.5 px-2 text-right font-mono font-black text-slate-900 text-[11px]">
-                            {formatCurrency(item.total)}
-                          </td>
-                        </tr>
-                      ))}
+                      {items.map((item, idx) => {
+                        const hasDiscount =
+                          Number(item.discountPercent) > 0 ||
+                          (Number(item.listPrice) > 0 && Number(item.total) < Number(item.listPrice));
+                        return (
+                          <tr key={idx} className="hover:bg-slate-50/50">
+                            <td className="border-r border-slate-300 py-1.5 px-2 font-bold text-slate-900">
+                              {item.desc}
+                            </td>
+                            <td className="border-r border-slate-300 py-1.5 px-1.5 text-center font-semibold">
+                              {item.qty}
+                            </td>
+                            <td className="border-r border-slate-300 py-1.5 px-1.5 text-center text-slate-600 font-medium">
+                              {item.unit}
+                            </td>
+                            <td
+                              className={`border-r border-slate-300 py-1.5 px-2 text-right font-mono ${
+                                hasDiscount
+                                  ? "line-through text-slate-500 font-medium"
+                                  : "text-slate-900 font-semibold"
+                              }`}
+                            >
+                              {formatCurrency(item.listPrice)}
+                            </td>
+                            <td className="border-r border-slate-300 py-1.5 px-1.5 text-center font-bold text-slate-700">
+                              {item.discountPercent > 0 ? `%${item.discountPercent}` : "-"}
+                            </td>
+                            <td className="py-1.5 px-2 text-right font-mono font-black text-slate-900 text-[11px]">
+                              {formatCurrency(item.total)}
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
@@ -1495,7 +1992,9 @@ export default function TekliflerPage() {
                   <div className="w-64 border border-slate-400 bg-slate-50 p-2 space-y-1 text-[10px]">
                     <div className="flex justify-between items-center text-slate-600">
                       <span>Brüt Toplam:</span>
-                      <span className="font-mono line-through">{formatCurrency(grossTotal)}</span>
+                      <span className={`font-mono ${discountTotal > 0 ? "line-through" : "font-bold text-slate-900"}`}>
+                        {formatCurrency(grossTotal)}
+                      </span>
                     </div>
                     {discountTotal > 0 && (
                       <div className="flex justify-between items-center text-emerald-700 font-bold">
@@ -1525,37 +2024,19 @@ export default function TekliflerPage() {
                   ))}
                 </div>
 
-                {/* 6. BANKA KREDİ KARTI TAKSİT VE KAMPANYA SEÇENEKLERİ */}
-                <div className="mt-4 pt-2.5 border-t border-slate-300">
-                  <h4 className="font-bold text-slate-900 uppercase tracking-wide text-[9.5px] mb-1.5 flex items-center justify-between">
-                    <span>ANLAŞMALI BANKA KREDİ KARTI VE TAKSİT SEÇENEKLERİ:</span>
-                    <span className="text-[8.5px] text-slate-500 font-normal lowercase">
-                      (vade farksız taksit imkanları)
-                    </span>
+                {/* 6. BANKA KREDİ KARTI KAMPANYA SEÇENEKLERİ (KUTUCUKSUZ, KOMPAKT DÜZ METİN SATIRLARI) */}
+                <div className="mt-2.5 pt-2 border-t border-slate-300">
+                  <h4 className="font-bold text-slate-900 uppercase tracking-wide text-[9px] mb-1">
+                    BANKA KREDİ KARTI VE TAKSİT KAMPANYALARI:
                   </h4>
 
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5 text-[8.5px]">
-                    {bankCampaigns.map((b) => {
-                      const monthly = getMonthlyAmount(b);
-                      return (
-                        <div
-                          key={b.id}
-                          className="border border-slate-300 p-1.5 bg-slate-50/70 rounded-none flex flex-col justify-between"
-                        >
-                          <div className="flex items-center justify-between gap-1">
-                            <span className="font-black text-slate-900">{b.bankName}</span>
-                            <span className="font-bold font-mono text-slate-800 bg-white px-1 border border-slate-200 text-[8px]">
-                              {b.installmentCount} Taksit
-                            </span>
-                          </div>
-                          <div className="mt-1 flex items-center justify-between font-mono font-bold text-teal-900">
-                            <span className="text-[7.5px] text-slate-500 font-sans font-normal">Aylık:</span>
-                            <span>{formatCurrency(monthly)}</span>
-                          </div>
-                          <p className="text-[7.5px] text-slate-500 line-clamp-1 mt-0.5">{b.campaignText}</p>
-                        </div>
-                      );
-                    })}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-0.5 text-[8px] leading-tight">
+                    {bankCampaigns.map((b) => (
+                      <div key={b.id} className="flex items-baseline gap-1">
+                        <span className="font-bold text-slate-900 shrink-0">• {b.bankName}:</span>
+                        <span className="text-slate-700">{b.campaignText}</span>
+                      </div>
+                    ))}
                   </div>
                 </div>
 
@@ -1565,39 +2046,6 @@ export default function TekliflerPage() {
                     <span className="font-bold">Havale / EFT:</span> {bankInfo}
                   </div>
                 )}
-              </div>
-
-              {/* 8. ALTAKİ RESMİ İMZA VE MEB KAŞE/MÜHÜR BLOĞU */}
-              <div className="mt-6 pt-4 border-t border-slate-300 flex items-center justify-between">
-                {/* Sol: Kurum & Teklif Veren */}
-                <div className="space-y-1 text-left">
-                  <p className="font-bold text-[10px] text-slate-800 uppercase">{schoolName}</p>
-                  <p className="text-[9px] text-slate-500">Mali İşler & Erken Kayıt Koordinatörlüğü</p>
-                  <div className="h-10"></div>
-                  <p className="text-[8.5px] text-slate-400">İmza / Yetkili</p>
-                </div>
-
-                {/* Orta: Resmi MEB Mührü */}
-                {includeStamp && (
-                  <div className="relative border-2 border-red-700/80 rounded-full w-24 h-24 flex flex-col items-center justify-center p-1 text-center text-red-700/80 font-serif -rotate-6 select-none opacity-90">
-                    <div className="text-[7px] font-bold tracking-tight">T.C. M.E.B.</div>
-                    <div className="text-[6.5px] font-extrabold uppercase leading-tight px-1">
-                      ÖZEL KAYSERİ SİMYA ÇOCUK ÜNİVERSİTESİ
-                    </div>
-                    <div className="text-[6px] font-semibold tracking-wider mt-0.5">ANAOKULU</div>
-                    <div className="text-[6px] font-mono mt-0.5">ONAYLANDI</div>
-                  </div>
-                )}
-
-                {/* Sağ: Veli Onay Alanı */}
-                <div className="space-y-1 text-right">
-                  <p className="font-bold text-[10px] text-slate-800 uppercase">
-                    TEKLİFİ ALAN VELİ
-                  </p>
-                  <p className="text-[9px] text-slate-500 font-bold uppercase">{parentName}</p>
-                  <div className="h-10"></div>
-                  <p className="text-[8.5px] text-slate-400">Okudum, Anladım ve Kabul Ediyorum (İmza)</p>
-                </div>
               </div>
             </div>
           </div>
@@ -1609,7 +2057,7 @@ export default function TekliflerPage() {
       {/* ========================================================================= */}
       {newQuoteModalOpen && (
         <div className="no-print fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl w-full max-w-lg shadow-2xl overflow-hidden animate-scale-up">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl w-full max-w-xl shadow-2xl overflow-hidden animate-scale-up">
             <div className="p-5 bg-gradient-to-r from-teal-700 to-teal-800 text-white flex items-center justify-between">
               <div className="flex items-center gap-2.5">
                 <span className="p-2 rounded-xl bg-white/10">
@@ -1618,7 +2066,7 @@ export default function TekliflerPage() {
                 <div>
                   <h3 className="font-black text-base tracking-wide">Yeni Fiyat Teklifi Ver</h3>
                   <p className="text-xs text-teal-100">
-                    Veli bilgilerini girip standart fiyatlar ile teklifi hazırlayın.
+                    Kayıt ayını seçip o aya tanımlı liste fiyatları ile teklifi hazırlayın.
                   </p>
                 </div>
               </div>
@@ -1631,7 +2079,7 @@ export default function TekliflerPage() {
               </button>
             </div>
 
-            <form onSubmit={handleCreateQuoteFromInit} className="p-6 space-y-4">
+            <form onSubmit={handleCreateQuoteFromInit} className="p-6 space-y-4 max-h-[85vh] overflow-y-auto">
               <div>
                 <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
                   Veli Adı Soyadı *
@@ -1647,30 +2095,17 @@ export default function TekliflerPage() {
                 />
               </div>
 
-              <div>
-                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
-                  Telefon Numarası
-                </label>
-                <input
-                  type="text"
-                  placeholder="0530 000 00 00"
-                  value={initForm.phone}
-                  onChange={(e) => setInitForm({ ...initForm, phone: e.target.value })}
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 text-sm font-mono focus:ring-2 focus:ring-teal-500"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
-                    Öğrenci Adı (Opsiyonel)
+                    Telefon Numarası
                   </label>
                   <input
                     type="text"
-                    placeholder="Örn: Ahmet Güvener"
-                    value={initForm.studentName}
-                    onChange={(e) => setInitForm({ ...initForm, studentName: e.target.value })}
-                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 text-sm uppercase focus:ring-2 focus:ring-teal-500"
+                    placeholder="0530 000 00 00"
+                    value={initForm.phone}
+                    onChange={(e) => setInitForm({ ...initForm, phone: e.target.value })}
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 text-sm font-mono focus:ring-2 focus:ring-teal-500"
                   />
                 </div>
                 <div>
@@ -1686,50 +2121,88 @@ export default function TekliflerPage() {
                 </div>
               </div>
 
-              {/* Dahil Edilecek Standart Hizmetler (Ön Tanımlı) */}
-              <div className="border border-slate-200 dark:border-slate-800 rounded-2xl p-3.5 bg-slate-50 dark:bg-slate-800/40 space-y-2">
-                <span className="block text-[11px] font-black uppercase text-slate-600 dark:text-slate-400">
-                  Dahil Edilecek Hizmetler ({masterPrices.academicYear} Kayıtlı Fiyatları)
-                </span>
-                <div className="grid grid-cols-2 gap-2 text-xs font-semibold">
-                  <label className="flex items-center gap-2 cursor-pointer p-1.5 rounded hover:bg-white dark:hover:bg-slate-700">
-                    <input
-                      type="checkbox"
-                      checked={initForm.includeEducation}
-                      onChange={(e) => setInitForm({ ...initForm, includeEducation: e.target.checked })}
-                      className="rounded text-teal-600 focus:ring-teal-500 w-4 h-4"
-                    />
-                    <span>Eğitim ({formatCurrency(masterPrices.educationPrice)})</span>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+                    Öğrenci Adı (Opsiyonel)
                   </label>
-                  <label className="flex items-center gap-2 cursor-pointer p-1.5 rounded hover:bg-white dark:hover:bg-slate-700">
-                    <input
-                      type="checkbox"
-                      checked={initForm.includeDining}
-                      onChange={(e) => setInitForm({ ...initForm, includeDining: e.target.checked })}
-                      className="rounded text-teal-600 focus:ring-teal-500 w-4 h-4"
-                    />
-                    <span>Yemek ({formatCurrency(masterPrices.diningPrice)})</span>
+                  <input
+                    type="text"
+                    placeholder="Örn: Ahmet Güvener"
+                    value={initForm.studentName}
+                    onChange={(e) => setInitForm({ ...initForm, studentName: e.target.value })}
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 text-sm uppercase focus:ring-2 focus:ring-teal-500"
+                  />
+                </div>
+
+                {/* Kayıt Ayı Seçimi */}
+                <div>
+                  <label className="block text-xs font-bold text-teal-800 dark:text-teal-300 mb-1.5">
+                    Kayıt Ayı (Aylık Liste Fiyatı) *
                   </label>
-                  <label className="flex items-center gap-2 cursor-pointer p-1.5 rounded hover:bg-white dark:hover:bg-slate-700">
-                    <input
-                      type="checkbox"
-                      checked={initForm.includeStationery}
-                      onChange={(e) => setInitForm({ ...initForm, includeStationery: e.target.checked })}
-                      className="rounded text-teal-600 focus:ring-teal-500 w-4 h-4"
-                    />
-                    <span>Kırtasiye ({formatCurrency(masterPrices.stationeryPrice)})</span>
-                  </label>
-                  <label className="flex items-center gap-2 cursor-pointer p-1.5 rounded hover:bg-white dark:hover:bg-slate-700">
-                    <input
-                      type="checkbox"
-                      checked={initForm.includeSummer}
-                      onChange={(e) => setInitForm({ ...initForm, includeSummer: e.target.checked })}
-                      className="rounded text-teal-600 focus:ring-teal-500 w-4 h-4"
-                    />
-                    <span>Yaz Okulu ({formatCurrency(masterPrices.summerPrice)})</span>
-                  </label>
+                  <select
+                    value={initForm.selectedMonthId}
+                    onChange={(e) => setInitForm({ ...initForm, selectedMonthId: e.target.value })}
+                    className="w-full px-3 py-2.5 rounded-xl border-2 border-teal-500/60 dark:border-teal-600 bg-teal-50/40 dark:bg-slate-800 text-xs font-black text-slate-900 dark:text-white focus:ring-2 focus:ring-teal-500"
+                  >
+                    {monthlyPrices.map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.month} — {formatCurrency(m.totalPrice)}
+                      </option>
+                    ))}
+                  </select>
                 </div>
               </div>
+
+              {/* Seçili Kayıt Ayına Göre Dahil Edilecek Hizmetler */}
+              {(() => {
+                const selectedRow =
+                  monthlyPrices.find((r) => r.id === initForm.selectedMonthId) ||
+                  monthlyPrices[0] ||
+                  DEFAULT_MONTHLY_PRICES[0];
+                return (
+                  <div className="border border-teal-200 dark:border-slate-800 rounded-2xl p-3.5 bg-teal-50/40 dark:bg-slate-800/40 space-y-2.5">
+                    <div className="flex items-center justify-between border-b border-teal-200/60 dark:border-slate-700 pb-2">
+                      <span className="text-[11px] font-black uppercase text-teal-900 dark:text-teal-300">
+                        {selectedRow.month} Liste Fiyatları
+                      </span>
+                      <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300">
+                        Toplam: <strong>{formatCurrency(selectedRow.totalPrice)}</strong>
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs font-semibold">
+                      <label className="flex items-center gap-2 cursor-pointer p-2 rounded-lg bg-white/80 dark:bg-slate-800 border border-slate-200/70 dark:border-slate-700">
+                        <input
+                          type="checkbox"
+                          checked={initForm.includeEducation}
+                          onChange={(e) => setInitForm({ ...initForm, includeEducation: e.target.checked })}
+                          className="rounded text-teal-600 focus:ring-teal-500 w-4 h-4"
+                        />
+                        <span>Eğitim ({formatCurrency(selectedRow.education)})</span>
+                      </label>
+                      <label className="flex items-center gap-2 cursor-pointer p-2 rounded-lg bg-white/80 dark:bg-slate-800 border border-slate-200/70 dark:border-slate-700">
+                        <input
+                          type="checkbox"
+                          checked={initForm.includeDining}
+                          onChange={(e) => setInitForm({ ...initForm, includeDining: e.target.checked })}
+                          className="rounded text-teal-600 focus:ring-teal-500 w-4 h-4"
+                        />
+                        <span>Yemek ({formatCurrency(selectedRow.dining)})</span>
+                      </label>
+                      <label className="flex items-center gap-2 cursor-pointer p-2 rounded-lg bg-white/80 dark:bg-slate-800 border border-slate-200/70 dark:border-slate-700">
+                        <input
+                          type="checkbox"
+                          checked={initForm.includeStationery}
+                          onChange={(e) => setInitForm({ ...initForm, includeStationery: e.target.checked })}
+                          className="rounded text-teal-600 focus:ring-teal-500 w-4 h-4"
+                        />
+                        <span>Kırtasiye / Yayın Set ({formatCurrency(selectedRow.stationeryTotal)})</span>
+                      </label>
+                    </div>
+                  </div>
+                );
+              })()}
 
               <div className="flex items-center justify-end gap-2 pt-2">
                 <button
@@ -1753,125 +2226,319 @@ export default function TekliflerPage() {
       )}
 
       {/* ========================================================================= */}
-      {/* 5. "2026-2027 STANDART FİYATLARI BELİRLE" MODALI (MASTER PRICING) */}
+      {/* 5. SADE FİYAT TANIMLAMA MODALI (EĞİTİM, YEMEK, KIRTASİYE / YAYIN SET) */}
       {/* ========================================================================= */}
       {masterModalOpen && (
-        <div className="no-print fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl w-full max-w-md shadow-2xl overflow-hidden animate-scale-up">
-            <div className="p-5 bg-slate-900 text-white flex items-center justify-between">
-              <div className="flex items-center gap-2.5">
-                <span className="p-2 rounded-xl bg-white/10">
+        <div className="no-print fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-3 sm:p-5">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl w-full max-w-4xl max-h-[92vh] flex flex-col shadow-2xl overflow-hidden animate-scale-up">
+            {/* Üst Başlık */}
+            <div className="p-4 sm:p-5 bg-slate-900 text-white flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-3">
+                <span className="p-2 rounded-xl bg-teal-500/20 border border-teal-400/30">
                   <Settings className="w-5 h-5 text-teal-400" />
                 </span>
                 <div>
-                  <h3 className="font-bold text-sm tracking-wide">2026-2027 Standart Liste Fiyatları</h3>
+                  <h3 className="font-black text-sm sm:text-base tracking-wide">
+                    Aylık Liste Fiyatları Tanımlama
+                  </h3>
                   <p className="text-[11px] text-slate-400">
-                    Önceden kaydedilen bu fiyatlar her yeni teklif verildiğinde otomatik gelir.
+                    Her yıl ve aya özel Eğitim, Yemek ve Kırtasiye / Yayın Set ücretlerini tanımlayın.
                   </p>
                 </div>
               </div>
               <button
                 type="button"
                 onClick={() => setMasterModalOpen(false)}
-                className="p-1 rounded-lg hover:bg-white/20 text-white/80"
+                className="p-1.5 rounded-lg hover:bg-white/20 text-white/80"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <form onSubmit={handleSaveMasterPrices} className="p-6 space-y-4">
-              <div>
-                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  Eğitim-Öğretim Yılı
-                </label>
-                <input
-                  type="text"
-                  value={masterPrices.academicYear}
-                  onChange={(e) => setMasterPrices({ ...masterPrices, academicYear: e.target.value })}
-                  className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-bold"
-                />
-              </div>
+            {/* İçerik Formu */}
+            <form onSubmit={handleSaveMasterPrices} className="p-4 sm:p-6 space-y-4 overflow-y-auto flex-1">
+              {/* 1. HIZLI YIL VE AY FİYATI EKLEME / GÜNCELLEME */}
+              <div className="border border-teal-500/40 dark:border-teal-700/60 rounded-2xl p-3.5 bg-teal-50/40 dark:bg-slate-800/50 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-black text-teal-950 dark:text-teal-300 flex items-center gap-1.5">
+                    <Calendar className="w-4 h-4 text-teal-600" />
+                    <span>Yıl ve Aya Özel Fiyat Tanımla</span>
+                  </span>
+                  <span className="text-xs font-bold text-teal-900 dark:text-teal-300">
+                    Toplam:{" "}
+                    <strong>
+                      {formatCurrency(
+                        (Number(quickMonthForm.education) || 0) +
+                          (Number(quickMonthForm.dining) || 0) +
+                          (Number(quickMonthForm.stationeryTotal) || 0)
+                      )}
+                    </strong>
+                  </span>
+                </div>
 
-              <div>
-                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  2026-2027 Eğitim Ücreti (Standart Liste Fiyatı)
-                </label>
-                <div className="relative">
-                  <input
-                    type="number"
-                    value={masterPrices.educationPrice}
-                    onChange={(e) =>
-                      setMasterPrices({ ...masterPrices, educationPrice: parseFloat(e.target.value) || 0 })
-                    }
-                    className="w-full pl-3 pr-7 py-2 rounded-xl border border-slate-200 text-xs font-mono font-bold"
-                  />
-                  <span className="absolute right-3 top-2 text-xs text-slate-400">₺</span>
+                <div className="grid grid-cols-2 sm:grid-cols-6 gap-2 items-end">
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
+                      Yıl
+                    </label>
+                    <input
+                      type="number"
+                      min={2024}
+                      max={2035}
+                      value={quickMonthForm.year}
+                      onChange={(e) => handleQuickYearMonthSelect(e.target.value, quickMonthForm.monthName)}
+                      className="w-full px-2.5 py-2 rounded-xl border border-slate-300 bg-white dark:bg-slate-900 text-xs font-black text-center"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
+                      Ay
+                    </label>
+                    <select
+                      value={quickMonthForm.monthName}
+                      onChange={(e) => handleQuickYearMonthSelect(quickMonthForm.year, e.target.value)}
+                      className="w-full px-2.5 py-2 rounded-xl border border-slate-300 bg-white dark:bg-slate-900 text-xs font-black"
+                    >
+                      {TURKISH_MONTHS.map((m) => (
+                        <option key={m} value={m}>
+                          {m}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-bold text-teal-800 dark:text-teal-300 mb-1">
+                      Eğitim (TL)
+                    </label>
+                    <input
+                      type="number"
+                      value={quickMonthForm.education}
+                      onChange={(e) =>
+                        setQuickMonthForm({
+                          ...quickMonthForm,
+                          education: parseFloat(e.target.value) || 0,
+                        })
+                      }
+                      className="w-full px-2.5 py-2 rounded-xl border border-teal-300 bg-white dark:bg-slate-900 text-xs font-mono font-bold text-right"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-bold text-teal-800 dark:text-teal-300 mb-1">
+                      Yemek (TL)
+                    </label>
+                    <input
+                      type="number"
+                      value={quickMonthForm.dining}
+                      onChange={(e) =>
+                        setQuickMonthForm({
+                          ...quickMonthForm,
+                          dining: parseFloat(e.target.value) || 0,
+                        })
+                      }
+                      className="w-full px-2.5 py-2 rounded-xl border border-teal-300 bg-white dark:bg-slate-900 text-xs font-mono font-bold text-right"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-bold text-teal-800 dark:text-teal-300 mb-1">
+                      Kırtasiye / Yayın Set (TL)
+                    </label>
+                    <input
+                      type="number"
+                      value={quickMonthForm.stationeryTotal}
+                      onChange={(e) => {
+                        const val = parseFloat(e.target.value) || 0;
+                        setQuickMonthForm({
+                          ...quickMonthForm,
+                          stationeryTotal: val,
+                        });
+                      }}
+                      className="w-full px-2.5 py-2 rounded-xl border border-teal-300 bg-white dark:bg-slate-900 text-xs font-mono font-bold text-right"
+                    />
+                  </div>
+
+                  <div>
+                    <button
+                      type="button"
+                      onClick={handleUpsertQuickYearMonth}
+                      className="w-full py-2 px-3 rounded-xl bg-teal-700 hover:bg-teal-800 text-white text-xs font-black shadow-sm transition flex items-center justify-center gap-1"
+                    >
+                      <Plus className="w-4 h-4" />
+                      <span>Ekle / Güncelle</span>
+                    </button>
+                  </div>
                 </div>
               </div>
 
-              <div>
-                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  Yemek Ücreti (Standart Liste Fiyatı)
-                </label>
-                <div className="relative">
-                  <input
-                    type="number"
-                    value={masterPrices.diningPrice}
-                    onChange={(e) =>
-                      setMasterPrices({ ...masterPrices, diningPrice: parseFloat(e.target.value) || 0 })
-                    }
-                    className="w-full pl-3 pr-7 py-2 rounded-xl border border-slate-200 text-xs font-mono font-bold"
-                  />
-                  <span className="absolute right-3 top-2 text-xs text-slate-400">₺</span>
+              {/* 2. SADE AYLIK LİSTE FİYATLARI TABLOSU */}
+              <div className="border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden shadow-sm">
+                <div className="bg-slate-100 dark:bg-slate-800 px-4 py-2.5 flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 dark:border-slate-700">
+                  <span className="text-xs font-black uppercase tracking-wider text-slate-800 dark:text-white">
+                    Tanımlı Aylık Liste Fiyatları
+                  </span>
+
+                  <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-1 bg-white dark:bg-slate-900 px-2.5 py-1 rounded-xl border border-slate-200 text-xs">
+                      <span className="font-bold text-slate-500">Yıl:</span>
+                      <select
+                        value={tableYearFilter}
+                        onChange={(e) => setTableYearFilter(e.target.value)}
+                        className="font-black text-slate-800 dark:text-white bg-transparent focus:outline-none"
+                      >
+                        <option value="ALL">Tümü</option>
+                        {Array.from(new Set(monthlyPrices.map((r) => r.year))).map((y) => (
+                          <option key={y} value={y}>
+                            {y}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={addMonthlyRow}
+                      className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold transition"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>+ Satır Ekle</span>
+                    </button>
+                  </div>
+                </div>
+
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left border-collapse text-xs">
+                    <thead>
+                      <tr className="bg-slate-800 text-white font-bold text-[11px] uppercase tracking-wider">
+                        <th className="py-2.5 px-3 text-center w-24">Yıl</th>
+                        <th className="py-2.5 px-3 w-36">Ay</th>
+                        <th className="py-2.5 px-3 text-right">Eğitim Ücreti (TL)</th>
+                        <th className="py-2.5 px-3 text-right">Yemek Ücreti (TL)</th>
+                        <th className="py-2.5 px-3 text-right">Kırtasiye / Yayın Set (TL)</th>
+                        <th className="py-2.5 px-3 text-right bg-teal-900/60">Toplam (TL)</th>
+                        <th className="py-2.5 px-2 text-center w-12">Sil</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-200 dark:divide-slate-800 font-medium">
+                      {monthlyPrices
+                        .filter((r) => tableYearFilter === "ALL" || r.year === tableYearFilter)
+                        .map((row) => (
+                          <tr
+                            key={row.id}
+                            className="hover:bg-teal-50/40 dark:hover:bg-slate-800/40 transition-colors"
+                          >
+                            {/* Yıl */}
+                            <td className="py-2 px-2 text-center">
+                              <input
+                                type="number"
+                                min={2024}
+                                max={2035}
+                                value={row.year}
+                                onChange={(e) => handleMonthlyRowChange(row.id, "year", e.target.value)}
+                                className="w-20 px-2 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 font-black text-center text-slate-900 dark:text-white bg-white dark:bg-slate-900 text-xs"
+                              />
+                            </td>
+
+                            {/* Ay */}
+                            <td className="py-2 px-2">
+                              <select
+                                value={row.monthName}
+                                onChange={(e) => handleMonthlyRowChange(row.id, "monthName", e.target.value)}
+                                className="w-32 px-2 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 font-bold text-slate-900 dark:text-white bg-white dark:bg-slate-900 text-xs"
+                              >
+                                {TURKISH_MONTHS.map((m) => (
+                                  <option key={m} value={m}>
+                                    {m}
+                                  </option>
+                                ))}
+                                {!TURKISH_MONTHS.includes(row.monthName) && (
+                                  <option value={row.monthName}>{row.monthName}</option>
+                                )}
+                              </select>
+                            </td>
+
+                            {/* Eğitim Ücreti */}
+                            <td className="py-2 px-2 text-right">
+                              <input
+                                type="number"
+                                value={row.education}
+                                onChange={(e) =>
+                                  handleMonthlyRowChange(
+                                    row.id,
+                                    "education",
+                                    parseFloat(e.target.value) || 0
+                                  )
+                                }
+                                className="w-32 px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 text-right font-mono font-bold text-slate-900 dark:text-white bg-white dark:bg-slate-900 text-xs"
+                              />
+                            </td>
+
+                            {/* Yemek Ücreti */}
+                            <td className="py-2 px-2 text-right">
+                              <input
+                                type="number"
+                                value={row.dining}
+                                onChange={(e) =>
+                                  handleMonthlyRowChange(row.id, "dining", parseFloat(e.target.value) || 0)
+                                }
+                                className="w-32 px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 text-right font-mono font-bold text-slate-900 dark:text-white bg-white dark:bg-slate-900 text-xs"
+                              />
+                            </td>
+
+                            {/* Kırtasiye / Yayın Set Ücreti */}
+                            <td className="py-2 px-2 text-right">
+                              <input
+                                type="number"
+                                value={row.stationeryTotal}
+                                onChange={(e) =>
+                                  handleMonthlyRowChange(
+                                    row.id,
+                                    "stationeryTotal",
+                                    parseFloat(e.target.value) || 0
+                                  )
+                                }
+                                className="w-32 px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 text-right font-mono font-bold text-slate-900 dark:text-white bg-white dark:bg-slate-900 text-xs"
+                              />
+                            </td>
+
+                            {/* Toplam */}
+                            <td className="py-2 px-3 text-right bg-teal-50/40 dark:bg-teal-950/20 font-mono font-black text-teal-900 dark:text-teal-300">
+                              {formatCurrency(row.totalPrice)}
+                            </td>
+
+                            {/* Sil */}
+                            <td className="py-2 px-2 text-center">
+                              <button
+                                type="button"
+                                onClick={() => removeMonthlyRow(row.id)}
+                                className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition"
+                                title="Satırı Sil"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                    </tbody>
+                  </table>
                 </div>
               </div>
 
-              <div>
-                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  Kırtasiye Ücreti (Standart Liste Fiyatı)
-                </label>
-                <div className="relative">
-                  <input
-                    type="number"
-                    value={masterPrices.stationeryPrice}
-                    onChange={(e) =>
-                      setMasterPrices({ ...masterPrices, stationeryPrice: parseFloat(e.target.value) || 0 })
-                    }
-                    className="w-full pl-3 pr-7 py-2 rounded-xl border border-slate-200 text-xs font-mono font-bold"
-                  />
-                  <span className="absolute right-3 top-2 text-xs text-slate-400">₺</span>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  Yaz Okulu Ücreti (Standart Liste Fiyatı)
-                </label>
-                <div className="relative">
-                  <input
-                    type="number"
-                    value={masterPrices.summerPrice}
-                    onChange={(e) =>
-                      setMasterPrices({ ...masterPrices, summerPrice: parseFloat(e.target.value) || 0 })
-                    }
-                    className="w-full pl-3 pr-7 py-2 rounded-xl border border-slate-200 text-xs font-mono font-bold"
-                  />
-                  <span className="absolute right-3 top-2 text-xs text-slate-400">₺</span>
-                </div>
-              </div>
-
-              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+              {/* Kaydet & Kapat */}
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-200 dark:border-slate-800 shrink-0">
                 <button
                   type="button"
                   onClick={() => setMasterModalOpen(false)}
-                  className="px-4 py-2 rounded-xl border border-slate-300 text-xs font-bold text-slate-600 hover:bg-slate-50 transition"
+                  className="px-4 py-2.5 rounded-xl border border-slate-300 text-xs font-bold text-slate-600 hover:bg-slate-50 transition"
                 >
                   Kapat
                 </button>
                 <button
                   type="submit"
                   disabled={savingMaster}
-                  className="px-5 py-2 rounded-xl bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold shadow-md transition"
+                  className="px-6 py-2.5 rounded-xl bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold shadow-md shadow-teal-600/20 transition"
                 >
                   {savingMaster ? "Kaydediliyor..." : "Fiyatları Kaydet"}
                 </button>

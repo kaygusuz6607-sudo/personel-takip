@@ -14,10 +14,10 @@ export async function GET(request: Request) {
 
     if (q.trim()) {
       where.OR = [
-        { parentName: { contains: q, mode: "insensitive" } },
-        { studentName: { contains: q, mode: "insensitive" } },
-        { phone: { contains: q, mode: "insensitive" } },
-        { quoteNo: { contains: q, mode: "insensitive" } },
+        { parentName: { contains: q } },
+        { studentName: { contains: q } },
+        { phone: { contains: q } },
+        { quoteNo: { contains: q } },
       ];
     }
 
