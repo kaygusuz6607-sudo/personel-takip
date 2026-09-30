@@ -398,6 +398,7 @@ function GiderlerPageContent() {
   const [syncPhoneAmountToInvoice, setSyncPhoneAmountToInvoice] = useState(false);
   const [phoneModalSubmitting, setPhoneModalSubmitting] = useState(false);
   const [showPhoneSection, setShowPhoneSection] = useState(true);
+  const [showRolloverSection, setShowRolloverSection] = useState(true);
   const [hiddenPhoneRowIds, setHiddenPhoneRowIds] = useState<Record<string, boolean>>({});
 
   // Parçalı Ödeme Modalı
@@ -2678,46 +2679,96 @@ function GiderlerPageContent() {
           )}
 
           {/* 🔴 GEÇMİŞ AYLARDAN KALAN ÖDENMEMİŞ BORÇLAR / DEVREDEN KİRALAR (Özdemirler & İlyas Bey) */}
-          {rolloverExpenses.length > 0 && (
-            <div className="bg-rose-50 border-2 border-rose-300 rounded-2xl p-4 space-y-2 text-rose-950 shadow-sm animate-in fade-in duration-300">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <AlertCircle className="w-5 h-5 text-rose-600" />
-                  <h3 className="font-extrabold text-sm text-rose-950">
-                    🔴 Geçmiş Aylardan Kalan Ödenmemiş Borçlar ({rolloverExpenses.length} Kalem Devreden)
-                  </h3>
+          {(() => {
+            const targetM = selectedMonth !== "ALL" ? parseInt(selectedMonth, 10) : 9;
+            const isViewing2026Month = isNaN(targetM) || targetM >= 7;
+            const validRolloverList = rolloverExpenses.filter((re) => {
+              if ((Number(re.amountRemaining) || 0) <= 0) return false;
+              const dStr = (re.dueDateStr || "").toLowerCase();
+              const dIso = (re.dueDate || "").toString();
+              // 2026 yılındaki bir aya bakılıyorken 2027 yılına ait (Ocak-Ağustos 2027 vb.) hiçbir kaydı gösterme
+              if (isViewing2026Month) {
+                if (dStr.includes("2027") || dIso.startsWith("2027")) return false;
+                if (re.monthIndex && re.monthIndex >= 1 && re.monthIndex <= 6 && !dStr.includes("2026")) {
+                  return false;
+                }
+              }
+              return true;
+            });
+
+            if (validRolloverList.length === 0) return null;
+
+            if (!showRolloverSection) {
+              return (
+                <div className="flex items-center justify-end">
+                  <button
+                    type="button"
+                    onClick={() => setShowRolloverSection(true)}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-900 border border-rose-300 text-xs font-extrabold shadow-2xs transition-colors"
+                  >
+                    <AlertCircle className="w-3.5 h-3.5 text-rose-600" />
+                    <span>
+                      🔴 Geçmiş Aylardan Kalan Borçları Göster ({validRolloverList.length} Kalem •{" "}
+                      {formatCurrency(validRolloverList.reduce((s, e) => s + e.amountRemaining, 0))})
+                    </span>
+                    <ChevronDown className="w-3.5 h-3.5" />
+                  </button>
                 </div>
-                <span className="text-xs font-extrabold px-3 py-1 bg-rose-200 text-rose-900 rounded-full">
-                  Toplam Devreden: {formatCurrency(rolloverExpenses.reduce((s, e) => s + e.amountRemaining, 0))}
-                </span>
-              </div>
-              <p className="text-xs text-rose-800">
-                {selectedMonth !== "ALL"
-                  ? `${selectedMonth}. Ay öncesindeki geçmiş aylardan (${Number(selectedMonth) === 1 ? "12" : Number(selectedMonth) - 1}. Ay ve öncesi) kalan ve henüz kapatılmamış ödemeler:`
-                  : "Seçilen aydan önceki dönemlerden kalan ve henüz kapatılmamış kiralar/ödemeler:"}
-              </p>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2 pt-1">
-                {rolloverExpenses.map((re) => (
-                  <div key={re.id} className="p-2.5 bg-white border border-rose-200 rounded-xl flex items-center justify-between text-xs">
-                    <div>
-                      <p className="font-bold text-slate-900">{re.title}</p>
-                      <p className="text-[11px] text-slate-500">{re.period || "Önceki Ay"} • Vade: {re.dueDateStr || "-"}</p>
-                    </div>
-                    <div className="text-right">
-                      <span className="font-extrabold text-rose-600 block">{formatCurrency(re.amountRemaining)}</span>
-                      <button
-                        type="button"
-                        onClick={() => openPaymentModal(re)}
-                        className="text-[10px] font-bold text-emerald-700 hover:underline"
-                      >
-                        Ödeme Yap →
-                      </button>
-                    </div>
+              );
+            }
+
+            return (
+              <div className="bg-rose-50 border-2 border-rose-300 rounded-2xl p-4 space-y-2 text-rose-950 shadow-sm animate-in fade-in duration-300">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <div className="flex items-center gap-2">
+                    <AlertCircle className="w-5 h-5 text-rose-600" />
+                    <h3 className="font-extrabold text-sm text-rose-950">
+                      🔴 Geçmiş Aylardan Kalan Ödenmemiş Borçlar ({validRolloverList.length} Kalem Devreden)
+                    </h3>
                   </div>
-                ))}
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-extrabold px-3 py-1 bg-rose-200 text-rose-900 rounded-full">
+                      Toplam Devreden: {formatCurrency(validRolloverList.reduce((s, e) => s + e.amountRemaining, 0))}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setShowRolloverSection(false)}
+                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-white hover:bg-rose-100 text-rose-800 border border-rose-300 text-xs font-extrabold shadow-2xs transition-colors"
+                      title="Bu Uyarı Alanını Gizle"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                      <span>Gizle</span>
+                    </button>
+                  </div>
+                </div>
+                <p className="text-xs text-rose-800">
+                  {selectedMonth !== "ALL"
+                    ? `${selectedMonth}. Ay öncesindeki geçmiş aylardan (${Number(selectedMonth) === 1 ? "12" : Number(selectedMonth) - 1}. Ay ve öncesi) kalan ve henüz kapatılmamış ödemeler:`
+                    : "Seçilen aydan önceki dönemlerden kalan ve henüz kapatılmamış kiralar/ödemeler:"}
+                </p>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2 pt-1">
+                  {validRolloverList.map((re) => (
+                    <div key={re.id} className="p-2.5 bg-white border border-rose-200 rounded-xl flex items-center justify-between text-xs">
+                      <div>
+                        <p className="font-bold text-slate-900">{re.title}</p>
+                        <p className="text-[11px] text-slate-500">{re.period || "Önceki Ay"} • Vade: {re.dueDateStr || "-"}</p>
+                      </div>
+                      <div className="text-right">
+                        <span className="font-extrabold text-rose-600 block">{formatCurrency(re.amountRemaining)}</span>
+                        <button
+                          type="button"
+                          onClick={() => openPaymentModal(re)}
+                          className="text-[10px] font-bold text-emerald-700 hover:underline"
+                        >
+                          Ödeme Yap →
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
-            </div>
-          )}
+            );
+          })()}
 
           {/* 📞 TELEFON HATLARI TAAHHÜT BİTİŞİ 10 GÜN KALA ERKEN HATIRLATMA BİLDİRİMİ */}
           {expiringPhoneLines10Days.length > 0 && (
