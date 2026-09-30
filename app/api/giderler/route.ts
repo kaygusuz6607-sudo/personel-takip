@@ -161,7 +161,11 @@ export async function GET(request: Request) {
     }
 
     if (status && status !== "ALL") {
-      where.status = status;
+      if (status === "PENDING" || status === "UNPAID") {
+        where.status = { in: ["PENDING", "PARTIAL"] };
+      } else {
+        where.status = status;
+      }
     }
 
     if (installmentOnly) {
@@ -294,16 +298,23 @@ export async function GET(request: Request) {
           .sort((a, b) => getExpenseChronologicalYM(a) - getExpenseChronologicalYM(b));
       }
     }
+    const parsedMonthNum = month && month !== "ALL" ? parseInt(month, 10) : null;
+    const monthExpenses =
+      parsedMonthNum && !isNaN(parsedMonthNum)
+        ? allExpenses.filter((e) => e.monthIndex === parsedMonthNum)
+        : allExpenses;
+
     const stats = {
-      totalDue: allExpenses.reduce((s, e) => s + e.amountDue, 0),
-      totalPaid: allExpenses.reduce((s, e) => s + e.amountPaid, 0),
-      totalRemaining: allExpenses.reduce((s, e) => s + e.amountRemaining, 0),
-      countTotal: allExpenses.length,
-      countPending: allExpenses.filter((e) => e.status === "PENDING").length,
-      countPartial: allExpenses.filter((e) => e.status === "PARTIAL").length,
-      countPaid: allExpenses.filter((e) => e.status === "PAID").length,
-      countCommitments: allExpenses.filter((e) => e.isCommitment || Boolean(e.phoneLines)).length,
-      countCheques: allExpenses.filter((e) => e.category === "CHEQUE" || e.paymentMethod === "CHEQUE").length,
+      totalDue: monthExpenses.reduce((s, e) => s + (Number(e.amountDue) || 0), 0),
+      totalPaid: monthExpenses.reduce((s, e) => s + (Number(e.amountPaid) || 0), 0),
+      totalRemaining: monthExpenses.reduce((s, e) => s + (Number(e.amountRemaining) || 0), 0),
+      countTotal: monthExpenses.length,
+      countPending: monthExpenses.filter((e) => e.status === "PENDING").length,
+      countPartial: monthExpenses.filter((e) => e.status === "PARTIAL").length,
+      countPaid: monthExpenses.filter((e) => e.status === "PAID").length,
+      countInstallment: monthExpenses.filter((e) => Boolean(e.installmentInfo)).length,
+      countCommitments: monthExpenses.filter((e) => e.isCommitment || Boolean(e.phoneLines)).length,
+      countCheques: monthExpenses.filter((e) => e.category === "CHEQUE" || e.paymentMethod === "CHEQUE").length,
     };
 
     // Kredi Kartı Harcamaları Özeti (Kişi ve Banka Gruplu)
@@ -387,6 +398,7 @@ export async function GET(request: Request) {
 
     return NextResponse.json({
       expenses,
+      monthExpenses,
       rolloverExpenses,
       stats,
       cardHoldersSummary: cardHoldersMap,

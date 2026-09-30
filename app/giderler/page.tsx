@@ -307,6 +307,7 @@ function GiderlerPageContent() {
   }, []);
 
   const [expenses, setExpenses] = useState<SchoolExpense[]>([]);
+  const [monthBaseExpenses, setMonthBaseExpenses] = useState<SchoolExpense[]>([]);
   const [rolloverExpenses, setRolloverExpenses] = useState<SchoolExpense[]>([]);
   const [cardHoldersSummary, setCardHoldersSummary] = useState<Record<string, any>>({});
   const [loading, setLoading] = useState(true);
@@ -810,6 +811,11 @@ function GiderlerPageContent() {
       if (data.expenses && Array.isArray(data.expenses)) {
         setExpenses(data.expenses);
       }
+      if (data.monthExpenses && Array.isArray(data.monthExpenses)) {
+        setMonthBaseExpenses(data.monthExpenses);
+      } else if (data.expenses && Array.isArray(data.expenses)) {
+        setMonthBaseExpenses(data.expenses);
+      }
       if (data.rolloverExpenses && Array.isArray(data.rolloverExpenses)) {
         setRolloverExpenses(data.rolloverExpenses);
       } else {
@@ -871,22 +877,23 @@ function GiderlerPageContent() {
   }, []);
 
   const stats = useMemo(() => {
-    const totalDue = expenses.reduce((sum, e) => sum + e.amountDue, 0);
-    const totalPaid = expenses.reduce((sum, e) => sum + e.amountPaid, 0);
-    const totalRemaining = expenses.reduce((sum, e) => sum + e.amountRemaining, 0);
-    const countPending = expenses.filter((e) => e.status === "PENDING").length;
-    const countPartial = expenses.filter((e) => e.status === "PARTIAL").length;
-    const countPaid = expenses.filter((e) => e.status === "PAID").length;
-    const countInstallment = expenses.filter((e) => Boolean(e.installmentInfo)).length;
-    const countCommitment = expenses.filter((e) => Boolean(e.isCommitment) || Boolean(e.phoneLines)).length;
-    const countCheques = Math.max(
-      expenses.filter((e) => e.category === "CHEQUE" || e.paymentMethod === "CHEQUE").length,
-      allChequeExpenses.length
-    );
+    const totalDue = monthBaseExpenses.reduce((sum, e) => sum + (Number(e.amountDue) || 0), 0);
+    const totalPaid = monthBaseExpenses.reduce((sum, e) => sum + (Number(e.amountPaid) || 0), 0);
+    const totalRemaining = monthBaseExpenses.reduce((sum, e) => sum + (Number(e.amountRemaining) || 0), 0);
+    const countTotal = monthBaseExpenses.length;
+    const countPending = monthBaseExpenses.filter((e) => e.status === "PENDING").length;
+    const countPartial = monthBaseExpenses.filter((e) => e.status === "PARTIAL").length;
+    const countPaid = monthBaseExpenses.filter((e) => e.status === "PAID").length;
+    const countInstallment = monthBaseExpenses.filter((e) => Boolean(e.installmentInfo)).length;
+    const countCommitment = monthBaseExpenses.filter((e) => Boolean(e.isCommitment) || Boolean(e.phoneLines)).length;
+    const countCheques = monthBaseExpenses.filter(
+      (e) => e.category === "CHEQUE" || e.paymentMethod === "CHEQUE"
+    ).length;
     return {
       totalDue,
       totalPaid,
       totalRemaining,
+      countTotal,
       countPending,
       countPartial,
       countPaid,
@@ -894,7 +901,7 @@ function GiderlerPageContent() {
       countCommitment,
       countCheques,
     };
-  }, [expenses, allChequeExpenses]);
+  }, [monthBaseExpenses]);
 
   const getDaysUntilCommitmentEnd = (dateStr?: string | null): number | null => {
     if (!dateStr) return null;
@@ -1235,18 +1242,18 @@ function GiderlerPageContent() {
     return Array.from(map.values()).sort((a, b) => a.daysLeft - b.daysLeft);
   }, [allChequeExpenses, expenses, isMounted]);
 
-  // Bugün veya Vadesi Geçmiş Olan Faturalar & Kartlar
+  // Bugün veya Vadesi Geçmiş Olan Faturalar & Kartlar (Seçili ayın tüm kayıtları üzerinden, filtrelerden bağımsız)
   const dueTodayOrOverdue = useMemo(() => {
     if (!isMounted) return [];
     const now = new Date();
     const todayISO = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
-    return expenses.filter((e) => {
+    return monthBaseExpenses.filter((e) => {
       if (e.status === "PAID") return false;
       const effISO = getExpenseEffectiveDateISO(e);
       if (!effISO) return false;
       return effISO <= todayISO;
     });
-  }, [expenses, ahmetCards, isMounted]);
+  }, [monthBaseExpenses, ahmetCards, isMounted]);
 
   // Tabloda gösterilecek liste (Girilen çek ödemelerini ödeme listesinde her zaman gösterir, 3 gün kalan çekleri ve bugün son ödemesi olanları en üste alır)
   const displayedExpenses = useMemo(() => {
@@ -1254,7 +1261,7 @@ function GiderlerPageContent() {
     const now = new Date();
     const todayISO = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
 
-    // Girilen çek ödemeleri ödeme listesinde her zaman görünsün (kategori/taksit filtresi başka bir türe kilitlenmemişse)
+    // Girilen çek ödemeleri kendi ayında (veya Tüm Aylar seçiliyse) ödeme listesinde her zaman görünsün
     const baseListMap = new Map<string, SchoolExpense>();
     expenses.forEach((e) => baseListMap.set(e.id, e));
     if (
@@ -1265,7 +1272,14 @@ function GiderlerPageContent() {
       selectedCardHolder === "ALL"
     ) {
       allChequeExpenses.forEach((chq) => {
-        if (selectedStatus !== "ALL" && chq.status !== selectedStatus) return;
+        if (selectedMonth !== "ALL" && String(chq.monthIndex) !== String(selectedMonth)) return;
+        if (selectedStatus !== "ALL") {
+          if (selectedStatus === "PENDING") {
+            if (chq.status !== "PENDING" && chq.status !== "PARTIAL") return;
+          } else if (chq.status !== selectedStatus) {
+            return;
+          }
+        }
         if (search) {
           const q = search.toLowerCase();
           const hay = `${chq.title} ${chq.subCategory || ""} ${chq.description || ""} ${chq.chequeNo || ""} ${chq.chequeBank || ""}`.toLowerCase();
@@ -2936,21 +2950,37 @@ function GiderlerPageContent() {
             </div>
           )}
 
-          {/* 4 Özet Finans Kartı (Kompakt & Tıklanabilir Filtreleme) */}
+          {/* 4 Özet Finans Kartı (Kompakt & Tıklanabilir Filtreleme — Tıklandığında Diğer Kartların Verileri Değişmez) */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
-            {/* Toplam Ödenecek */}
-            <div className="bg-white p-3 rounded-xl border border-slate-200/80 shadow-2xs flex items-center justify-between">
+            {/* Toplam Ödenecek (Tıklayınca Tümünü Gösterir) */}
+            <button
+              type="button"
+              onClick={() => {
+                setSelectedStatus("ALL");
+                setInstallmentOnly(false);
+                setCommitmentsOnly(false);
+                setChequesOnly(false);
+              }}
+              className={`p-3 rounded-xl border transition-all text-left flex items-center justify-between ${
+                selectedStatus === "ALL" && !installmentOnly && !commitmentsOnly && !chequesOnly
+                  ? "bg-slate-50 border-slate-500 ring-1 ring-slate-500/20"
+                  : "bg-white border-slate-200/80 hover:border-slate-400 shadow-2xs"
+              }`}
+            >
               <div>
-                <p className="text-[11px] font-semibold text-slate-500">Toplam Ödenecek</p>
+                <div className="flex items-center gap-1">
+                  <p className="text-[11px] font-bold text-slate-700">Toplam Ödenecek</p>
+                  <span className="text-[9px] text-slate-600 bg-slate-100 px-1 py-0.2 rounded font-bold">Tümü</span>
+                </div>
                 <p className="text-lg font-extrabold text-slate-900 mt-0.5">{formatCurrency(stats.totalDue)}</p>
-                <p className="text-[10px] text-slate-400">{expenses.length} işlem kaydı</p>
+                <p className="text-[10px] text-slate-500 font-medium">{stats.countTotal} işlem kaydı</p>
               </div>
-              <div className="w-8 h-8 rounded-lg bg-slate-100 text-slate-600 flex items-center justify-center">
+              <div className="w-8 h-8 rounded-lg bg-slate-100 text-slate-700 flex items-center justify-center">
                 <Coins className="w-4 h-4" />
               </div>
-            </div>
+            </button>
 
-            {/* Toplam Ödenen (Tıklayınca Ödenenleri Filtreler) */}
+            {/* Toplam Ödenen (Tıklayınca Ödenenleri Filtreler — Kart Tutarları Sabit Kalır) */}
             <button
               type="button"
               onClick={() => setSelectedStatus(selectedStatus === "PAID" ? "ALL" : "PAID")}
@@ -2973,7 +3003,7 @@ function GiderlerPageContent() {
               </div>
             </button>
 
-            {/* Kalan Net Borç (Tıklayınca Kalanları Filtreler) */}
+            {/* Kalan Net Borç (Tıklayınca Kalanları Filtreler — Kart Tutarları Sabit Kalır) */}
             <button
               type="button"
               onClick={() => setSelectedStatus(selectedStatus === "PENDING" ? "ALL" : "PENDING")}
@@ -4488,7 +4518,7 @@ function GiderlerPageContent() {
               </button>
               {Object.entries(CATEGORY_MAP).map(([key, cat]) => {
                 const Icon = cat.icon;
-                const count = expenses.filter((e) => e.category === key).length;
+                const count = monthBaseExpenses.filter((e) => e.category === key).length;
                 return (
                   <button
                     key={key}
