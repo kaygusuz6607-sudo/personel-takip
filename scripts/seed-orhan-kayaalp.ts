@@ -7,7 +7,7 @@ async function main() {
 
   // Mevcut var mı kontrol et
   let orhan = await prisma.thirdPartyAccount.findFirst({
-    where: { name: { contains: "Orhan Kayaalp", mode: "insensitive" } },
+    where: { name: { contains: "Orhan Kayaalp" } },
   });
 
   if (!orhan) {

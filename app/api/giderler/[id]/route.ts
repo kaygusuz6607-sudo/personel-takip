@@ -167,6 +167,7 @@ export async function PUT(
       phoneLines,
       chequeNo,
       chequeBank,
+      chequePhotoUrl,
     } = body;
 
     const numAmountDue = amountDue !== undefined ? Number(amountDue) : existing.amountDue;
@@ -223,6 +224,34 @@ export async function PUT(
       },
     });
 
+    if (chequePhotoUrl !== undefined) {
+      try {
+        await prisma.$executeRawUnsafe(`
+          CREATE TABLE IF NOT EXISTS ChequePhotoStore (
+            id TEXT PRIMARY KEY,
+            photoUrl TEXT,
+            title TEXT,
+            updatedAt TEXT
+          )
+        `);
+        if (chequePhotoUrl && typeof chequePhotoUrl === "string" && chequePhotoUrl.startsWith("data:image/")) {
+          await prisma.$executeRawUnsafe(
+            `INSERT INTO ChequePhotoStore (id, photoUrl, title, updatedAt)
+             VALUES (?, ?, ?, ?)
+             ON CONFLICT(id) DO UPDATE SET photoUrl = excluded.photoUrl, title = excluded.title, updatedAt = excluded.updatedAt`,
+            id,
+            chequePhotoUrl,
+            updated.title || "Çek Ödemesi",
+            new Date().toISOString()
+          );
+        } else if (chequePhotoUrl === null || chequePhotoUrl === "") {
+          await prisma.$executeRawUnsafe(`DELETE FROM ChequePhotoStore WHERE id = ?`, id);
+        }
+      } catch (e) {
+        console.error("Çek fotoğrafı güncelleme hatası:", e);
+      }
+    }
+
     if (phoneLines !== undefined) {
       await prisma.schoolExpense.updateMany({
         where: {
@@ -251,6 +280,9 @@ export async function DELETE(
     await prisma.schoolExpense.delete({
       where: { id },
     });
+    try {
+      await prisma.$executeRawUnsafe(`DELETE FROM ChequePhotoStore WHERE id = ?`, id);
+    } catch {}
     return NextResponse.json({ success: true });
   } catch (error: any) {
     console.error("Gider silme hatası:", error);

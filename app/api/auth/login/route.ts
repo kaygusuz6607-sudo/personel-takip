@@ -54,6 +54,13 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    if (!user) {
+      return NextResponse.json(
+        { error: "Girdiğiniz kullanıcı adı veya şifre hatalı." },
+        { status: 401 }
+      );
+    }
+
     // Session token oluştur
     const token = await createSessionToken({
       id: user.id,

@@ -94,7 +94,7 @@ export async function GET(request: Request) {
       }
     }
 
-    // Kredi kartı borçları nakit ödenir (kredi kartı borcu kredi kartı ile ödenemez): mevcut CREDIT_CARD kategorisindeki kayıtların ödeme yöntemini CASH olarak düzelt
+    // Kredi kartı borçları ve çek ödemeleri nakit ödenir: mevcut CREDIT_CARD ve CHEQUE kategorisindeki kayıtların ödeme yöntemini CASH olarak düzelt
     await prisma.schoolExpense.updateMany({
       where: {
         category: "CREDIT_CARD",
@@ -102,6 +102,27 @@ export async function GET(request: Request) {
       },
       data: {
         paymentMethod: "CASH",
+      },
+    });
+
+    await prisma.schoolExpense.updateMany({
+      where: {
+        category: "CHEQUE",
+        paymentMethod: "CHEQUE",
+      },
+      data: {
+        paymentMethod: "CASH",
+      },
+    });
+
+    await prisma.schoolExpense.updateMany({
+      where: {
+        category: "CHEQUE",
+        dueDate: null,
+        dueDateStr: { contains: "15 Ekim 2026" },
+      },
+      data: {
+        dueDate: new Date(2026, 9, 15, 12, 0, 0),
       },
     });
 
@@ -172,31 +193,107 @@ export async function GET(request: Request) {
       where.monthIndex = parseInt(month);
     }
 
+    // Yanlışlıkla 2027 Temmuz/Ağustos (7. ve 8. ay 2027) olarak taşmış otomatik fatura kopyalarını temizle (2026-2027 okul takviminde 7. ve 8. ay 2026 yılına aittir)
+    await prisma.schoolExpense.deleteMany({
+      where: {
+        category: "INVOICE",
+        monthIndex: { in: [7, 8] },
+        dueDateStr: { contains: "2027" },
+        status: "PENDING",
+      },
+    });
+
     const expenses = await prisma.schoolExpense.findMany({
       where,
       orderBy: [{ status: "asc" }, { dueDate: "asc" }, { createdAt: "desc" }],
     });
 
-    // Geçmiş aylardan kalan ödenmemiş ödemeler (Devreden Borçlar - Özdemirler ve İlyas Bey kiralar vb.)
+    // İstatistikler ve Devreden Borç Hesaplaması (Tüm kayıtlar üzerinden)
+    const allExpenses = await prisma.schoolExpense.findMany();
+
+    // Geçmiş aylardan kalan ödenmemiş ödemeler (Devreden Borçlar)
+    // Okul takvimi: 7, 8, 9, 10, 11, 12. aylar -> 2026 yılı | 1, 2, 3, 4, 5, 6. aylar -> 2027 yılı
     let rolloverExpenses: any[] = [];
     if (month && month !== "ALL") {
-      const targetMonth = parseInt(month);
-      if (!isNaN(targetMonth)) {
-        rolloverExpenses = await prisma.schoolExpense.findMany({
-          where: {
-            status: { in: ["PENDING", "PARTIAL"] },
-            monthIndex: { lt: targetMonth },
-            NOT: {
-              id: { in: expenses.map((e) => e.id) },
-            },
-          },
-          orderBy: [{ monthIndex: "asc" }, { createdAt: "desc" }],
-        });
+      const targetMonth = parseInt(month, 10);
+      if (!isNaN(targetMonth) && targetMonth >= 1 && targetMonth <= 12) {
+        const targetYear = targetMonth >= 7 ? 2026 : 2027;
+        const targetYM = targetYear * 100 + targetMonth; // Örn: 9. Ay -> 202609
+
+        const trMonthsMap: Record<string, number> = {
+          ocak: 1,
+          şubat: 2,
+          subat: 2,
+          mart: 3,
+          nisan: 4,
+          mayıs: 5,
+          mayis: 5,
+          haziran: 6,
+          temmuz: 7,
+          ağustos: 8,
+          agustos: 8,
+          eylül: 9,
+          eylul: 9,
+          ekim: 10,
+          kasım: 11,
+          kasim: 11,
+          aralık: 12,
+          aralik: 12,
+        };
+
+        const getExpenseChronologicalYM = (exp: any): number => {
+          // "cumartesi" içindeki "mart" kelimesinin 3. ay olarak algılanmasını önlemek için gün isimlerini temizle
+          const dStr = (exp.dueDateStr || "")
+            .toLowerCase()
+            .replace(/pazartesi|cumartesi|çarşamba|carsamba|perşembe|persembe|pazar|salı|sali|cuma/g, " ");
+          let strMonth: number | null = null;
+          for (const [mName, mIdx] of Object.entries(trMonthsMap)) {
+            if (dStr.includes(mName)) {
+              strMonth = mIdx;
+              break;
+            }
+          }
+          const strYearMatch = dStr.match(/\b(202\d)\b/);
+          const strYear = strYearMatch ? parseInt(strYearMatch[1], 10) : null;
+
+          let dateYear: number | null = null;
+          let dateMonth: number | null = null;
+          if (exp.dueDate) {
+            const d = new Date(exp.dueDate);
+            if (!isNaN(d.getTime())) {
+              const trD = new Date(d.getTime() + 3 * 3600 * 1000);
+              dateYear = trD.getUTCFullYear();
+              dateMonth = trD.getUTCMonth() + 1;
+            }
+          }
+
+          if (exp.periodStatus === "Geçmiş Dönem Devir" && strMonth) {
+            const y = strYear || dateYear || (strMonth >= 7 ? 2026 : 2027);
+            return y * 100 + strMonth;
+          }
+
+          const m = exp.monthIndex || dateMonth || strMonth || 9;
+          const y = dateYear || strYear || (m >= 7 ? 2026 : 2027);
+          return y * 100 + m;
+        };
+
+        rolloverExpenses = allExpenses
+          .filter((exp) => {
+            if (exp.status !== "PENDING" && exp.status !== "PARTIAL") return false;
+            if ((Number(exp.amountRemaining) || 0) <= 0) return false;
+
+            const expYM = getExpenseChronologicalYM(exp);
+            const expYear = Math.floor(expYM / 100);
+
+            // 2026 yılındaki bir aya (7..12) bakılıyorken 2027 yılına ait hiçbir kaydı asla geçmiş borç olarak gösterme
+            if (targetYear === 2026 && expYear > 2026) return false;
+
+            // Sadece seçili aydan kronolojik olarak ÖNCEKİ (örn. 9. Ay 2026 seçiliyse <= 202608 yani 8. Ay 2026 ve öncesi) kalan ödenmemiş borçları göster
+            return expYM < targetYM;
+          })
+          .sort((a, b) => getExpenseChronologicalYM(a) - getExpenseChronologicalYM(b));
       }
     }
-
-    // İstatistikler (Tüm kayıtlar üzerinden)
-    const allExpenses = await prisma.schoolExpense.findMany();
     const stats = {
       totalDue: allExpenses.reduce((s, e) => s + e.amountDue, 0),
       totalPaid: allExpenses.reduce((s, e) => s + e.amountPaid, 0),
@@ -206,7 +303,7 @@ export async function GET(request: Request) {
       countPartial: allExpenses.filter((e) => e.status === "PARTIAL").length,
       countPaid: allExpenses.filter((e) => e.status === "PAID").length,
       countCommitments: allExpenses.filter((e) => e.isCommitment || Boolean(e.phoneLines)).length,
-      countCheques: allExpenses.filter((e) => e.category === "CHEQUE").length,
+      countCheques: allExpenses.filter((e) => e.category === "CHEQUE" || e.paymentMethod === "CHEQUE").length,
     };
 
     // Kredi Kartı Harcamaları Özeti (Kişi ve Banka Gruplu)
@@ -262,6 +359,32 @@ export async function GET(request: Request) {
       );
     });
 
+    const allChequeExpenses = allExpenses.filter(
+      (e) => e.category === "CHEQUE" || e.paymentMethod === "CHEQUE"
+    );
+
+    const chequePhotosMap: Record<string, string> = {};
+    try {
+      await prisma.$executeRawUnsafe(`
+        CREATE TABLE IF NOT EXISTS ChequePhotoStore (
+          id TEXT PRIMARY KEY,
+          photoUrl TEXT,
+          title TEXT,
+          updatedAt TEXT
+        )
+      `);
+      const photoRows = (await prisma.$queryRawUnsafe(
+        `SELECT id, photoUrl FROM ChequePhotoStore WHERE photoUrl IS NOT NULL`
+      )) as { id: string; photoUrl: string | null }[];
+      if (Array.isArray(photoRows)) {
+        photoRows.forEach((r) => {
+          if (r.id && r.photoUrl) {
+            chequePhotosMap[r.id] = r.photoUrl;
+          }
+        });
+      }
+    } catch {}
+
     return NextResponse.json({
       expenses,
       rolloverExpenses,
@@ -269,6 +392,8 @@ export async function GET(request: Request) {
       cardHoldersSummary: cardHoldersMap,
       allCardExpenses: creditCardExpenses,
       allPhoneExpenses,
+      allChequeExpenses,
+      chequePhotosMap,
     });
   } catch (error: any) {
     console.error("Giderler listesi hatası:", error);
@@ -330,6 +455,8 @@ export async function POST(request: Request) {
       phoneLines = null,
       chequeNo = null,
       chequeBank = null,
+      chequePhotoUrl = null,
+      draftChequeId = null,
     } = body;
 
     const isUtilityInvoiceMode = entryType === "UTILITY_INVOICE" || Boolean(isRecurringInvoice);
@@ -339,9 +466,15 @@ export async function POST(request: Request) {
     }
 
     const numAmount = Math.max(0, Number(amountDue) || 0);
-    const effectivePaymentMethod = category === "CREDIT_CARD" ? "CASH" : paymentMethod;
+    const effectivePaymentMethod =
+      category === "CREDIT_CARD" || category === "CHEQUE" ? "CASH" : paymentMethod;
     let baseDate = dueDate ? new Date(dueDate) : new Date();
-    const calculatedMonthIndex = monthIndex ? Number(monthIndex) : baseDate.getMonth() + 1;
+    const calculatedMonthIndex =
+      category === "CHEQUE" && dueDate && !isNaN(baseDate.getTime())
+        ? baseDate.getMonth() + 1
+        : monthIndex
+        ? Number(monthIndex)
+        : baseDate.getMonth() + 1;
     if (!dueDate && monthIndex) {
       baseDate = new Date(2026, Number(monthIndex) - 1, 15);
     }
@@ -355,6 +488,9 @@ export async function POST(request: Request) {
         const itemDate = addMonthsPreservingDay(baseDate, i - 1);
         const itemDateStr = formatTurkishDate(itemDate);
         const itemMonthIdx = ((calculatedMonthIndex - 1 + (i - 1)) % 12) + 1;
+        if (baseDate.getFullYear() === 2026 && itemDate.getFullYear() >= 2027 && itemMonthIdx >= 7) {
+          break;
+        }
         const thisMonthAmount =
           i === 1 || invoiceFutureAmountMode !== "FIRST_MONTH_ONLY" ? numAmount : 0;
 
@@ -536,6 +672,33 @@ export async function POST(request: Request) {
         chequeBank,
       },
     });
+
+    if (chequePhotoUrl && typeof chequePhotoUrl === "string" && chequePhotoUrl.startsWith("data:image/")) {
+      try {
+        await prisma.$executeRawUnsafe(`
+          CREATE TABLE IF NOT EXISTS ChequePhotoStore (
+            id TEXT PRIMARY KEY,
+            photoUrl TEXT,
+            title TEXT,
+            updatedAt TEXT
+          )
+        `);
+        await prisma.$executeRawUnsafe(
+          `INSERT INTO ChequePhotoStore (id, photoUrl, title, updatedAt)
+           VALUES (?, ?, ?, ?)
+           ON CONFLICT(id) DO UPDATE SET photoUrl = excluded.photoUrl, title = excluded.title, updatedAt = excluded.updatedAt`,
+          newExpense.id,
+          chequePhotoUrl,
+          title || "Çek Ödemesi",
+          new Date().toISOString()
+        );
+        if (draftChequeId && draftChequeId !== newExpense.id) {
+          await prisma.$executeRawUnsafe(`DELETE FROM ChequePhotoStore WHERE id = ?`, String(draftChequeId));
+        }
+      } catch (e) {
+        console.error("Çek fotoğrafı kaydetme hatası:", e);
+      }
+    }
 
     return NextResponse.json(newExpense, { status: 201 });
   } catch (error: any) {

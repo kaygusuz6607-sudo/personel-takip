@@ -142,7 +142,7 @@ export function Sidebar() {
     window.location.href = "/login";
   };
 
-  if (pathname === "/login") {
+  if (pathname === "/login" || pathname.startsWith("/foto-yukle")) {
     return null;
   }
 

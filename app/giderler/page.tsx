@@ -37,7 +37,13 @@ import {
   ChevronUp,
   CreditCard as CardIcon,
   PhoneCall,
+  QrCode,
+  Camera,
+  Eye,
+  RefreshCw,
+  Upload,
 } from "lucide-react";
+import QRCode from "qrcode";
 
 interface PaymentHistoryItem {
   date: string;
@@ -373,6 +379,17 @@ function GiderlerPageContent() {
 
   // Tek Fatura İçi 5 Telefon Numarası & Taahhüt Takip Modalı
   const [allPhoneExpenses, setAllPhoneExpenses] = useState<SchoolExpense[]>([]);
+  const [allChequeExpenses, setAllChequeExpenses] = useState<SchoolExpense[]>([]);
+  const [chequePhotosMap, setChequePhotosMap] = useState<Record<string, string>>({});
+  const [formChequePhotoUrl, setFormChequePhotoUrl] = useState<string | null>(null);
+  const [draftChequeId, setDraftChequeId] = useState<string>("");
+  const [showFormQr, setShowFormQr] = useState(false);
+  const [formQrDataUrl, setFormQrDataUrl] = useState("");
+  const [formQrTargetUrl, setFormQrTargetUrl] = useState("");
+  const [activeQrChequeExpense, setActiveQrChequeExpense] = useState<SchoolExpense | null>(null);
+  const [qrModalDataUrl, setQrModalDataUrl] = useState("");
+  const [qrModalTargetUrl, setQrModalTargetUrl] = useState("");
+  const [lightboxChequePhoto, setLightboxChequePhoto] = useState<{ title: string; url: string } | null>(null);
   const [phoneModalOpen, setPhoneModalOpen] = useState(false);
   const [activePhoneExpense, setActivePhoneExpense] = useState<SchoolExpense | null>(null);
   const [phoneModalLines, setPhoneModalLines] = useState<
@@ -806,6 +823,12 @@ function GiderlerPageContent() {
       if (data.allPhoneExpenses && Array.isArray(data.allPhoneExpenses)) {
         setAllPhoneExpenses(data.allPhoneExpenses);
       }
+      if (data.allChequeExpenses && Array.isArray(data.allChequeExpenses)) {
+        setAllChequeExpenses(data.allChequeExpenses);
+      }
+      if (data.chequePhotosMap && typeof data.chequePhotosMap === "object") {
+        setChequePhotosMap(data.chequePhotosMap);
+      }
     } catch (e) {
       console.error(e);
     } finally {
@@ -855,7 +878,10 @@ function GiderlerPageContent() {
     const countPaid = expenses.filter((e) => e.status === "PAID").length;
     const countInstallment = expenses.filter((e) => Boolean(e.installmentInfo)).length;
     const countCommitment = expenses.filter((e) => Boolean(e.isCommitment) || Boolean(e.phoneLines)).length;
-    const countCheques = expenses.filter((e) => e.category === "CHEQUE" || e.paymentMethod === "CHEQUE").length;
+    const countCheques = Math.max(
+      expenses.filter((e) => e.category === "CHEQUE" || e.paymentMethod === "CHEQUE").length,
+      allChequeExpenses.length
+    );
     return {
       totalDue,
       totalPaid,
@@ -867,7 +893,7 @@ function GiderlerPageContent() {
       countCommitment,
       countCheques,
     };
-  }, [expenses]);
+  }, [expenses, allChequeExpenses]);
 
   const getDaysUntilCommitmentEnd = (dateStr?: string | null): number | null => {
     if (!dateStr) return null;
@@ -1132,6 +1158,10 @@ function GiderlerPageContent() {
 
     // 2. Kart eşleşmesi yoksa giderin kendi dueDate alanını kullan
     if (e.dueDate) {
+      const isoMatch = String(e.dueDate).match(/^(\d{4})-(\d{2})-(\d{2})/);
+      if (isoMatch) {
+        return `${isoMatch[1]}-${isoMatch[2]}-${isoMatch[3]}`;
+      }
       try {
         const d = new Date(e.dueDate);
         if (!isNaN(d.getTime())) {
@@ -1142,8 +1172,67 @@ function GiderlerPageContent() {
         }
       } catch {}
     }
+
+    // 3. dueDate yoksa dueDateStr içinden Türkçe tarih ayrıştır (örn: "15 Ekim 2026")
+    if (e.dueDateStr) {
+      const trMonths: Record<string, string> = {
+        ocak: "01",
+        şubat: "02",
+        subat: "02",
+        mart: "03",
+        nisan: "04",
+        mayıs: "05",
+        mayis: "05",
+        haziran: "06",
+        temmuz: "07",
+        ağustos: "08",
+        agustos: "08",
+        eylül: "09",
+        eylul: "09",
+        ekim: "10",
+        kasım: "11",
+        kasim: "11",
+        aralık: "12",
+        aralik: "12",
+      };
+      const m = e.dueDateStr.toLowerCase().match(/(\d{1,2})\s+([a-zçğıöşü]+)\s+(\d{4})/i);
+      if (m && trMonths[m[2]]) {
+        return `${m[3]}-${trMonths[m[2]]}-${String(m[1]).padStart(2, "0")}`;
+      }
+    }
     return null;
   };
+
+  const getDaysUntilDateISO = (dateISO?: string | null): number | null => {
+    if (!dateISO) return null;
+    const m = String(dateISO).match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (!m) return null;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const target = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 0, 0, 0, 0);
+    if (isNaN(target.getTime())) return null;
+    return Math.round((target.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+  };
+
+  // Çek Ödeme Tarihine 3 Gün (veya daha az) Kala Hatırlatma Listesi
+  const upcomingCheques3Days = useMemo(() => {
+    if (!isMounted) return [];
+    const combined = [...allChequeExpenses, ...expenses];
+    const map = new Map<string, { exp: SchoolExpense; dateISO: string; daysLeft: number }>();
+    combined.forEach((e) => {
+      if (e.category !== "CHEQUE" && e.paymentMethod !== "CHEQUE") return;
+      if (e.status === "PAID" || e.amountRemaining <= 0) return;
+      const effISO = getExpenseEffectiveDateISO(e);
+      if (!effISO) return;
+      const daysLeft = getDaysUntilDateISO(effISO);
+      if (daysLeft !== null && daysLeft <= 3) {
+        if (!map.has(e.id)) {
+          map.set(e.id, { exp: e, dateISO: effISO, daysLeft });
+        }
+      }
+    });
+    return Array.from(map.values()).sort((a, b) => a.daysLeft - b.daysLeft);
+  }, [allChequeExpenses, expenses, isMounted]);
 
   // Bugün veya Vadesi Geçmiş Olan Faturalar & Kartlar
   const dueTodayOrOverdue = useMemo(() => {
@@ -1158,21 +1247,45 @@ function GiderlerPageContent() {
     });
   }, [expenses, ahmetCards, isMounted]);
 
-  // Tabloda gösterilecek liste (Seçili son ödeme tarihi veya bugün filtresi etkinse o tarihtekileri çıkarır, normalde bugün son ödemesi olanları en üste alır)
+  // Tabloda gösterilecek liste (Girilen çek ödemelerini ödeme listesinde her zaman gösterir, 3 gün kalan çekleri ve bugün son ödemesi olanları en üste alır)
   const displayedExpenses = useMemo(() => {
     if (!isMounted) return expenses;
     const now = new Date();
     const todayISO = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
 
+    // Girilen çek ödemeleri ödeme listesinde her zaman görünsün (kategori/taksit filtresi başka bir türe kilitlenmemişse)
+    const baseListMap = new Map<string, SchoolExpense>();
+    expenses.forEach((e) => baseListMap.set(e.id, e));
+    if (
+      (selectedCategory === "ALL" || selectedCategory === "CHEQUE") &&
+      !installmentOnly &&
+      !commitmentsOnly &&
+      selectedPaymentMethod !== "CREDIT_CARD" &&
+      selectedCardHolder === "ALL"
+    ) {
+      allChequeExpenses.forEach((chq) => {
+        if (selectedStatus !== "ALL" && chq.status !== selectedStatus) return;
+        if (search) {
+          const q = search.toLowerCase();
+          const hay = `${chq.title} ${chq.subCategory || ""} ${chq.description || ""} ${chq.chequeNo || ""} ${chq.chequeBank || ""}`.toLowerCase();
+          if (!hay.includes(q)) return;
+        }
+        if (!baseListMap.has(chq.id)) {
+          baseListMap.set(chq.id, chq);
+        }
+      });
+    }
+    const mergedExpenses = Array.from(baseListMap.values());
+
     if (selectedDueDateFilter) {
-      return expenses.filter((e) => {
+      return mergedExpenses.filter((e) => {
         const effISO = getExpenseEffectiveDateISO(e);
         return effISO === selectedDueDateFilter;
       });
     }
 
     if (dueTodayOnly) {
-      return expenses.filter((e) => {
+      return mergedExpenses.filter((e) => {
         if (e.status === "PAID") return false;
         const effISO = getExpenseEffectiveDateISO(e);
         if (!effISO) return false;
@@ -1180,19 +1293,207 @@ function GiderlerPageContent() {
       });
     }
 
-    // Normal görünümde son ödeme tarihi bugün gelen ödenmemiş kart ve giderleri listenin en üstüne çıkar
-    return [...expenses].sort((a, b) => {
+    // Normal görünümde: 3 gün veya daha az kalan çek ödemelerini ve son ödeme tarihi bugün gelenleri listenin en üstüne çıkar
+    return [...mergedExpenses].sort((a, b) => {
       const aISO = getExpenseEffectiveDateISO(a);
       const bISO = getExpenseEffectiveDateISO(b);
+      const aDays = getDaysUntilDateISO(aISO);
+      const bDays = getDaysUntilDateISO(bISO);
+      const aIsUrgentCheque =
+        a.status !== "PAID" &&
+        (a.category === "CHEQUE" || a.paymentMethod === "CHEQUE") &&
+        aDays !== null &&
+        aDays <= 3
+          ? 1
+          : 0;
+      const bIsUrgentCheque =
+        b.status !== "PAID" &&
+        (b.category === "CHEQUE" || b.paymentMethod === "CHEQUE") &&
+        bDays !== null &&
+        bDays <= 3
+          ? 1
+          : 0;
+      if (aIsUrgentCheque !== bIsUrgentCheque) return bIsUrgentCheque - aIsUrgentCheque;
+
       const aDueToday = a.status !== "PAID" && aISO === todayISO ? 1 : 0;
       const bDueToday = b.status !== "PAID" && bISO === todayISO ? 1 : 0;
       if (aDueToday !== bDueToday) return bDueToday - aDueToday;
       return 0;
     });
-  }, [expenses, dueTodayOnly, selectedDueDateFilter, ahmetCards, isMounted]);
+  }, [
+    expenses,
+    allChequeExpenses,
+    selectedCategory,
+    selectedStatus,
+    installmentOnly,
+    commitmentsOnly,
+    selectedPaymentMethod,
+    selectedCardHolder,
+    search,
+    dueTodayOnly,
+    selectedDueDateFilter,
+    ahmetCards,
+    isMounted,
+  ]);
+
+  // Çek görselini sıkıştıran yardımcı fonksiyon
+  const compressChequeImageFile = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement("canvas");
+          const MAX_DIM = 1400;
+          let width = img.width;
+          let height = img.height;
+          if (width > height) {
+            if (width > MAX_DIM) {
+              height = Math.round((height * MAX_DIM) / width);
+              width = MAX_DIM;
+            }
+          } else {
+            if (height > MAX_DIM) {
+              width = Math.round((width * MAX_DIM) / height);
+              height = MAX_DIM;
+            }
+          }
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext("2d");
+          if (!ctx) return reject("Canvas hatası");
+          ctx.fillStyle = "#ffffff";
+          ctx.fillRect(0, 0, width, height);
+          ctx.drawImage(img, 0, 0, width, height);
+          resolve(canvas.toDataURL("image/jpeg", 0.85));
+        };
+        img.onerror = () => reject("Görsel okunamadı");
+        img.src = ev.target?.result as string;
+      };
+      reader.onerror = () => reject("Dosya okunamadı");
+      reader.readAsDataURL(file);
+    });
+  };
+
+  // Modal içindeki "QR ile Çek Fotoğrafı Ekle" butonuna tıklandığında QR oluştur
+  const handleToggleFormQr = async () => {
+    if (showFormQr) {
+      setShowFormQr(false);
+      return;
+    }
+    const targetId = editingExpense ? editingExpense.id : draftChequeId || `draft-${Date.now()}`;
+    if (!editingExpense && !draftChequeId) {
+      setDraftChequeId(targetId);
+    }
+    setShowFormQr(true);
+    try {
+      const res = await fetch(`/api/giderler/cek/${targetId}/foto`);
+      const data = await res.json();
+      const lanIp = data?.lanIp;
+      const port = window.location.port ? `:${window.location.port}` : "";
+      const isLocal =
+        window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
+      const baseOrigin =
+        isLocal && lanIp ? `http://${lanIp}${port}` : window.location.origin;
+      const targetUrl = `${baseOrigin}/foto-yukle/cek/${targetId}`;
+      setFormQrTargetUrl(targetUrl);
+      const qrData = await QRCode.toDataURL(targetUrl, {
+        width: 240,
+        margin: 2,
+        color: { dark: "#064e3b", light: "#ffffff" },
+      });
+      setFormQrDataUrl(qrData);
+    } catch {
+      const fallbackUrl = `${window.location.origin}/foto-yukle/cek/${targetId}`;
+      setFormQrTargetUrl(fallbackUrl);
+      const qrData = await QRCode.toDataURL(fallbackUrl, { width: 240, margin: 2 });
+      setFormQrDataUrl(qrData);
+    }
+  };
+
+  // Ödeme listesindeki veya üst uyarıdaki bir çek için doğrudan QR & Görsel Modalını aç
+  const openChequeQrModal = async (expense: SchoolExpense) => {
+    setActiveQrChequeExpense(expense);
+    setQrModalDataUrl("");
+    setQrModalTargetUrl("");
+    try {
+      const res = await fetch(`/api/giderler/cek/${expense.id}/foto`);
+      const data = await res.json();
+      if (data?.photoUrl) {
+        setChequePhotosMap((prev) => ({ ...prev, [expense.id]: data.photoUrl }));
+      }
+      const lanIp = data?.lanIp;
+      const port = window.location.port ? `:${window.location.port}` : "";
+      const isLocal =
+        window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
+      const baseOrigin =
+        isLocal && lanIp ? `http://${lanIp}${port}` : window.location.origin;
+      const targetUrl = `${baseOrigin}/foto-yukle/cek/${expense.id}`;
+      setQrModalTargetUrl(targetUrl);
+      const qrData = await QRCode.toDataURL(targetUrl, {
+        width: 260,
+        margin: 2,
+        color: { dark: "#064e3b", light: "#ffffff" },
+      });
+      setQrModalDataUrl(qrData);
+    } catch {
+      const fallbackUrl = `${window.location.origin}/foto-yukle/cek/${expense.id}`;
+      setQrModalTargetUrl(fallbackUrl);
+      const qrData = await QRCode.toDataURL(fallbackUrl, { width: 260, margin: 2 });
+      setQrModalDataUrl(qrData);
+    }
+  };
+
+  // Modal içinde QR açıkken telefondan yüklenen çek fotoğrafını otomatik dinle (Polling)
+  useEffect(() => {
+    if (!modalOpen || !showFormQr) return;
+    const targetId = editingExpense ? editingExpense.id : draftChequeId;
+    if (!targetId) return;
+
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/giderler/cek/${targetId}/foto`);
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data.photoUrl && data.photoUrl !== formChequePhotoUrl) {
+          setFormChequePhotoUrl(data.photoUrl);
+          if (editingExpense) {
+            setChequePhotosMap((prev) => ({ ...prev, [editingExpense.id]: data.photoUrl }));
+          }
+          setShowFormQr(false);
+        }
+      } catch {}
+    }, 2200);
+
+    return () => clearInterval(interval);
+  }, [modalOpen, showFormQr, editingExpense, draftChequeId, formChequePhotoUrl]);
+
+  // Liste satırından açılan QR Çek Modalı açıkken telefondan yüklenen fotoğrafı otomatik dinle
+  useEffect(() => {
+    if (!activeQrChequeExpense) return;
+    const expId = activeQrChequeExpense.id;
+    const currentPhoto = chequePhotosMap[expId] || null;
+
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/giderler/cek/${expId}/foto`);
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data.photoUrl && data.photoUrl !== currentPhoto) {
+          setChequePhotosMap((prev) => ({ ...prev, [expId]: data.photoUrl }));
+        }
+      } catch {}
+    }, 2200);
+
+    return () => clearInterval(interval);
+  }, [activeQrChequeExpense, chequePhotosMap]);
 
   const openNewModal = () => {
     setEditingExpense(null);
+    setFormChequePhotoUrl(null);
+    setDraftChequeId(`draft-${Date.now()}`);
+    setShowFormQr(false);
+    setFormQrDataUrl("");
     const todayStr = new Date().toISOString().split("T")[0];
     setPhoneLinesList(createDefault5PhoneLines());
     setShowPhoneLinesInModal(false);
@@ -1210,6 +1511,42 @@ function GiderlerPageContent() {
       invoiceFutureAmountMode: "SAME_AMOUNT",
       isInstallment: false,
       installmentCount: 12,
+      currentInstallment: 1,
+      amountMode: "TOTAL",
+      isCommitment: false,
+      commitmentMonths: 12,
+      paymentMethod: "CASH",
+      cardHolder: "",
+      cardBank: "",
+      chequeNo: "",
+      chequeBank: "",
+    });
+    setModalOpen(true);
+  };
+
+  const openNewChequeModal = () => {
+    setEditingExpense(null);
+    setFormChequePhotoUrl(null);
+    setDraftChequeId(`draft-${Date.now()}`);
+    setShowFormQr(false);
+    setFormQrDataUrl("");
+    const todayStr = new Date().toISOString().split("T")[0];
+    setPhoneLinesList(createDefault5PhoneLines());
+    setShowPhoneLinesInModal(false);
+    setForm({
+      title: "Çek Ödemesi",
+      category: "CHEQUE",
+      subCategory: "Çek Ödemesi",
+      dueDateStr: "",
+      dueDate: todayStr,
+      monthIndex: selectedMonth !== "ALL" ? parseInt(selectedMonth) : new Date().getMonth() + 1,
+      amountDue: "",
+      description: "",
+      entryType: "CHEQUE_PAYMENT",
+      invoiceRepeatMonths: 1,
+      invoiceFutureAmountMode: "SAME_AMOUNT",
+      isInstallment: false,
+      installmentCount: 1,
       currentInstallment: 1,
       amountMode: "TOTAL",
       isCommitment: false,
@@ -1331,6 +1668,10 @@ function GiderlerPageContent() {
 
   const openEditModal = (expense: SchoolExpense) => {
     setEditingExpense(expense);
+    setFormChequePhotoUrl(chequePhotosMap[expense.id] || null);
+    setDraftChequeId(expense.id);
+    setShowFormQr(false);
+    setFormQrDataUrl("");
     let parsedLines: any[] = [];
     try {
       if (expense.phoneLines) {
@@ -1366,7 +1707,14 @@ function GiderlerPageContent() {
       monthIndex: expense.monthIndex || 9,
       amountDue: String(expense.amountDue),
       description: expense.description || "",
-      entryType: expense.isCommitment ? "COMMITMENT" : expense.installmentInfo ? "INSTALLMENT" : "SINGLE",
+      entryType:
+        expense.category === "CHEQUE"
+          ? "CHEQUE_PAYMENT"
+          : expense.isCommitment
+          ? "COMMITMENT"
+          : expense.installmentInfo
+          ? "INSTALLMENT"
+          : "SINGLE",
       invoiceRepeatMonths: 12,
       invoiceFutureAmountMode: "SAME_AMOUNT",
       isInstallment: Boolean(expense.installmentInfo),
@@ -1524,11 +1872,23 @@ function GiderlerPageContent() {
         }
       }
 
+      const isChequeEntry =
+        form.entryType === "CHEQUE_PAYMENT" ||
+        form.category === "CHEQUE" ||
+        form.paymentMethod === "CHEQUE";
+      const finalCategory = isChequeEntry ? "CHEQUE" : form.category;
+      const finalPaymentMethod =
+        finalCategory === "CREDIT_CARD" || finalCategory === "CHEQUE"
+          ? "CASH"
+          : form.paymentMethod;
+
       const res = await fetch(url, {
         method,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           ...form,
+          category: finalCategory,
+          paymentMethod: finalPaymentMethod,
           cardHolder: finalCardHolder,
           cardBank: finalCardBank,
           description: finalDescription,
@@ -1543,6 +1903,8 @@ function GiderlerPageContent() {
               ? formCustomInstallments.map((v) => Number(v) || 0)
               : null,
           phoneLines: filteredLines.length > 0 ? filteredLines : null,
+          chequePhotoUrl: isChequeEntry ? formChequePhotoUrl : undefined,
+          draftChequeId: !editingExpense && isChequeEntry ? draftChequeId : undefined,
         }),
       });
 
@@ -2091,6 +2453,14 @@ function GiderlerPageContent() {
             </button>
             <button
               type="button"
+              onClick={openNewChequeModal}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-sm transition-all"
+            >
+              <FileText className="w-4 h-4" />
+              <span>+ Çek Ödemesi Ekle</span>
+            </button>
+            <button
+              type="button"
               onClick={() => openNewUtilityInvoiceModal("DOGALGAZ")}
               className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold shadow-sm transition-all"
             >
@@ -2175,6 +2545,138 @@ function GiderlerPageContent() {
             </div>
           </div>
 
+          {/* 🚨 ÇEK ÖDEMESİNDEN 3 GÜN ÖNCE OTOMATİK HATIRLATMA & UYARI BİLDİRİMİ (YUKARIDA) */}
+          {upcomingCheques3Days.length > 0 && (
+            <div className="bg-gradient-to-r from-rose-50 via-amber-50 to-emerald-50 border-2 border-rose-400 rounded-2xl p-4 flex items-start gap-3.5 text-rose-950 shadow-sm animate-in fade-in duration-300">
+              <div className="w-10 h-10 rounded-xl bg-rose-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+                <BellRing className="w-5 h-5 animate-bounce" />
+              </div>
+              <div className="flex-1 space-y-2">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h4 className="font-extrabold text-sm text-rose-950">
+                      🚨 Çek Ödeme Hatırlatması ({upcomingCheques3Days.length} Çek Ödemesine 3 Gün veya Daha Az Kaldı!)
+                    </h4>
+                    <span className="text-[10px] font-black uppercase px-2.5 py-0.5 rounded-full bg-rose-200 text-rose-900 border border-rose-300">
+                      3 Gün Önce Otomatik Uyarı
+                    </span>
+                    <span className="text-[10px] font-black uppercase px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-900 border border-emerald-300">
+                      💵 Nakit Olarak Ödenir
+                    </span>
+                  </div>
+                  <span className="text-xs font-extrabold px-3 py-1 bg-rose-600 text-white rounded-full">
+                    Toplam Çek: {formatCurrency(upcomingCheques3Days.reduce((s, c) => s + c.exp.amountRemaining, 0))}
+                  </span>
+                </div>
+                <p className="text-xs text-rose-900">
+                  Aşağıdaki çeklerin ödeme tarihine <strong>3 gün veya daha az</strong> kalmıştır. Çek ödemeleri vadesinde <strong>nakit olarak ödenir</strong> ve ödeme listesinde en üstte gösterilir:
+                </p>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2.5 pt-1">
+                  {upcomingCheques3Days.map((item) => {
+                    const chqPhoto = chequePhotosMap[item.exp.id];
+                    return (
+                      <div
+                        key={item.exp.id}
+                        className="p-3 bg-white border-2 border-rose-300 rounded-xl flex items-center justify-between gap-2 text-xs shadow-2xs"
+                      >
+                        <div className="min-w-0 space-y-1">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="font-extrabold text-slate-900 truncate">📝 {item.exp.title}</span>
+                            <span className="px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-900 border border-emerald-300 font-extrabold text-[10px]">
+                              💵 Nakit Ödenir
+                            </span>
+                          </div>
+                          <p className="text-[11px] font-extrabold text-rose-700">
+                            📅 Çek Ödeme Tarihi: {formatSafeDate(item.dateISO)}
+                          </p>
+                          {(item.exp.chequeNo || item.exp.chequeBank) && (
+                            <p className="text-[10px] font-bold text-slate-500 truncate">
+                              {item.exp.chequeNo ? `Çek No: ${item.exp.chequeNo}` : ""}{" "}
+                              {item.exp.chequeBank ? `• ${item.exp.chequeBank}` : ""}
+                            </p>
+                          )}
+                          <div className="flex items-center gap-1.5 pt-0.5 flex-wrap">
+                            {chqPhoto ? (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setLightboxChequePhoto({ title: item.exp.title, url: chqPhoto })
+                                  }
+                                  className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-900 border border-emerald-300 text-[10px] font-extrabold"
+                                >
+                                  <img
+                                    src={chqPhoto}
+                                    alt="Çek"
+                                    className="w-5 h-3.5 object-cover rounded border border-emerald-400"
+                                  />
+                                  <span>🖼️ Çek Görseli</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => openChequeQrModal(item.exp)}
+                                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-[10px] font-bold"
+                                >
+                                  <QrCode className="w-3 h-3 text-teal-700" />
+                                  <span>QR</span>
+                                </button>
+                              </>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => openChequeQrModal(item.exp)}
+                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 text-[10px] font-extrabold transition-colors"
+                              >
+                                <QrCode className="w-3 h-3 text-amber-700" />
+                                <span>📱 QR ile Çek Fotoğrafı Ekle</span>
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                        <div className="text-right shrink-0 flex flex-col items-end gap-1">
+                          <span className="font-black text-sm text-slate-950">
+                            {formatCurrency(item.exp.amountRemaining)}
+                          </span>
+                          <span
+                            className={`text-[10px] font-black px-2 py-0.5 rounded-md ${
+                              item.daysLeft < 0
+                                ? "bg-rose-700 text-white"
+                                : item.daysLeft === 0
+                                ? "bg-rose-600 text-white animate-pulse"
+                                : "bg-amber-100 text-rose-900 border border-rose-300"
+                            }`}
+                          >
+                            {item.daysLeft < 0
+                              ? `${Math.abs(item.daysLeft)} Gün Geçti!`
+                              : item.daysLeft === 0
+                              ? "BUGÜN ÖDENECEK!"
+                              : `${item.daysLeft} Gün Kaldı`}
+                          </span>
+                          <div className="flex items-center gap-1.5 pt-0.5">
+                            <button
+                              type="button"
+                              onClick={() => openPaymentModal(item.exp)}
+                              className="text-[10px] font-extrabold text-emerald-700 hover:underline"
+                            >
+                              Nakit Öde →
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleMarkPaid(item.exp)}
+                              className="text-[10px] font-extrabold text-teal-800 bg-teal-50 px-1.5 py-0.5 rounded border border-teal-200 hover:bg-teal-100"
+                            >
+                              ✓ Ödendi
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* 🔴 GEÇMİŞ AYLARDAN KALAN ÖDENMEMİŞ BORÇLAR / DEVREDEN KİRALAR (Özdemirler & İlyas Bey) */}
           {rolloverExpenses.length > 0 && (
             <div className="bg-rose-50 border-2 border-rose-300 rounded-2xl p-4 space-y-2 text-rose-950 shadow-sm animate-in fade-in duration-300">
@@ -2190,7 +2692,9 @@ function GiderlerPageContent() {
                 </span>
               </div>
               <p className="text-xs text-rose-800">
-                Seçilen aydan önceki dönemlerden kalan ve henüz kapatılmamış kiralar/ödemeler:
+                {selectedMonth !== "ALL"
+                  ? `${selectedMonth}. Ay öncesindeki geçmiş aylardan (${Number(selectedMonth) === 1 ? "12" : Number(selectedMonth) - 1}. Ay ve öncesi) kalan ve henüz kapatılmamış ödemeler:`
+                  : "Seçilen aydan önceki dönemlerden kalan ve henüz kapatılmamış kiralar/ödemeler:"}
               </p>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2 pt-1">
                 {rolloverExpenses.map((re) => (
@@ -4090,10 +4594,54 @@ function GiderlerPageContent() {
                               )
                             )}
 
-                            {/* Çek Detayı */}
-                            {exp.chequeNo && (
-                              <div className="mt-1 text-[10px] font-bold text-emerald-800">
-                                📝 Çek No: {exp.chequeNo} • Banka: {exp.chequeBank || "-"}
+                            {/* Çek Detayı & QR ile Çek Fotoğrafı Ekleme / Görüntüleme */}
+                            {(exp.category === "CHEQUE" || exp.paymentMethod === "CHEQUE" || exp.chequeNo) && (
+                              <div className="mt-1.5 flex items-center gap-2 flex-wrap">
+                                {(exp.chequeNo || exp.chequeBank) && (
+                                  <span className="text-[10px] font-bold text-emerald-800">
+                                    📝 {exp.chequeNo ? `Çek No: ${exp.chequeNo}` : ""}{" "}
+                                    {exp.chequeBank ? `• Banka: ${exp.chequeBank}` : ""}
+                                  </span>
+                                )}
+                                {chequePhotosMap[exp.id] ? (
+                                  <div className="inline-flex items-center gap-1.5">
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        setLightboxChequePhoto({
+                                          title: exp.title,
+                                          url: chequePhotosMap[exp.id],
+                                        })
+                                      }
+                                      className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-900 border border-emerald-300 text-[10px] font-extrabold shadow-2xs transition-colors"
+                                    >
+                                      <img
+                                        src={chequePhotosMap[exp.id]}
+                                        alt="Çek Fotoğrafı"
+                                        className="w-6 h-4 object-cover rounded border border-emerald-400"
+                                      />
+                                      <span>🖼️ Çek Fotoğrafını Gör</span>
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => openChequeQrModal(exp)}
+                                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 text-[10px] font-bold transition-colors"
+                                      title="QR ile Telefondan Çek Görselini Güncelle"
+                                    >
+                                      <QrCode className="w-3 h-3 text-teal-700" />
+                                      <span>QR ile Değiştir</span>
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() => openChequeQrModal(exp)}
+                                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-950 border border-amber-300 text-[10px] font-extrabold shadow-2xs transition-colors"
+                                  >
+                                    <QrCode className="w-3.5 h-3.5 text-amber-700" />
+                                    <span>📱 QR ile Çek Fotoğrafı Ekle</span>
+                                  </button>
+                                )}
                               </div>
                             )}
 
@@ -4125,22 +4673,26 @@ function GiderlerPageContent() {
                               </span>
                               <div className="flex flex-wrap items-center gap-1">
                                 {(() => {
+                                  const isChequeRow =
+                                    exp.category === "CHEQUE" || exp.paymentMethod === "CHEQUE";
                                   const effectivePm =
-                                    exp.category === "CREDIT_CARD" ? "CASH" : exp.paymentMethod;
+                                    exp.category === "CREDIT_CARD" || isChequeRow
+                                      ? "CASH"
+                                      : exp.paymentMethod;
                                   return (
                                     <span
                                       className={`inline-flex items-center gap-1 text-[10px] font-extrabold px-1.5 py-0.2 rounded border ${
-                                        effectivePm === "CREDIT_CARD"
+                                        isChequeRow
+                                          ? "bg-emerald-50 text-emerald-900 border-emerald-300"
+                                          : effectivePm === "CREDIT_CARD"
                                           ? "bg-purple-50 text-purple-800 border-purple-200"
-                                          : effectivePm === "CHEQUE"
-                                          ? "bg-emerald-50 text-emerald-800 border-emerald-200"
                                           : "bg-slate-50 text-slate-700 border-slate-200"
                                       }`}
                                     >
-                                      {effectivePm === "CREDIT_CARD"
+                                      {isChequeRow
+                                        ? "💵 Nakit Olarak Ödenir"
+                                        : effectivePm === "CREDIT_CARD"
                                         ? "💳 Kredi Kartı"
-                                        : effectivePm === "CHEQUE"
-                                        ? "📝 Çek"
                                         : "💵 Nakit/Banka"}
                                     </span>
                                   );
@@ -4189,39 +4741,44 @@ function GiderlerPageContent() {
                               {isMounted && (() => {
                                 const effISO = getExpenseEffectiveDateISO(exp);
                                 if (!effISO || exp.status === "PAID") return null;
-                                try {
-                                  const due = new Date(effISO);
-                                  if (isNaN(due.getTime())) return null;
-                                  const today = new Date();
-                                  today.setHours(0, 0, 0, 0);
-                                  due.setHours(0, 0, 0, 0);
-                                  const diffTime = due.getTime() - today.getTime();
-                                  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-                                  if (diffDays === 0) {
-                                    return (
-                                      <span className="inline-flex items-center gap-1 text-[10px] font-black text-rose-700 bg-rose-100 border border-rose-300 px-1.5 py-0.2 rounded w-fit animate-pulse">
-                                        🔔 BUGÜN SON GÜN!
-                                      </span>
-                                    );
-                                  }
-                                  if (diffDays < 0) {
-                                    return (
-                                      <span className="inline-flex items-center gap-1 text-[10px] font-bold text-rose-600 bg-rose-50 border border-rose-200 px-1.5 py-0.2 rounded w-fit">
-                                        ⚠️ Günü Geçti ({Math.abs(diffDays)} gün)
-                                      </span>
-                                    );
-                                  }
-                                  if (diffDays <= 3) {
-                                    return (
-                                      <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.2 rounded w-fit">
-                                        ⏰ {diffDays} gün kaldı
-                                      </span>
-                                    );
-                                  }
-                                  return null;
-                                } catch {
-                                  return null;
+                                const diffDays = getDaysUntilDateISO(effISO);
+                                if (diffDays === null) return null;
+                                const isChequeRow =
+                                  exp.category === "CHEQUE" || exp.paymentMethod === "CHEQUE";
+                                if (diffDays === 0) {
+                                  return (
+                                    <span className="inline-flex items-center gap-1 text-[10px] font-black text-rose-700 bg-rose-100 border border-rose-300 px-1.5 py-0.2 rounded w-fit animate-pulse">
+                                      {isChequeRow
+                                        ? "🔔 BUGÜN ÇEK ÖDEME GÜNÜ! (Nakit)"
+                                        : "🔔 BUGÜN SON GÜN!"}
+                                    </span>
+                                  );
                                 }
+                                if (diffDays < 0) {
+                                  return (
+                                    <span className="inline-flex items-center gap-1 text-[10px] font-bold text-rose-600 bg-rose-50 border border-rose-200 px-1.5 py-0.2 rounded w-fit">
+                                      {isChequeRow
+                                        ? `⚠️ Çek Günü Geçti (${Math.abs(diffDays)} gün)`
+                                        : `⚠️ Günü Geçti (${Math.abs(diffDays)} gün)`}
+                                    </span>
+                                  );
+                                }
+                                if (diffDays <= 3) {
+                                  return (
+                                    <span
+                                      className={`inline-flex items-center gap-1 text-[10px] font-extrabold px-1.5 py-0.2 rounded w-fit border ${
+                                        isChequeRow
+                                          ? "text-rose-900 bg-rose-100 border-rose-300 animate-pulse"
+                                          : "text-amber-700 bg-amber-50 border-amber-200"
+                                      }`}
+                                    >
+                                      {isChequeRow
+                                        ? `🚨 Çek Ödemesine ${diffDays} Gün Kaldı!`
+                                        : `⏰ ${diffDays} gün kaldı`}
+                                    </span>
+                                  );
+                                }
+                                return null;
                               })()}
                             </div>
                           </td>
@@ -4511,7 +5068,7 @@ function GiderlerPageContent() {
               {!editingExpense && (
                 <div>
                   <label className="block font-bold text-slate-700 mb-1.5">Ödeme / Plan Tipi</label>
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 p-1 bg-slate-100 rounded-xl">
+                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-1.5 p-1 bg-slate-100 rounded-xl">
                     <button
                       type="button"
                       onClick={() =>
@@ -4604,7 +5161,58 @@ function GiderlerPageContent() {
                       <ReceiptText className="w-4 h-4" />
                       <span>Fatura Ödemesi</span>
                     </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowPhoneLinesInModal(false);
+                        setForm({
+                          ...form,
+                          entryType: "CHEQUE_PAYMENT",
+                          isCommitment: false,
+                          isInstallment: false,
+                          category: "CHEQUE",
+                          paymentMethod: "CASH",
+                          title:
+                            form.title && !form.title.includes("Faturası") && !form.title.includes("Vodafone")
+                              ? form.title
+                              : "Çek Ödemesi",
+                          subCategory: "Çek Ödemesi",
+                          amountMode: "TOTAL",
+                        });
+                      }}
+                      className={`py-2 px-2 rounded-lg font-bold text-xs flex flex-col items-center justify-center gap-1 transition-all ${
+                        form.entryType === "CHEQUE_PAYMENT"
+                          ? "bg-emerald-700 text-white shadow-2xs"
+                          : "text-emerald-900 hover:bg-emerald-100/60"
+                      }`}
+                    >
+                      <FileText className="w-4 h-4" />
+                      <span>Çek Ödemesi</span>
+                    </button>
                   </div>
+                </div>
+              )}
+
+              {/* ÇEK ÖDEMESİ EKRANI (TARİH & TUTAR GİRİŞİ, 3 GÜN ÖNCE UYARI, NAKİT ÖDENİR) */}
+              {(form.entryType === "CHEQUE_PAYMENT" || form.category === "CHEQUE") && !editingExpense && (
+                <div className="p-3.5 bg-emerald-50/90 border-2 border-emerald-300 rounded-2xl space-y-2.5 animate-in fade-in duration-200">
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <div className="flex items-center gap-2 text-emerald-950 font-extrabold text-xs">
+                      <FileText className="w-4 h-4 text-emerald-700 shrink-0" />
+                      <span>📝 Çek Ödemesi Girişi (Tarih & Tutar)</span>
+                    </div>
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="px-2 py-0.5 rounded-full bg-rose-100 text-rose-900 border border-rose-300 text-[10px] font-extrabold">
+                        ⏰ 3 Gün Önce Yukarıda Hatırlatır
+                      </span>
+                      <span className="px-2 py-0.5 rounded-full bg-emerald-200/80 text-emerald-950 text-[10px] font-extrabold">
+                        💵 Nakit Olarak Ödenir
+                      </span>
+                    </div>
+                  </div>
+                  <p className="text-[11px] text-emerald-900 font-semibold bg-white/90 px-2.5 py-1.5 rounded-lg border border-emerald-200">
+                    💡 Aşağıdan <strong>Çek Tutarı</strong> ve <strong>Çek Ödeme Tarihini</strong> girdiğinizde ödeme listesinde <strong>Nakit Olarak Ödenir</strong> şeklinde gösterilir ve çek tarihinden <strong>3 gün önce</strong> sayfanın üst kısmında otomatik uyarı verir.
+                  </p>
                 </div>
               )}
 
@@ -4720,6 +5328,8 @@ function GiderlerPageContent() {
                 <label className="block font-bold text-slate-700 mb-1">
                   {form.entryType === "UTILITY_INVOICE"
                     ? "Fatura / Kurum Adı (Doğalgaz, Elektrik, Su vb.) *"
+                    : form.entryType === "CHEQUE_PAYMENT" || form.category === "CHEQUE"
+                    ? "Çek Açıklaması / Kime Verildiği *"
                     : "Cari / Kurum / Kişi Adı *"}
                 </label>
                 <input
@@ -4730,6 +5340,8 @@ function GiderlerPageContent() {
                   placeholder={
                     form.entryType === "UTILITY_INVOICE"
                       ? "Örn: Doğalgaz Faturası (Kayserigaz), Elektrik Faturası (KCETAŞ)"
+                      : form.entryType === "CHEQUE_PAYMENT" || form.category === "CHEQUE"
+                      ? "Örn: Çek Ödemesi - Uğur Gıda San. Tic."
                       : form.entryType === "COMMITMENT"
                       ? "Örn: Türk Telekom, Turkcell Superonline, Digiturk"
                       : "Örn: Özdemirler A.Ş., İlyas Yılmaz, Kayseri Elektrik"
@@ -4750,7 +5362,7 @@ function GiderlerPageContent() {
                         ...form,
                         category: nextCat,
                         paymentMethod:
-                          nextCat === "CREDIT_CARD" && form.paymentMethod === "CREDIT_CARD"
+                          (nextCat === "CREDIT_CARD" || nextCat === "CHEQUE")
                             ? "CASH"
                             : form.paymentMethod,
                       });
@@ -4789,6 +5401,15 @@ function GiderlerPageContent() {
                       (Kredi kartı borcu kredi kartı ile ödenemez)
                     </span>
                   </div>
+                ) : form.category === "CHEQUE" || form.entryType === "CHEQUE_PAYMENT" ? (
+                  <div className="p-2.5 bg-emerald-50 border border-emerald-300 rounded-lg flex items-center justify-between text-xs">
+                    <span className="font-extrabold text-emerald-900">
+                      💵 Nakit Olarak Ödenir
+                    </span>
+                    <span className="text-[10px] font-bold text-emerald-800">
+                      (Çek ödemeleri vadesinde nakit olarak ödenir)
+                    </span>
+                  </div>
                 ) : (
                   <div className="grid grid-cols-3 gap-2">
                     <label className="flex items-center gap-1.5 p-2 bg-white border rounded-lg cursor-pointer">
@@ -4817,9 +5438,9 @@ function GiderlerPageContent() {
                         name="paymentMethod"
                         value="CHEQUE"
                         checked={form.paymentMethod === "CHEQUE"}
-                        onChange={() => setForm({ ...form, paymentMethod: "CHEQUE" })}
+                        onChange={() => setForm({ ...form, category: "CHEQUE", paymentMethod: "CASH" })}
                       />
-                      <span className="font-semibold text-[11px] text-emerald-900">📝 Çek</span>
+                      <span className="font-semibold text-[11px] text-emerald-900">📝 Çek (Nakit Ödenir)</span>
                     </label>
                   </div>
                 )}
@@ -4900,28 +5521,156 @@ function GiderlerPageContent() {
                   </div>
                 )}
 
-                {/* Çek Detayı */}
-                {form.paymentMethod === "CHEQUE" && (
-                  <div className="grid grid-cols-2 gap-2 pt-1 animate-in fade-in">
-                    <div>
-                      <label className="block text-[10px] font-bold text-emerald-900 mb-0.5">Çek No</label>
-                      <input
-                        type="text"
-                        value={form.chequeNo}
-                        onChange={(e) => setForm({ ...form, chequeNo: e.target.value })}
-                        placeholder="Örn: TR-884219"
-                        className="w-full px-2 py-1.5 bg-white border border-emerald-300 rounded-lg text-xs"
-                      />
+                {/* Çek Detayı & QR ile Çek Fotoğrafı Yükleme */}
+                {(form.paymentMethod === "CHEQUE" || form.category === "CHEQUE" || form.entryType === "CHEQUE_PAYMENT") && (
+                  <div className="space-y-2.5 pt-1 animate-in fade-in">
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-[10px] font-bold text-emerald-900 mb-0.5">Çek No (Opsiyonel)</label>
+                        <input
+                          type="text"
+                          value={form.chequeNo}
+                          onChange={(e) => setForm({ ...form, chequeNo: e.target.value })}
+                          placeholder="Örn: TR-884219"
+                          className="w-full px-2 py-1.5 bg-white border border-emerald-300 rounded-lg text-xs"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-bold text-emerald-900 mb-0.5">Keşide Bankası (Opsiyonel)</label>
+                        <input
+                          type="text"
+                          value={form.chequeBank}
+                          onChange={(e) => setForm({ ...form, chequeBank: e.target.value })}
+                          placeholder="Örn: Halkbank Kayseri Şubesi"
+                          className="w-full px-2 py-1.5 bg-white border border-emerald-300 rounded-lg text-xs"
+                        />
+                      </div>
                     </div>
-                    <div>
-                      <label className="block text-[10px] font-bold text-emerald-900 mb-0.5">Keşide Bankası</label>
-                      <input
-                        type="text"
-                        value={form.chequeBank}
-                        onChange={(e) => setForm({ ...form, chequeBank: e.target.value })}
-                        placeholder="Örn: Halkbank Kayseri Şubesi"
-                        className="w-full px-2 py-1.5 bg-white border border-emerald-300 rounded-lg text-xs"
-                      />
+
+                    {/* Çek Fotoğrafı Ekleme Alanı (QR ile Telefondan veya Bilgisayardan) */}
+                    <div className="p-3 bg-white border-2 border-dashed border-emerald-300 rounded-xl space-y-2.5">
+                      <div className="flex items-center justify-between gap-2 flex-wrap">
+                        <div className="flex items-center gap-1.5">
+                          <Camera className="w-4 h-4 text-emerald-700" />
+                          <span className="font-extrabold text-[11px] text-emerald-950">
+                            Çek Fotoğrafı / Görseli
+                          </span>
+                          {formChequePhotoUrl && (
+                            <span className="px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[9px] font-black">
+                              ✓ Yüklendi
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <button
+                            type="button"
+                            onClick={handleToggleFormQr}
+                            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[11px] font-extrabold shadow-2xs transition-all ${
+                              showFormQr
+                                ? "bg-rose-600 hover:bg-rose-700 text-white"
+                                : "bg-emerald-700 hover:bg-emerald-800 text-white"
+                            }`}
+                          >
+                            <QrCode className="w-3.5 h-3.5" />
+                            <span>{showFormQr ? "QR Kodu Kapat" : "📱 QR ile Ekle (Telefondan Yükle)"}</span>
+                          </button>
+
+                          <label className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 text-[10px] font-bold cursor-pointer transition-colors">
+                            <Upload className="w-3 h-3" />
+                            <span>Bilgisayardan Seç</span>
+                            <input
+                              type="file"
+                              accept="image/*"
+                              className="hidden"
+                              onChange={async (ev) => {
+                                const f = ev.target.files?.[0];
+                                if (!f) return;
+                                try {
+                                  const b64 = await compressChequeImageFile(f);
+                                  setFormChequePhotoUrl(b64);
+                                } catch {
+                                  alert("Görsel işlenemedi");
+                                }
+                              }}
+                            />
+                          </label>
+                        </div>
+                      </div>
+
+                      {/* QR Kod Açıldığında Gösterilen Kutu */}
+                      {showFormQr && (
+                        <div className="p-3 bg-emerald-50/80 border border-emerald-200 rounded-xl flex flex-col sm:flex-row items-center gap-3 text-center sm:text-left animate-in fade-in duration-200">
+                          <div className="p-2 bg-white rounded-xl border border-emerald-200 shadow-xs shrink-0">
+                            {formQrDataUrl ? (
+                              <img src={formQrDataUrl} alt="Çek QR" className="w-36 h-36 object-contain" />
+                            ) : (
+                              <div className="w-36 h-36 flex items-center justify-center text-slate-400">
+                                <RefreshCw className="w-6 h-6 animate-spin" />
+                              </div>
+                            )}
+                          </div>
+                          <div className="space-y-1.5 flex-1">
+                            <p className="font-extrabold text-emerald-950 text-xs">
+                              📱 Telefonunuzun Kamerasıyla QR Kodu Okutun
+                            </p>
+                            <p className="text-[11px] text-emerald-800 leading-relaxed">
+                              QR kodu okuttuğunuzda telefonunuzda <strong>Çek Fotoğrafı Yükleme</strong> ekranı açılır. Çekin fotoğrafını çekip yüklediğinizde bu ekrana <strong>otomatik olarak</strong> yansır.
+                            </p>
+                            <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-100 text-amber-900 text-[10px] font-bold">
+                              <RefreshCw className="w-3 h-3 animate-spin text-amber-700" />
+                              <span>Telefondan fotoğraf yüklenmesi bekleniyor...</span>
+                            </div>
+                            {formQrTargetUrl && (
+                              <p className="text-[9px] text-slate-500 break-all pt-0.5">
+                                Bağlantı: {formQrTargetUrl}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Yüklenen Çek Görseli Önizlemesi */}
+                      {formChequePhotoUrl && (
+                        <div className="p-2 bg-slate-50 border border-slate-200 rounded-xl flex items-center justify-between gap-3">
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <img
+                              src={formChequePhotoUrl}
+                              alt="Çek Önizleme"
+                              onClick={() =>
+                                setLightboxChequePhoto({
+                                  title: form.title || "Çek Görseli",
+                                  url: formChequePhotoUrl,
+                                })
+                              }
+                              className="w-24 h-14 object-cover rounded-lg border border-emerald-400 cursor-pointer hover:opacity-90"
+                            />
+                            <div className="min-w-0">
+                              <p className="text-[11px] font-extrabold text-emerald-900">
+                                ✓ Çek Görseli Hazır
+                              </p>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setLightboxChequePhoto({
+                                    title: form.title || "Çek Görseli",
+                                    url: formChequePhotoUrl,
+                                  })
+                                }
+                                className="text-[10px] font-bold text-teal-700 hover:underline"
+                              >
+                                🔍 Görseli Tam Ekran İncele
+                              </button>
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setFormChequePhotoUrl(null)}
+                            className="px-2.5 py-1 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-[10px] font-bold shrink-0"
+                          >
+                            Kaldır
+                          </button>
+                        </div>
+                      )}
                     </div>
                   </div>
                 )}
@@ -5003,6 +5752,8 @@ function GiderlerPageContent() {
                   <label className="block font-bold text-slate-700 mb-1">
                     {form.entryType === "UTILITY_INVOICE"
                       ? "Fatura Tutarı (TL) *"
+                      : form.entryType === "CHEQUE_PAYMENT" || form.category === "CHEQUE"
+                      ? "💰 Çek Tutarı (TL) *"
                       : form.entryType === "COMMITMENT" || form.amountMode === "MONTHLY"
                       ? "Aylık Tutar (TL) *"
                       : "Ödenecek Tutar (TL) *"}
@@ -5022,7 +5773,9 @@ function GiderlerPageContent() {
                 <div>
                   <label className="block font-bold text-slate-700 mb-1 flex items-center justify-between">
                     <span>
-                      {form.entryType === "UTILITY_INVOICE" || form.category === "INVOICE"
+                      {form.entryType === "CHEQUE_PAYMENT" || form.category === "CHEQUE"
+                        ? "📅 Çek Ödeme Tarihi *"
+                        : form.entryType === "UTILITY_INVOICE" || form.category === "INVOICE"
                         ? "📅 Fatura Son Ödeme Tarihi *"
                         : form.category === "CREDIT_CARD"
                         ? "💳 Kart Son Ödeme Tarihi *"
@@ -5030,12 +5783,18 @@ function GiderlerPageContent() {
                         ? "Vade / Son Ödeme Tarihi *"
                         : "İlk Vade / Başlangıç Tarihi *"}
                     </span>
-                    {(form.entryType === "UTILITY_INVOICE" ||
-                      form.category === "INVOICE" ||
-                      form.category === "CREDIT_CARD") && (
-                      <span className="text-[10px] text-amber-700 font-bold bg-amber-50 px-1.5 py-0.2 rounded">
-                        Günü Gelince Hatırlatılır
+                    {form.entryType === "CHEQUE_PAYMENT" || form.category === "CHEQUE" ? (
+                      <span className="text-[10px] text-rose-800 font-extrabold bg-rose-100 px-1.5 py-0.2 rounded">
+                        3 Gün Önce Uyarı
                       </span>
+                    ) : (
+                      (form.entryType === "UTILITY_INVOICE" ||
+                        form.category === "INVOICE" ||
+                        form.category === "CREDIT_CARD") && (
+                        <span className="text-[10px] text-amber-700 font-bold bg-amber-50 px-1.5 py-0.2 rounded">
+                          Günü Gelince Hatırlatılır
+                        </span>
+                      )
                     )}
                   </label>
                   <input
@@ -5045,7 +5804,12 @@ function GiderlerPageContent() {
                     onChange={(e) => {
                       const nextDate = e.target.value;
                       let nextMonth = form.monthIndex;
-                      if (nextDate && form.entryType === "UTILITY_INVOICE") {
+                      if (
+                        nextDate &&
+                        (form.entryType === "UTILITY_INVOICE" ||
+                          form.entryType === "CHEQUE_PAYMENT" ||
+                          form.category === "CHEQUE")
+                      ) {
                         const d = new Date(nextDate);
                         if (!isNaN(d.getTime())) {
                           nextMonth = d.getMonth() + 1;
@@ -6242,6 +7006,225 @@ function GiderlerPageContent() {
                 );
               })()}
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================== */}
+      {/* MODAL: QR İLE TELEFONDAN ÇEK FOTOĞRAFI YÜKLEME & ÖNİZLEME       */}
+      {/* ============================================================== */}
+      {activeQrChequeExpense && (
+        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2.5">
+                <div className="w-10 h-10 rounded-2xl bg-emerald-700 text-white flex items-center justify-center">
+                  <QrCode className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-base text-slate-900">
+                    📱 QR ile Çek Fotoğrafı Ekle
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    {activeQrChequeExpense.title} • {formatCurrency(activeQrChequeExpense.amountDue)}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setActiveQrChequeExpense(null)}
+                className="p-1.5 text-slate-400 hover:text-slate-700 rounded-xl hover:bg-slate-100"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="mt-4 space-y-4 text-xs">
+              {/* QR Kod Kutusu */}
+              <div className="p-4 bg-emerald-50/80 border border-emerald-200 rounded-2xl flex flex-col sm:flex-row items-center gap-4 text-center sm:text-left">
+                <div className="p-2.5 bg-white rounded-2xl border border-emerald-200 shadow-sm shrink-0">
+                  {qrModalDataUrl ? (
+                    <img src={qrModalDataUrl} alt="Çek QR Kodu" className="w-44 h-44 object-contain" />
+                  ) : (
+                    <div className="w-44 h-44 flex items-center justify-center text-slate-400">
+                      <RefreshCw className="w-7 h-7 animate-spin" />
+                    </div>
+                  )}
+                </div>
+                <div className="space-y-2 flex-1">
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-700 text-white text-[10px] font-bold">
+                    <Camera className="w-3.5 h-3.5" />
+                    Telefon Kamerasıyla Okutun
+                  </span>
+                  <h4 className="font-extrabold text-sm text-emerald-950">
+                    Telefondan Çek Görselini Yükleyin
+                  </h4>
+                  <p className="text-xs text-emerald-900 leading-relaxed">
+                    Telefonunuzun kamerasını açıp QR kodu okutun. Açılan sayfada çekin fotoğrafını çekip onayladığınızda <strong>bu ekrana otomatik olarak</strong> yansır.
+                  </p>
+                  <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-100 text-amber-900 border border-amber-300 text-[10px] font-bold">
+                    <RefreshCw className="w-3 h-3 animate-spin text-amber-700" />
+                    <span>Telefondan yükleme canlı dinleniyor...</span>
+                  </div>
+                  {qrModalTargetUrl && (
+                    <p className="text-[10px] text-slate-500 break-all pt-1">
+                      Mobil Link: {qrModalTargetUrl}
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              {/* Mevcut veya Yüklenen Çek Görseli */}
+              {chequePhotosMap[activeQrChequeExpense.id] ? (
+                <div className="p-3.5 bg-slate-50 border-2 border-emerald-400 rounded-2xl space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <span className="inline-flex items-center gap-1.5 text-xs font-extrabold text-emerald-800">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                      Çek Görseli Yüklendi!
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setLightboxChequePhoto({
+                            title: activeQrChequeExpense.title,
+                            url: chequePhotosMap[activeQrChequeExpense.id],
+                          })
+                        }
+                        className="px-2.5 py-1 rounded-lg bg-teal-50 hover:bg-teal-100 text-teal-800 border border-teal-200 text-[10px] font-bold"
+                      >
+                        🔍 Tam Ekran Aç
+                      </button>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          if (!confirm("Bu çekin fotoğrafını silmek istediğinize emin misiniz?")) return;
+                          await fetch(`/api/giderler/cek/${activeQrChequeExpense.id}/foto`, {
+                            method: "DELETE",
+                          });
+                          setChequePhotosMap((prev) => {
+                            const next = { ...prev };
+                            delete next[activeQrChequeExpense.id];
+                            return next;
+                          });
+                        }}
+                        className="px-2.5 py-1 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-[10px] font-bold"
+                      >
+                        Görseli Sil
+                      </button>
+                    </div>
+                  </div>
+                  <img
+                    src={chequePhotosMap[activeQrChequeExpense.id]}
+                    alt="Çek Görseli"
+                    onClick={() =>
+                      setLightboxChequePhoto({
+                        title: activeQrChequeExpense.title,
+                        url: chequePhotosMap[activeQrChequeExpense.id],
+                      })
+                    }
+                    className="w-full max-h-60 object-contain rounded-xl border border-slate-200 bg-white cursor-pointer"
+                  />
+                </div>
+              ) : (
+                <div className="p-3 bg-slate-50 border border-slate-200 rounded-2xl flex items-center justify-between gap-2">
+                  <span className="text-slate-600 font-semibold">
+                    İsterseniz doğrudan bilgisayardan da çek görseli seçebilirsiniz:
+                  </span>
+                  <label className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white hover:bg-slate-100 text-slate-800 border border-slate-300 font-bold cursor-pointer shrink-0">
+                    <Upload className="w-3.5 h-3.5 text-teal-700" />
+                    <span>Bilgisayardan Yükle</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={async (ev) => {
+                        const f = ev.target.files?.[0];
+                        if (!f) return;
+                        try {
+                          const b64 = await compressChequeImageFile(f);
+                          const res = await fetch(
+                            `/api/giderler/cek/${activeQrChequeExpense.id}/foto`,
+                            {
+                              method: "POST",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({
+                                photoUrl: b64,
+                                title: activeQrChequeExpense.title,
+                              }),
+                            }
+                          );
+                          if (res.ok) {
+                            setChequePhotosMap((prev) => ({
+                              ...prev,
+                              [activeQrChequeExpense.id]: b64,
+                            }));
+                          }
+                        } catch {
+                          alert("Görsel yüklenemedi");
+                        }
+                      }}
+                    />
+                  </label>
+                </div>
+              )}
+
+              <div className="flex items-center justify-end pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setActiveQrChequeExpense(null)}
+                  className="px-5 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl font-bold"
+                >
+                  Tamam / Kapat
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================== */}
+      {/* MODAL: TAM EKRAN ÇEK GÖRSELİ İNCELEME (LIGHTBOX)               */}
+      {/* ============================================================== */}
+      {lightboxChequePhoto && (
+        <div
+          className="fixed inset-0 z-[60] bg-black/80 backdrop-blur-xs flex items-center justify-center p-4"
+          onClick={() => setLightboxChequePhoto(null)}
+        >
+          <div
+            className="bg-white rounded-3xl max-w-4xl w-full p-4 sm:p-6 shadow-2xl space-y-3 animate-in fade-in zoom-in-95 duration-200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+              <h3 className="font-extrabold text-sm sm:text-base text-slate-900 flex items-center gap-2">
+                <FileText className="w-5 h-5 text-emerald-700" />
+                <span>📝 {lightboxChequePhoto.title} — Çek Fotoğrafı</span>
+              </h3>
+              <div className="flex items-center gap-2">
+                <a
+                  href={lightboxChequePhoto.url}
+                  download={`cek-fotografi-${Date.now()}.jpg`}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-900 border border-emerald-200 text-xs font-bold"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>İndir</span>
+                </a>
+                <button
+                  type="button"
+                  onClick={() => setLightboxChequePhoto(null)}
+                  className="p-1.5 text-slate-400 hover:text-slate-700 rounded-xl hover:bg-slate-100"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+            <div className="bg-slate-950 rounded-2xl overflow-hidden flex items-center justify-center max-h-[78vh]">
+              <img
+                src={lightboxChequePhoto.url}
+                alt={lightboxChequePhoto.title}
+                className="max-w-full max-h-[76vh] object-contain"
+              />
+            </div>
           </div>
         </div>
       )}
