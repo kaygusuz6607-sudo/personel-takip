@@ -193,10 +193,6 @@ export async function GET(request: Request) {
       where.cardHolder = cardHolder;
     }
 
-    if (month && month !== "ALL") {
-      where.monthIndex = parseInt(month);
-    }
-
     // Yanlışlıkla 2027 Temmuz/Ağustos (7. ve 8. ay 2027) olarak taşmış otomatik fatura kopyalarını temizle (2026-2027 okul takviminde 7. ve 8. ay 2026 yılına aittir)
     await prisma.schoolExpense.deleteMany({
       where: {
@@ -207,102 +203,175 @@ export async function GET(request: Request) {
       },
     });
 
-    const expenses = await prisma.schoolExpense.findMany({
+    const trMonthsMap: Record<string, number> = {
+      ocak: 1,
+      şubat: 2,
+      subat: 2,
+      mart: 3,
+      nisan: 4,
+      mayıs: 5,
+      mayis: 5,
+      haziran: 6,
+      temmuz: 7,
+      ağustos: 8,
+      agustos: 8,
+      eylül: 9,
+      eylul: 9,
+      ekim: 10,
+      kasım: 11,
+      kasim: 11,
+      aralık: 12,
+      aralik: 12,
+    };
+
+    const getExpenseEffectiveYM = (exp: any): { year: number; month: number; ym: number } => {
+      // "cumartesi" içindeki "mart" kelimesinin 3. ay olarak algılanmasını önlemek için gün isimlerini temizle
+      const dStr = (exp.dueDateStr || "")
+        .toLowerCase()
+        .replace(/pazartesi|cumartesi|çarşamba|carsamba|perşembe|persembe|pazar|salı|sali|cuma/g, " ");
+      let strMonth: number | null = null;
+      for (const [mName, mIdx] of Object.entries(trMonthsMap)) {
+        if (dStr.includes(mName)) {
+          strMonth = mIdx;
+          break;
+        }
+      }
+      const strYearMatch = dStr.match(/\b(20\d{2})\b/);
+      const strYear = strYearMatch ? parseInt(strYearMatch[1], 10) : null;
+
+      let dateYear: number | null = null;
+      let dateMonth: number | null = null;
+      if (exp.dueDate) {
+        const d = new Date(exp.dueDate);
+        if (!isNaN(d.getTime())) {
+          const trD = new Date(d.getTime() + 3 * 3600 * 1000);
+          dateYear = trD.getUTCFullYear();
+          dateMonth = trD.getUTCMonth() + 1;
+        }
+      }
+
+      const defaultMonth = exp.monthIndex || dateMonth || strMonth || 9;
+      const year = dateYear || strYear || (defaultMonth >= 7 ? 2026 : 2027);
+      const isStandardSchoolYear =
+        (year === 2026 && defaultMonth >= 7 && defaultMonth <= 12) ||
+        (year === 2027 && defaultMonth >= 1 && defaultMonth <= 6);
+      const m = isStandardSchoolYear ? defaultMonth : dateMonth || strMonth || defaultMonth;
+      return { year, month: m, ym: year * 100 + m };
+    };
+
+    const getExpenseChronologicalYM = (exp: any): number => {
+      const dStr = (exp.dueDateStr || "")
+        .toLowerCase()
+        .replace(/pazartesi|cumartesi|çarşamba|carsamba|perşembe|persembe|pazar|salı|sali|cuma/g, " ");
+      let strMonth: number | null = null;
+      for (const [mName, mIdx] of Object.entries(trMonthsMap)) {
+        if (dStr.includes(mName)) {
+          strMonth = mIdx;
+          break;
+        }
+      }
+      const strYearMatch = dStr.match(/\b(20\d{2})\b/);
+      const strYear = strYearMatch ? parseInt(strYearMatch[1], 10) : null;
+
+      if (exp.periodStatus === "Geçmiş Dönem Devir" && strMonth) {
+        const y = strYear || (strMonth >= 7 ? 2026 : 2027);
+        return y * 100 + strMonth;
+      }
+      return getExpenseEffectiveYM(exp).ym;
+    };
+
+    // Seçili ay/yıl filtresini ayrıştır: "ALL", "YEAR-2028", "2026-9", "2028-9" veya "9"
+    let filterYear: number | null = null;
+    let filterMonth: number | null = null;
+    if (month && month !== "ALL") {
+      if (month.startsWith("YEAR-")) {
+        const y = parseInt(month.replace("YEAR-", ""), 10);
+        if (!isNaN(y)) filterYear = y;
+      } else if (month.includes("-")) {
+        const [yStr, mStr] = month.split("-");
+        const y = parseInt(yStr, 10);
+        const m = parseInt(mStr, 10);
+        if (!isNaN(y)) filterYear = y;
+        if (!isNaN(m) && m >= 1 && m <= 12) filterMonth = m;
+      } else {
+        const m = parseInt(month, 10);
+        if (!isNaN(m) && m >= 1 && m <= 12) {
+          filterMonth = m;
+          filterYear = m >= 7 ? 2026 : 2027;
+        }
+      }
+    }
+
+    const doesMatchPeriod = (exp: any): boolean => {
+      if (filterYear === null && filterMonth === null) return true;
+      const { year, month: expM } = getExpenseEffectiveYM(exp);
+      if (filterYear !== null && year !== filterYear) return false;
+      if (filterMonth !== null && expM !== filterMonth) return false;
+      return true;
+    };
+
+    const rawFilteredExpenses = await prisma.schoolExpense.findMany({
       where,
       orderBy: [{ status: "asc" }, { dueDate: "asc" }, { createdAt: "desc" }],
     });
+    const expenses = rawFilteredExpenses.filter(doesMatchPeriod);
 
     // İstatistikler ve Devreden Borç Hesaplaması (Tüm kayıtlar üzerinden)
     const allExpenses = await prisma.schoolExpense.findMany();
 
-    // Geçmiş aylardan kalan ödenmemiş ödemeler (Devreden Borçlar)
-    // Okul takvimi: 7, 8, 9, 10, 11, 12. aylar -> 2026 yılı | 1, 2, 3, 4, 5, 6. aylar -> 2027 yılı
-    let rolloverExpenses: any[] = [];
-    if (month && month !== "ALL") {
-      const targetMonth = parseInt(month, 10);
-      if (!isNaN(targetMonth) && targetMonth >= 1 && targetMonth <= 12) {
-        const targetYear = targetMonth >= 7 ? 2026 : 2027;
-        const targetYM = targetYear * 100 + targetMonth; // Örn: 9. Ay -> 202609
-
-        const trMonthsMap: Record<string, number> = {
-          ocak: 1,
-          şubat: 2,
-          subat: 2,
-          mart: 3,
-          nisan: 4,
-          mayıs: 5,
-          mayis: 5,
-          haziran: 6,
-          temmuz: 7,
-          ağustos: 8,
-          agustos: 8,
-          eylül: 9,
-          eylul: 9,
-          ekim: 10,
-          kasım: 11,
-          kasim: 11,
-          aralık: 12,
-          aralik: 12,
-        };
-
-        const getExpenseChronologicalYM = (exp: any): number => {
-          // "cumartesi" içindeki "mart" kelimesinin 3. ay olarak algılanmasını önlemek için gün isimlerini temizle
-          const dStr = (exp.dueDateStr || "")
-            .toLowerCase()
-            .replace(/pazartesi|cumartesi|çarşamba|carsamba|perşembe|persembe|pazar|salı|sali|cuma/g, " ");
-          let strMonth: number | null = null;
-          for (const [mName, mIdx] of Object.entries(trMonthsMap)) {
-            if (dStr.includes(mName)) {
-              strMonth = mIdx;
-              break;
-            }
-          }
-          const strYearMatch = dStr.match(/\b(202\d)\b/);
-          const strYear = strYearMatch ? parseInt(strYearMatch[1], 10) : null;
-
-          let dateYear: number | null = null;
-          let dateMonth: number | null = null;
-          if (exp.dueDate) {
-            const d = new Date(exp.dueDate);
-            if (!isNaN(d.getTime())) {
-              const trD = new Date(d.getTime() + 3 * 3600 * 1000);
-              dateYear = trD.getUTCFullYear();
-              dateMonth = trD.getUTCMonth() + 1;
-            }
-          }
-
-          if (exp.periodStatus === "Geçmiş Dönem Devir" && strMonth) {
-            const y = strYear || dateYear || (strMonth >= 7 ? 2026 : 2027);
-            return y * 100 + strMonth;
-          }
-
-          const m = exp.monthIndex || dateMonth || strMonth || 9;
-          const y = dateYear || strYear || (m >= 7 ? 2026 : 2027);
-          return y * 100 + m;
-        };
-
-        rolloverExpenses = allExpenses
-          .filter((exp) => {
-            if (exp.status !== "PENDING" && exp.status !== "PARTIAL") return false;
-            if ((Number(exp.amountRemaining) || 0) <= 0) return false;
-
-            const expYM = getExpenseChronologicalYM(exp);
-            const expYear = Math.floor(expYM / 100);
-
-            // 2026 yılındaki bir aya (7..12) bakılıyorken 2027 yılına ait hiçbir kaydı asla geçmiş borç olarak gösterme
-            if (targetYear === 2026 && expYear > 2026) return false;
-
-            // Sadece seçili aydan kronolojik olarak ÖNCEKİ (örn. 9. Ay 2026 seçiliyse <= 202608 yani 8. Ay 2026 ve öncesi) kalan ödenmemiş borçları göster
-            return expYM < targetYM;
-          })
-          .sort((a, b) => getExpenseChronologicalYM(a) - getExpenseChronologicalYM(b));
+    // Veritabanındaki tüm yıllar ve aylar (2026, 2027, 2028 vb.) için özet dönem listesi
+    const periodMap = new Map<
+      string,
+      { year: number; month: number; count: number; unpaidCount: number; totalDue: number; totalRemaining: number }
+    >();
+    allExpenses.forEach((exp) => {
+      const { year, month: m } = getExpenseEffectiveYM(exp);
+      const key = `${year}-${m}`;
+      const prev = periodMap.get(key) || {
+        year,
+        month: m,
+        count: 0,
+        unpaidCount: 0,
+        totalDue: 0,
+        totalRemaining: 0,
+      };
+      prev.count += 1;
+      if (exp.status !== "PAID" && (Number(exp.amountRemaining) || 0) > 0) {
+        prev.unpaidCount += 1;
       }
+      prev.totalDue += Number(exp.amountDue) || 0;
+      prev.totalRemaining += Number(exp.amountRemaining) || 0;
+      periodMap.set(key, prev);
+    });
+    const availablePeriods = Array.from(periodMap.values()).sort(
+      (a, b) => a.year * 100 + a.month - (b.year * 100 + b.month)
+    );
+
+    // Geçmiş aylardan kalan ödenmemiş ödemeler (Devreden Borçlar)
+    let rolloverExpenses: any[] = [];
+    if (filterYear !== null && filterMonth !== null) {
+      const targetYear = filterYear;
+      const targetMonth = filterMonth;
+      const targetYM = targetYear * 100 + targetMonth;
+
+      rolloverExpenses = allExpenses
+        .filter((exp) => {
+          if (exp.status !== "PENDING" && exp.status !== "PARTIAL") return false;
+          if ((Number(exp.amountRemaining) || 0) <= 0) return false;
+
+          const expYM = getExpenseChronologicalYM(exp);
+          const expYear = Math.floor(expYM / 100);
+
+          // 2026 yılındaki bir aya bakılıyorken 2027/2028 yılına ait hiçbir kaydı geçmiş borç olarak gösterme
+          if (expYear > targetYear) return false;
+
+          // Sadece seçili aydan kronolojik olarak ÖNCEKİ kalan ödenmemiş borçları göster
+          return expYM < targetYM;
+        })
+        .sort((a, b) => getExpenseChronologicalYM(a) - getExpenseChronologicalYM(b));
     }
-    const parsedMonthNum = month && month !== "ALL" ? parseInt(month, 10) : null;
-    const monthExpenses =
-      parsedMonthNum && !isNaN(parsedMonthNum)
-        ? allExpenses.filter((e) => e.monthIndex === parsedMonthNum)
-        : allExpenses;
+
+    const monthExpenses = allExpenses.filter(doesMatchPeriod);
 
     const stats = {
       totalDue: monthExpenses.reduce((s, e) => s + (Number(e.amountDue) || 0), 0),
@@ -399,6 +468,7 @@ export async function GET(request: Request) {
     return NextResponse.json({
       expenses,
       monthExpenses,
+      availablePeriods,
       rolloverExpenses,
       stats,
       cardHoldersSummary: cardHoldersMap,
@@ -481,9 +551,15 @@ export async function POST(request: Request) {
     const effectivePaymentMethod =
       category === "CREDIT_CARD" || category === "CHEQUE" ? "CASH" : paymentMethod;
     let baseDate = dueDate ? new Date(dueDate) : new Date();
+    const dueIsoMonthMatch = typeof dueDate === "string" ? dueDate.match(/^\d{4}-(\d{2})-\d{2}/) : null;
+    const dueMonthNum = dueIsoMonthMatch
+      ? parseInt(dueIsoMonthMatch[1], 10)
+      : dueDate && !isNaN(baseDate.getTime())
+      ? baseDate.getMonth() + 1
+      : null;
     const calculatedMonthIndex =
-      category === "CHEQUE" && dueDate && !isNaN(baseDate.getTime())
-        ? baseDate.getMonth() + 1
+      dueMonthNum && dueMonthNum >= 1 && dueMonthNum <= 12
+        ? dueMonthNum
         : monthIndex
         ? Number(monthIndex)
         : baseDate.getMonth() + 1;

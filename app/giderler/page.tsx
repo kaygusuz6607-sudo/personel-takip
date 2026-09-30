@@ -309,6 +309,9 @@ function GiderlerPageContent() {
   const [expenses, setExpenses] = useState<SchoolExpense[]>([]);
   const [monthBaseExpenses, setMonthBaseExpenses] = useState<SchoolExpense[]>([]);
   const [rolloverExpenses, setRolloverExpenses] = useState<SchoolExpense[]>([]);
+  const [availablePeriods, setAvailablePeriods] = useState<
+    { year: number; month: number; count: number; unpaidCount: number; totalDue: number; totalRemaining: number }[]
+  >([]);
   const [cardHoldersSummary, setCardHoldersSummary] = useState<Record<string, any>>({});
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -319,8 +322,79 @@ function GiderlerPageContent() {
   const [chequesOnly, setChequesOnly] = useState(false);
   const [dueTodayOnly, setDueTodayOnly] = useState(false);
 
-  // Ay Bazında Takip: 7 (Temmuz), 8 (Ağustos), 9 (Eylül), 10 (Ekim), ALL (Tümü) - İçinde bulunulan aya göre otomatik başlar
-  const [selectedMonth, setSelectedMonth] = useState<string>(() => String(new Date().getMonth() + 1));
+  const TR_MONTH_SHORT = ["", "Oca", "Şub", "Mar", "Nis", "May", "Haz", "Tem", "Ağu", "Eyl", "Eki", "Kas", "Ara"];
+  const TR_MONTH_FULL = [
+    "",
+    "Ocak",
+    "Şubat",
+    "Mart",
+    "Nisan",
+    "Mayıs",
+    "Haziran",
+    "Temmuz",
+    "Ağustos",
+    "Eylül",
+    "Ekim",
+    "Kasım",
+    "Aralık",
+  ];
+
+  const parseSelectedPeriod = (
+    sel: string
+  ): { mode: "ALL" | "YEAR" | "YM"; year: number; month: number; ym: string; label: string } => {
+    if (!sel || sel === "ALL") {
+      return {
+        mode: "ALL",
+        year: 2026,
+        month: 9,
+        ym: "ALL",
+        label: "Tüm Yıllar & Aylar (Son Ödeme Tarihine Göre)",
+      };
+    }
+    const yearOnlyMatch = String(sel).match(/^YEAR-(\d{4})$/i);
+    if (yearOnlyMatch) {
+      const y = parseInt(yearOnlyMatch[1], 10);
+      return {
+        mode: "YEAR",
+        year: y,
+        month: 9,
+        ym: `YEAR-${y}`,
+        label: `${y} Yılı Tüm Ödemeler`,
+      };
+    }
+    const ymMatch = String(sel).match(/^(\d{4})-(\d{1,2})$/);
+    if (ymMatch) {
+      const y = parseInt(ymMatch[1], 10);
+      const m = parseInt(ymMatch[2], 10);
+      return {
+        mode: "YM",
+        year: y,
+        month: m,
+        ym: `${y}-${m}`,
+        label: `${m}. Ay (${TR_MONTH_FULL[m] || ""} ${y})`,
+      };
+    }
+    const mOnly = parseInt(String(sel), 10);
+    if (!isNaN(mOnly) && mOnly >= 1 && mOnly <= 12) {
+      const y = mOnly >= 7 ? 2026 : 2027;
+      return {
+        mode: "YM",
+        year: y,
+        month: mOnly,
+        ym: `${y}-${mOnly}`,
+        label: `${mOnly}. Ay (${TR_MONTH_FULL[mOnly] || ""} ${y})`,
+      };
+    }
+    return { mode: "YM", year: 2026, month: 9, ym: "2026-9", label: "9. Ay (Eylül 2026)" };
+  };
+
+  // Yıl ve Ay Bazında Takip: "2026-9", "2027-1", "2028-9", "YEAR-2028", "ALL" - İçinde bulunulan aya göre otomatik başlar
+  const [selectedMonth, setSelectedMonth] = useState<string>(() => {
+    const now = new Date();
+    const m = now.getMonth() + 1;
+    const y = m >= 7 ? 2026 : 2027;
+    return `${y}-${m}`;
+  });
   // Ödeme Yöntemi Filtresi: ALL, CASH, CREDIT_CARD, CHEQUE
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<string>("ALL");
   // Kart Sahibi Filtresi: ALL, Ahmet Taymaz, Duygu Köse, vb.
@@ -821,6 +895,9 @@ function GiderlerPageContent() {
       } else {
         setRolloverExpenses([]);
       }
+      if (data.availablePeriods && Array.isArray(data.availablePeriods)) {
+        setAvailablePeriods(data.availablePeriods);
+      }
       if (data.cardHoldersSummary) {
         setCardHoldersSummary(data.cardHoldersSummary);
       }
@@ -1121,9 +1198,88 @@ function GiderlerPageContent() {
     return null;
   };
 
+  // Bir giderin Son Ödeme Tarihine (dueDate / dueDateStr) göre ait olduğu Yıl ve Ayı (YYYY-M) belirler
+  const getExpenseDueYM = (exp: SchoolExpense): { year: number; month: number; ym: string } => {
+    if (exp.dueDate) {
+      const isoMatch = String(exp.dueDate).match(/^(\d{4})-(\d{2})-(\d{2})/);
+      if (isoMatch) {
+        const y = parseInt(isoMatch[1], 10);
+        const m = parseInt(isoMatch[2], 10);
+        if (y >= 2000 && m >= 1 && m <= 12) {
+          return { year: y, month: m, ym: `${y}-${m}` };
+        }
+      }
+      try {
+        const d = new Date(exp.dueDate);
+        if (!isNaN(d.getTime())) {
+          const y = d.getFullYear();
+          const m = d.getMonth() + 1;
+          if (y >= 2000 && m >= 1 && m <= 12) {
+            return { year: y, month: m, ym: `${y}-${m}` };
+          }
+        }
+      } catch {}
+    }
+
+    if (exp.dueDateStr) {
+      const trMap: Record<string, number> = {
+        ocak: 1,
+        şubat: 2,
+        subat: 2,
+        mart: 3,
+        nisan: 4,
+        mayıs: 5,
+        mayis: 5,
+        haziran: 6,
+        temmuz: 7,
+        ağustos: 8,
+        agustos: 8,
+        eylül: 9,
+        eylul: 9,
+        ekim: 10,
+        kasım: 11,
+        kasim: 11,
+        aralık: 12,
+        aralik: 12,
+      };
+      const m = String(exp.dueDateStr).toLowerCase().match(/(\d{1,2})\s+([a-zçğıöşü]+)\s+(\d{4})/i);
+      if (m && trMap[m[2]]) {
+        const y = parseInt(m[3], 10);
+        const mo = trMap[m[2]];
+        return { year: y, month: mo, ym: `${y}-${mo}` };
+      }
+      const dotMatch = String(exp.dueDateStr).match(/(\d{1,2})\.(\d{1,2})\.(\d{4})/);
+      if (dotMatch) {
+        const mo = parseInt(dotMatch[2], 10);
+        const y = parseInt(dotMatch[3], 10);
+        if (mo >= 1 && mo <= 12 && y >= 2000) {
+          return { year: y, month: mo, ym: `${y}-${mo}` };
+        }
+      }
+    }
+
+    const mIdx = Number(exp.monthIndex) || 9;
+    let y = mIdx >= 7 ? 2026 : 2027;
+    const yearMatch = `${exp.dueDateStr || ""} ${exp.period || ""}`.match(/\b(202\d|203\d)\b/);
+    if (yearMatch) {
+      y = parseInt(yearMatch[1], 10);
+    }
+    return { year: y, month: mIdx, ym: `${y}-${mIdx}` };
+  };
+
+  const doesExpenseMatchSelectedPeriod = (exp: SchoolExpense, sel: string): boolean => {
+    if (!sel || sel === "ALL") return true;
+    const parsed = parseSelectedPeriod(sel);
+    const expYM = getExpenseDueYM(exp);
+    if (parsed.mode === "YEAR") {
+      return expYM.year === parsed.year;
+    }
+    return expYM.year === parsed.year && expYM.month === parsed.month;
+  };
+
   // Kartın bir kez girilen hesap kesim veya son ödeme gününü (gün sabit kalarak)
   // ilgili aya ve yıla göre otomatik yeniler:
-  // 10. ayda -> 2026-10-GG, 11. ayda -> 2026-11-GG, 2027 yılı 01. ayda -> 2027-01-GG
+  // 2026-10 -> 2026-10-GG, 2027-1 -> 2027-01-GG, 2028-9 -> 2028-09-GG
   const projectCardDateToActiveMonth = (
     dateISO: string | undefined | null,
     monthSelection: string,
@@ -1139,13 +1295,9 @@ function GiderlerPageContent() {
         : NaN;
     if (isNaN(parsedDay) || parsedDay < 1 || parsedDay > 31) return dateISO || "";
 
-    const now = new Date();
-    const parsedSel = monthSelection !== "ALL" ? parseInt(monthSelection, 10) : NaN;
-    const targetMonth =
-      !isNaN(parsedSel) && parsedSel >= 1 && parsedSel <= 12 ? parsedSel : now.getMonth() + 1;
-
-    // 7..12 ayları -> 2026, 1..6 ayları -> 2027
-    const targetYear = targetMonth >= 7 ? 2026 : 2027;
+    const parsedPeriod = parseSelectedPeriod(monthSelection);
+    const targetYear = parsedPeriod.year;
+    const targetMonth = parsedPeriod.month;
     const maxDaysInTargetMonth = new Date(targetYear, targetMonth, 0).getDate();
     const safeDay = Math.min(parsedDay, maxDaysInTargetMonth);
 
@@ -1153,13 +1305,13 @@ function GiderlerPageContent() {
   };
 
   const getExpenseEffectiveDateISO = (e: SchoolExpense): string | null => {
-    // 1. Önce bu gider bir kredi kartına bağlıysa, o kartın sabit son ödeme gününü giderin ayına göre baz al
+    // 1. Önce bu gider bir kredi kartına bağlıysa, o kartın sabit son ödeme gününü giderin yıl ve ayına göre baz al
     const matchedCard = findMatchingCardForExpense(e);
     if (matchedCard && (matchedCard.dueDateISO || (matchedCard as any).dueDay)) {
-      const expMonthStr = e.monthIndex ? String(e.monthIndex) : selectedMonth;
+      const expYM = getExpenseDueYM(e);
       return projectCardDateToActiveMonth(
         matchedCard.dueDateISO,
-        expMonthStr,
+        expYM.ym,
         (matchedCard as any).dueDay
       );
     }
@@ -1261,7 +1413,7 @@ function GiderlerPageContent() {
     const now = new Date();
     const todayISO = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
 
-    // Girilen çek ödemeleri kendi ayında (veya Tüm Aylar seçiliyse) ödeme listesinde her zaman görünsün
+    // Girilen çek ödemeleri kendi yıl ve ayında (veya Tüm Aylar seçiliyse) ödeme listesinde her zaman görünsün
     const baseListMap = new Map<string, SchoolExpense>();
     expenses.forEach((e) => baseListMap.set(e.id, e));
     if (
@@ -1272,7 +1424,7 @@ function GiderlerPageContent() {
       selectedCardHolder === "ALL"
     ) {
       allChequeExpenses.forEach((chq) => {
-        if (selectedMonth !== "ALL" && String(chq.monthIndex) !== String(selectedMonth)) return;
+        if (!doesExpenseMatchSelectedPeriod(chq, selectedMonth)) return;
         if (selectedStatus !== "ALL") {
           if (selectedStatus === "PENDING") {
             if (chq.status !== "PENDING" && chq.status !== "PARTIAL") return;
@@ -1338,6 +1490,7 @@ function GiderlerPageContent() {
   }, [
     expenses,
     allChequeExpenses,
+    selectedMonth,
     selectedCategory,
     selectedStatus,
     installmentOnly,
@@ -1510,6 +1663,7 @@ function GiderlerPageContent() {
     setShowFormQr(false);
     setFormQrDataUrl("");
     const todayStr = new Date().toISOString().split("T")[0];
+    const parsedSel = parseSelectedPeriod(selectedMonth);
     setPhoneLinesList(createDefault5PhoneLines());
     setShowPhoneLinesInModal(false);
     setForm({
@@ -1518,7 +1672,7 @@ function GiderlerPageContent() {
       subCategory: "",
       dueDateStr: "",
       dueDate: todayStr,
-      monthIndex: selectedMonth !== "ALL" ? parseInt(selectedMonth) : 9,
+      monthIndex: parsedSel.month,
       amountDue: "",
       description: "",
       entryType: "SINGLE",
@@ -1546,6 +1700,7 @@ function GiderlerPageContent() {
     setShowFormQr(false);
     setFormQrDataUrl("");
     const todayStr = new Date().toISOString().split("T")[0];
+    const parsedSel = parseSelectedPeriod(selectedMonth);
     setPhoneLinesList(createDefault5PhoneLines());
     setShowPhoneLinesInModal(false);
     setForm({
@@ -1554,7 +1709,7 @@ function GiderlerPageContent() {
       subCategory: "Çek Ödemesi",
       dueDateStr: "",
       dueDate: todayStr,
-      monthIndex: selectedMonth !== "ALL" ? parseInt(selectedMonth) : new Date().getMonth() + 1,
+      monthIndex: parsedSel.month,
       amountDue: "",
       description: "",
       entryType: "CHEQUE_PAYMENT",
@@ -1578,6 +1733,7 @@ function GiderlerPageContent() {
   const openNewUtilityInvoiceModal = (presetType?: "DOGALGAZ" | "ELEKTRIK" | "SU" | "INTERNET") => {
     setEditingExpense(null);
     const todayStr = new Date().toISOString().split("T")[0];
+    const parsedSel = parseSelectedPeriod(selectedMonth);
     setPhoneLinesList(createDefault5PhoneLines());
     setShowPhoneLinesInModal(false);
     const defaultTitle =
@@ -1606,7 +1762,7 @@ function GiderlerPageContent() {
       subCategory: defaultSub,
       dueDateStr: "",
       dueDate: todayStr,
-      monthIndex: selectedMonth !== "ALL" ? parseInt(selectedMonth) : 9,
+      monthIndex: parsedSel.month,
       amountDue: "",
       description: "",
       entryType: "UTILITY_INVOICE",
@@ -1630,6 +1786,7 @@ function GiderlerPageContent() {
   const openNewPhoneInvoiceModal = () => {
     setEditingExpense(null);
     const todayStr = new Date().toISOString().split("T")[0];
+    const parsedSel = parseSelectedPeriod(selectedMonth);
     setPhoneLinesList(createDefault5PhoneLines());
     setShowPhoneLinesInModal(true);
     setForm({
@@ -1638,7 +1795,7 @@ function GiderlerPageContent() {
       subCategory: "F-Haberleşme & Telefon",
       dueDateStr: "",
       dueDate: todayStr,
-      monthIndex: selectedMonth !== "ALL" ? parseInt(selectedMonth) : 9,
+      monthIndex: parsedSel.month,
       amountDue: "",
       description: "Tek fatura içerisinde 5 farklı numara kullanım ücreti",
       entryType: "COMMITMENT",
@@ -1664,7 +1821,7 @@ function GiderlerPageContent() {
     const map = new Map<string, SchoolExpense>();
     combined.forEach((e) => {
       if (!isTelecomOrPhoneExpense(e)) return;
-      if (selectedMonth !== "ALL" && String(e.monthIndex) !== String(selectedMonth)) return;
+      if (!doesExpenseMatchSelectedPeriod(e, selectedMonth)) return;
       if (!map.has(e.id)) {
         map.set(e.id, e);
       }
@@ -1713,13 +1870,14 @@ function GiderlerPageContent() {
     setShowPhoneLinesInModal(
       Array.isArray(parsedLines) && parsedLines.length > 0 ? true : isTelecomOrPhoneExpense(expense)
     );
+    const expYM = getExpenseDueYM(expense);
     setForm({
       title: expense.title,
       category: expense.category,
       subCategory: expense.subCategory || "",
       dueDateStr: "",
       dueDate: effectiveISO,
-      monthIndex: expense.monthIndex || 9,
+      monthIndex: expYM.month || expense.monthIndex || 9,
       amountDue: String(expense.amountDue),
       description: expense.description || "",
       entryType:
@@ -1897,11 +2055,26 @@ function GiderlerPageContent() {
           ? "CASH"
           : form.paymentMethod;
 
+      let effectiveMonthIndex = Number(form.monthIndex) || 9;
+      let targetSavedYM: string | null = null;
+      if (form.dueDate) {
+        const isoMatch = String(form.dueDate).match(/^(\d{4})-(\d{2})-(\d{2})/);
+        if (isoMatch) {
+          const y = parseInt(isoMatch[1], 10);
+          const m = parseInt(isoMatch[2], 10);
+          if (y >= 2000 && m >= 1 && m <= 12) {
+            effectiveMonthIndex = m;
+            targetSavedYM = `${y}-${m}`;
+          }
+        }
+      }
+
       const res = await fetch(url, {
         method,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           ...form,
+          monthIndex: effectiveMonthIndex,
           category: finalCategory,
           paymentMethod: finalPaymentMethod,
           cardHolder: finalCardHolder,
@@ -1930,6 +2103,13 @@ function GiderlerPageContent() {
       }
 
       setModalOpen(false);
+      if (targetSavedYM && selectedMonth !== "ALL") {
+        const curParsed = parseSelectedPeriod(selectedMonth);
+        if (curParsed.ym !== targetSavedYM) {
+          setSelectedMonth(targetSavedYM);
+          return;
+        }
+      }
       fetchExpenses();
     } catch (err) {
       alert("Hata oluştu");
@@ -2002,14 +2182,13 @@ function GiderlerPageContent() {
   };
 
   const ahmetCardsComputed = useMemo(() => {
-    const targetMonthNum = selectedMonth !== "ALL" ? parseInt(selectedMonth) : null;
     const monthOrder = [7, 8, 9, 10, 11, 12, 1, 2, 3, 4, 5, 6];
 
     return ahmetCards.map((card) => {
       const allTx = allCardExpenses.filter((exp) => doesExpenseMatchAhmetCard(exp, card));
       const monthTx =
-        targetMonthNum !== null
-          ? allTx.filter((exp) => exp.monthIndex === targetMonthNum)
+        selectedMonth !== "ALL"
+          ? allTx.filter((exp) => doesExpenseMatchSelectedPeriod(exp, selectedMonth))
           : allTx;
 
       // O ayki ekstre toplamı
@@ -2025,7 +2204,7 @@ function GiderlerPageContent() {
           e.periodStatus === "Aylık Fatura" ||
           ((e.description || "").includes("Aylık Düzenli Fatura") && e.periodStatus !== "Cari Dönem");
         if (!isFutureRecurringUtility) return true;
-        return targetMonthNum !== null ? e.monthIndex === targetMonthNum : false;
+        return selectedMonth !== "ALL" ? doesExpenseMatchSelectedPeriod(e, selectedMonth) : false;
       });
 
       const allTimeTotalDue = limitAffectingTx.reduce((s, e) => s + e.amountDue, 0);
@@ -2093,11 +2272,12 @@ function GiderlerPageContent() {
         ? targetCard.monthStatementRemaining
         : targetCard.allTimeTotalRemaining;
 
+    const parsedSel = parseSelectedPeriod(selectedMonth);
     setCardPayForm({
       cardId: targetCard.id,
       amount: defaultPayAmount > 0 ? String(Number(defaultPayAmount.toFixed(2))) : "",
       date: todayStr,
-      note: `${selectedMonth === "ALL" ? "Tüm Dönem" : `${selectedMonth}. Ay`} Kart Borcu / Ekstre Ödemesi (${targetCard.bankName})`,
+      note: `${selectedMonth === "ALL" ? "Tüm Dönem" : parsedSel.label} Kart Borcu / Ekstre Ödemesi (${targetCard.bankName})`,
     });
     setCardPayModalOpen(true);
   };
@@ -2227,13 +2407,14 @@ function GiderlerPageContent() {
     if (targetCard) {
       setSelectedVisualCardId(targetCard.id);
     }
+    const parsedSel = parseSelectedPeriod(selectedMonth);
     setCardTxForm({
       cardId: targetCard ? targetCard.id : "card-1",
       title: "",
       amount: "",
       amountMode: "TOTAL",
       installmentCount: 1,
-      monthIndex: selectedMonth !== "ALL" ? parseInt(selectedMonth) : 9,
+      monthIndex: parsedSel.month,
       dueDate: targetCard?.dueDateISO || todayStr,
       description: "",
     });
@@ -2517,9 +2698,7 @@ function GiderlerPageContent() {
                 <h1 className="text-2xl font-bold text-slate-900 tracking-tight flex items-center gap-2.5 flex-wrap">
                   <span>Okul Gider & Borç Takibi</span>
                   <span className="text-xs font-bold px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300">
-                    {selectedMonth === "ALL"
-                      ? "Tüm Aylar (2026–2027 Cari Takvim)"
-                      : `${selectedMonth}. Ay (${Number(selectedMonth) >= 7 ? "2026" : "2027"}) & Cari Takvim`}
+                    {parseSelectedPeriod(selectedMonth).label}
                   </span>
                 </h1>
                 <p className="text-sm text-slate-500 mt-0.5">
@@ -2528,80 +2707,142 @@ function GiderlerPageContent() {
               </div>
             </div>
 
-            {/* Yıllara Göre Sıralı Ay Bazında Hızlı Gezinme Butonları (2026 & 2027) */}
-            <div className="flex flex-wrap items-center gap-1.5 p-2 bg-slate-100 rounded-2xl border border-slate-200">
-              <span className="text-xs font-extrabold text-slate-700 px-2 flex items-center gap-1 shrink-0">
-                <Calendar className="w-3.5 h-3.5 text-teal-700" /> Ekstre & Gider Ayı:
-              </span>
+            {/* Yıllara Göre Sıralı Ay Bazında Hızlı Gezinme Butonları (2026, 2027, 2028 ve Son Ödeme Tarihine Göre Tüm Yıllar) */}
+            {(() => {
+              const curSel = parseSelectedPeriod(selectedMonth);
+              const periodMap = new Map<string, { year: number; month: number; count: number; unpaidCount: number }>();
+              availablePeriods.forEach((p) => {
+                periodMap.set(`${p.year}-${p.month}`, p);
+              });
 
-              <button
-                type="button"
-                onClick={() => setSelectedMonth("ALL")}
-                className={`px-2.5 py-1.5 rounded-xl text-xs font-extrabold transition-all shrink-0 ${
-                  selectedMonth === "ALL"
-                    ? "bg-teal-700 text-white shadow-xs border border-teal-800"
-                    : "bg-white text-slate-700 border border-slate-200/80 hover:bg-slate-200/60"
-                }`}
-              >
-                Tüm Aylar (2026–2027)
-              </button>
+              // Varsayılan 2026 (7..12) ve 2027 (1..6) aylarını ve veritabanında kaydı olan tüm yıl/ayları birleştir
+              const yearsSet = new Set<number>([2026, 2027]);
+              availablePeriods.forEach((p) => {
+                if (p.year >= 2000) yearsSet.add(p.year);
+              });
+              if (curSel.mode !== "ALL" && curSel.year >= 2000) {
+                yearsSet.add(curSel.year);
+              }
+              const sortedYears = Array.from(yearsSet).sort((a, b) => a - b);
 
-              {/* 2026 YILI GRUBU (7. Ay - 12. Ay) */}
-              <div className="flex items-center flex-wrap gap-1 px-2 py-1 rounded-xl bg-amber-50/90 border border-amber-200/90">
-                <span className="text-[11px] font-black text-amber-900 px-1.5 py-0.5 rounded-md bg-amber-200/80 border border-amber-300 shrink-0">
-                  📅 2026 Yılı
-                </span>
-                {[
-                  { key: "7", label: "7. Ay (Tem 2026)" },
-                  { key: "8", label: "8. Ay (Ağu 2026)" },
-                  { key: "9", label: "9. Ay (Eyl 2026)" },
-                  { key: "10", label: "10. Ay (Eki 2026)" },
-                  { key: "11", label: "11. Ay (Kas 2026)" },
-                  { key: "12", label: "12. Ay (Ara 2026)" },
-                ].map((m) => (
+              const yearStyles: Record<
+                number,
+                {
+                  box: string;
+                  badgeActive: string;
+                  badgeIdle: string;
+                  btnActive: string;
+                  btnIdle: string;
+                }
+              > = {
+                2026: {
+                  box: "bg-amber-50/90 border-amber-200/90",
+                  badgeActive: "bg-amber-700 text-white border-amber-800 shadow-2xs",
+                  badgeIdle: "bg-amber-200/80 text-amber-950 border-amber-300 hover:bg-amber-300/80",
+                  btnActive: "bg-teal-700 text-white shadow-xs border-teal-800",
+                  btnIdle: "bg-white/90 text-slate-700 border-amber-200 hover:text-slate-950 hover:bg-amber-100/60",
+                },
+                2027: {
+                  box: "bg-indigo-50/90 border-indigo-200/90",
+                  badgeActive: "bg-indigo-800 text-white border-indigo-900 shadow-2xs",
+                  badgeIdle: "bg-indigo-200/80 text-indigo-950 border-indigo-300 hover:bg-indigo-300/80",
+                  btnActive: "bg-indigo-700 text-white shadow-xs border-indigo-800",
+                  btnIdle: "bg-white/90 text-slate-700 border-indigo-200 hover:text-slate-950 hover:bg-indigo-100/60",
+                },
+              };
+
+              const defaultFutureStyle = {
+                box: "bg-purple-50/90 border-purple-200/90",
+                badgeActive: "bg-purple-800 text-white border-purple-900 shadow-2xs",
+                badgeIdle: "bg-purple-200/80 text-purple-950 border-purple-300 hover:bg-purple-300/80",
+                btnActive: "bg-purple-700 text-white shadow-xs border-purple-800",
+                btnIdle: "bg-white/90 text-slate-700 border-purple-200 hover:text-slate-950 hover:bg-purple-100/60",
+              };
+
+              return (
+                <div className="flex flex-wrap items-center gap-1.5 p-2 bg-slate-100 rounded-2xl border border-slate-200">
+                  <span className="text-xs font-extrabold text-slate-700 px-2 flex items-center gap-1 shrink-0">
+                    <Calendar className="w-3.5 h-3.5 text-teal-700" /> Ekstre & Gider Ayı:
+                  </span>
+
                   <button
-                    key={m.key}
                     type="button"
-                    onClick={() => setSelectedMonth(m.key)}
-                    className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all shrink-0 ${
-                      selectedMonth === m.key
+                    onClick={() => setSelectedMonth("ALL")}
+                    className={`px-2.5 py-1.5 rounded-xl text-xs font-extrabold transition-all shrink-0 ${
+                      curSel.mode === "ALL"
                         ? "bg-teal-700 text-white shadow-xs border border-teal-800"
-                        : "bg-white/90 text-slate-700 border border-amber-200 hover:text-slate-950 hover:bg-amber-100/60"
+                        : "bg-white text-slate-700 border border-slate-200/80 hover:bg-slate-200/60"
                     }`}
                   >
-                    {m.label}
+                    Tüm Yıllar & Aylar
                   </button>
-                ))}
-              </div>
 
-              {/* 2027 YILI GRUBU (1. Ay - 6. Ay) */}
-              <div className="flex items-center flex-wrap gap-1 px-2 py-1 rounded-xl bg-indigo-50/90 border border-indigo-200/90">
-                <span className="text-[11px] font-black text-indigo-900 px-1.5 py-0.5 rounded-md bg-indigo-200/80 border border-indigo-300 shrink-0">
-                  📅 2027 Yılı
-                </span>
-                {[
-                  { key: "1", label: "1. Ay (Oca 2027)" },
-                  { key: "2", label: "2. Ay (Şub 2027)" },
-                  { key: "3", label: "3. Ay (Mar 2027)" },
-                  { key: "4", label: "4. Ay (Nis 2027)" },
-                  { key: "5", label: "5. Ay (May 2027)" },
-                  { key: "6", label: "6. Ay (Haz 2027)" },
-                ].map((m) => (
-                  <button
-                    key={m.key}
-                    type="button"
-                    onClick={() => setSelectedMonth(m.key)}
-                    className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all shrink-0 ${
-                      selectedMonth === m.key
-                        ? "bg-indigo-700 text-white shadow-xs border border-indigo-800"
-                        : "bg-white/90 text-slate-700 border border-indigo-200 hover:text-slate-950 hover:bg-indigo-100/60"
-                    }`}
-                  >
-                    {m.label}
-                  </button>
-                ))}
-              </div>
-            </div>
+                  {sortedYears.map((yr) => {
+                    const st = yearStyles[yr] || defaultFutureStyle;
+                    const monthsSet = new Set<number>(
+                      yr === 2026 ? [7, 8, 9, 10, 11, 12] : yr === 2027 ? [1, 2, 3, 4, 5, 6] : []
+                    );
+                    availablePeriods
+                      .filter((p) => p.year === yr)
+                      .forEach((p) => monthsSet.add(p.month));
+                    if (curSel.mode === "YM" && curSel.year === yr) {
+                      monthsSet.add(curSel.month);
+                    }
+                    const monthsList = Array.from(monthsSet).sort((a, b) => a - b);
+                    const yearTotalCount = availablePeriods
+                      .filter((p) => p.year === yr)
+                      .reduce((s, p) => s + p.count, 0);
+                    const isYearSelected = curSel.mode === "YEAR" && curSel.year === yr;
+
+                    return (
+                      <div
+                        key={yr}
+                        className={`flex items-center flex-wrap gap-1 px-2 py-1 rounded-xl border ${st.box}`}
+                      >
+                        <button
+                          type="button"
+                          onClick={() => setSelectedMonth(`YEAR-${yr}`)}
+                          title={`${yr} yılındaki tüm ödemeleri son ödeme tarihine göre listele`}
+                          className={`text-[11px] font-black px-2 py-0.5 rounded-md border transition-all shrink-0 cursor-pointer ${
+                            isYearSelected ? st.badgeActive : st.badgeIdle
+                          }`}
+                        >
+                          📅 {yr} Yılı{yearTotalCount > 0 ? ` (${yearTotalCount})` : ""}
+                        </button>
+                        {monthsList.map((m) => {
+                          const ymKey = `${yr}-${m}`;
+                          const isSelected = curSel.mode === "YM" && curSel.year === yr && curSel.month === m;
+                          const pInfo = periodMap.get(ymKey);
+                          return (
+                            <button
+                              key={ymKey}
+                              type="button"
+                              onClick={() => setSelectedMonth(ymKey)}
+                              className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all shrink-0 border flex items-center gap-1 ${
+                                isSelected ? st.btnActive : st.btnIdle
+                              }`}
+                            >
+                              <span>
+                                {m}. Ay ({TR_MONTH_SHORT[m]} {yr})
+                              </span>
+                              {pInfo && pInfo.count > 0 && yr >= 2028 && (
+                                <span
+                                  className={`px-1.5 py-0.2 rounded-full text-[10px] font-extrabold ${
+                                    isSelected ? "bg-white/25 text-white" : "bg-purple-100 text-purple-900"
+                                  }`}
+                                >
+                                  {pInfo.count}
+                                </span>
+                              )}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })()}
           </div>
 
           {/* 🚨 ÇEK ÖDEMESİNDEN 3 GÜN ÖNCE OTOMATİK HATIRLATMA & UYARI BİLDİRİMİ (YUKARIDA) */}
@@ -2738,20 +2979,13 @@ function GiderlerPageContent() {
 
           {/* 🔴 GEÇMİŞ AYLARDAN KALAN ÖDENMEMİŞ BORÇLAR / DEVREDEN KİRALAR (Özdemirler & İlyas Bey) */}
           {(() => {
-            const targetM = selectedMonth !== "ALL" ? parseInt(selectedMonth, 10) : 9;
-            const isViewing2026Month = isNaN(targetM) || targetM >= 7;
+            const curSel = parseSelectedPeriod(selectedMonth);
+            if (curSel.mode === "ALL" || curSel.mode === "YEAR") return null;
+
             const validRolloverList = rolloverExpenses.filter((re) => {
               if ((Number(re.amountRemaining) || 0) <= 0) return false;
-              const dStr = (re.dueDateStr || "").toLowerCase();
-              const dIso = (re.dueDate || "").toString();
-              // 2026 yılındaki bir aya bakılıyorken 2027 yılına ait (Ocak-Ağustos 2027 vb.) hiçbir kaydı gösterme
-              if (isViewing2026Month) {
-                if (dStr.includes("2027") || dIso.startsWith("2027")) return false;
-                if (re.monthIndex && re.monthIndex >= 1 && re.monthIndex <= 6 && !dStr.includes("2026")) {
-                  return false;
-                }
-              }
-              return true;
+              const reYM = getExpenseDueYM(re);
+              return reYM.year < curSel.year || (reYM.year === curSel.year && reYM.month < curSel.month);
             });
 
             if (validRolloverList.length === 0) return null;
@@ -2774,6 +3008,9 @@ function GiderlerPageContent() {
                 </div>
               );
             }
+
+            const prevM = curSel.month === 1 ? 12 : curSel.month - 1;
+            const prevY = curSel.month === 1 ? curSel.year - 1 : curSel.year;
 
             return (
               <div className="bg-rose-50 border-2 border-rose-300 rounded-2xl p-4 space-y-2 text-rose-950 shadow-sm animate-in fade-in duration-300">
@@ -2800,38 +3037,32 @@ function GiderlerPageContent() {
                   </div>
                 </div>
                 <p className="text-xs text-rose-800">
-                  {selectedMonth !== "ALL"
-                    ? `${selectedMonth}. Ay (${Number(selectedMonth) >= 7 ? "2026" : "2027"}) öncesindeki geçmiş aylardan (${
-                        Number(selectedMonth) === 1
-                          ? "12. Ay 2026"
-                          : `${Number(selectedMonth) - 1}. Ay ${Number(selectedMonth) - 1 >= 7 ? "2026" : "2027"}`
-                      } ve öncesi) kalan ve henüz kapatılmamış ödemeler:`
-                    : "Seçilen aydan önceki dönemlerden kalan ve henüz kapatılmamış kiralar/ödemeler:"}
+                  {`${curSel.label} öncesindeki geçmiş aylardan (${prevM}. Ay ${prevY} ve öncesi) kalan ve henüz kapatılmamış ödemeler:`}
                 </p>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2 pt-1">
-                  {validRolloverList.map((re) => (
-                    <div key={re.id} className="p-2.5 bg-white border border-rose-200 rounded-xl flex items-center justify-between text-xs">
-                      <div>
-                        <p className="font-bold text-slate-900">{re.title}</p>
-                        <p className="text-[11px] text-slate-500">
-                          {re.monthIndex
-                            ? `${re.monthIndex}. Ay (${Number(re.monthIndex) >= 7 ? "2026" : "2027"})`
-                            : re.period || "Önceki Ay"}{" "}
-                          • Vade: {re.dueDateStr || "-"}
-                        </p>
+                  {validRolloverList.map((re) => {
+                    const reYM = getExpenseDueYM(re);
+                    return (
+                      <div key={re.id} className="p-2.5 bg-white border border-rose-200 rounded-xl flex items-center justify-between text-xs">
+                        <div>
+                          <p className="font-bold text-slate-900">{re.title}</p>
+                          <p className="text-[11px] text-slate-500">
+                            {`${reYM.month}. Ay (${reYM.year})`} • Vade: {re.dueDateStr || "-"}
+                          </p>
+                        </div>
+                        <div className="text-right">
+                          <span className="font-extrabold text-rose-600 block">{formatCurrency(re.amountRemaining)}</span>
+                          <button
+                            type="button"
+                            onClick={() => openPaymentModal(re)}
+                            className="text-[10px] font-bold text-emerald-700 hover:underline"
+                          >
+                            Ödeme Yap →
+                          </button>
+                        </div>
                       </div>
-                      <div className="text-right">
-                        <span className="font-extrabold text-rose-600 block">{formatCurrency(re.amountRemaining)}</span>
-                        <button
-                          type="button"
-                          onClick={() => openPaymentModal(re)}
-                          className="text-[10px] font-bold text-emerald-700 hover:underline"
-                        >
-                          Ödeme Yap →
-                        </button>
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             );
@@ -3357,7 +3588,9 @@ function GiderlerPageContent() {
                                   Kullanılabilir: <strong>{formatCurrency(group.totalAvailable)}</strong>
                                 </span>
                                 <span className="px-2 py-0.5 rounded bg-amber-50 border border-amber-200 text-amber-900">
-                                  {selectedMonth === "ALL" ? "Ekstre Kalan:" : `${selectedMonth}. Ay Taksitler Kalan:`}{" "}
+                                  {selectedMonth === "ALL"
+                                    ? "Ekstre Kalan:"
+                                    : `${parseSelectedPeriod(selectedMonth).label} Kalan:`}{" "}
                                   <strong>{formatCurrency(group.monthRemaining)}</strong>
                                 </span>
                               </div>
@@ -3622,7 +3855,7 @@ function GiderlerPageContent() {
                                           <span className="text-slate-700 font-bold">
                                             {selectedMonth === "ALL"
                                               ? "Ekstre Kalan:"
-                                              : `${selectedMonth}. Ay Taksit/Ekstre:`}
+                                              : `${parseSelectedPeriod(selectedMonth).label}:`}
                                           </span>
                                           <span className="font-extrabold text-slate-950">
                                             {formatCurrency(card.monthStatementRemaining)}
@@ -3636,14 +3869,15 @@ function GiderlerPageContent() {
                                             onClick={(e) => e.stopPropagation()}
                                           >
                                             {card.monthlyBreakdown.map((mb) => {
-                                              const isActiveM = selectedMonth === String(mb.monthIndex);
-                                              const mbYear = Number(mb.monthIndex) >= 7 ? "2026" : "2027";
+                                              const mbYear = Number(mb.monthIndex) >= 7 ? 2026 : 2027;
+                                              const mbYM = `${mbYear}-${mb.monthIndex}`;
+                                              const isActiveM = parseSelectedPeriod(selectedMonth).ym === mbYM;
                                               return (
                                                 <button
                                                   key={mb.monthIndex}
                                                   type="button"
                                                   onClick={() => {
-                                                    setSelectedMonth(String(mb.monthIndex));
+                                                    setSelectedMonth(mbYM);
                                                     setSelectedVisualCardId(card.id);
                                                   }}
                                                   className={`px-1.5 py-0.5 rounded text-[9px] font-bold border transition-all ${
@@ -3848,12 +4082,14 @@ function GiderlerPageContent() {
                         <div className="px-3 py-1.5 bg-indigo-50/50 border-b border-slate-200 flex flex-wrap items-center gap-1.5 text-[11px]">
                           <span className="font-bold text-indigo-950">📅 Taksitlerin Olduğu Aylar:</span>
                           {statementMonthlySummary.map((ms) => {
-                            const activeM = selectedMonth === String(ms.monthIndex);
+                            const msYear = Number(ms.monthIndex) >= 7 ? 2026 : 2027;
+                            const msYM = `${msYear}-${ms.monthIndex}`;
+                            const activeM = parseSelectedPeriod(selectedMonth).ym === msYM;
                             return (
                               <button
                                 key={ms.monthIndex}
                                 type="button"
-                                onClick={() => setSelectedMonth(String(ms.monthIndex))}
+                                onClick={() => setSelectedMonth(msYM)}
                                 className={`px-2 py-0.5 rounded-md font-bold border transition-all ${
                                   activeM
                                     ? "bg-indigo-700 text-white border-indigo-700"
@@ -3862,7 +4098,7 @@ function GiderlerPageContent() {
                                     : "bg-emerald-50 text-emerald-800 border-emerald-200"
                                 }`}
                               >
-                                {ms.monthIndex}. Ay: {formatCurrency(ms.remaining > 0 ? ms.remaining : ms.due)}{" "}
+                                {ms.monthIndex}. Ay ({msYear}): {formatCurrency(ms.remaining > 0 ? ms.remaining : ms.due)}{" "}
                                 {ms.remaining <= 0 ? "✓" : `(${ms.count} taksit/işlem)`}
                               </button>
                             );
@@ -3875,7 +4111,7 @@ function GiderlerPageContent() {
                         {monthTxList.length === 0 ? (
                           <div className="p-6 text-center space-y-1">
                             <p className="text-xs font-bold text-slate-600">
-                              Seçili kartta {selectedMonth === "ALL" ? "henüz kayıtlı harcama yok." : `${selectedMonth}. Ay için kayıtlı harcama bulunmuyor.`}
+                              Seçili kartta {selectedMonth === "ALL" ? "henüz kayıtlı harcama yok." : `${parseSelectedPeriod(selectedMonth).label} için kayıtlı harcama bulunmuyor.`}
                             </p>
                           </div>
                         ) : (
@@ -4849,18 +5085,26 @@ function GiderlerPageContent() {
 
                           {/* Dönem / Taksit */}
                           <td className="py-3 px-3 text-center">
-                            {exp.installmentInfo ? (
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-purple-100 text-purple-900 font-extrabold rounded-md border border-purple-300 text-[11px]">
-                                <Layers className="w-3 h-3 text-purple-700" />
-                                <span>{exp.installmentInfo}</span>
-                              </span>
-                            ) : exp.period ? (
-                              <span className="text-[11px] font-bold text-slate-700 bg-slate-100 px-2 py-0.5 rounded-md">
-                                {exp.period}
-                              </span>
-                            ) : (
-                              <span className="text-slate-400">-</span>
-                            )}
+                            {(() => {
+                              const expYM = getExpenseDueYM(exp);
+                              const ymLabel = `${expYM.month}. Ay (${expYM.year})`;
+                              if (exp.installmentInfo) {
+                                return (
+                                  <div className="flex flex-col items-center gap-0.5">
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-purple-100 text-purple-900 font-extrabold rounded-md border border-purple-300 text-[11px]">
+                                      <Layers className="w-3 h-3 text-purple-700" />
+                                      <span>{exp.installmentInfo}</span>
+                                    </span>
+                                    <span className="text-[10px] font-bold text-slate-500">{ymLabel}</span>
+                                  </div>
+                                );
+                              }
+                              return (
+                                <span className="text-[11px] font-bold text-slate-700 bg-slate-100 px-2 py-0.5 rounded-md">
+                                  {exp.period && /\b20\d{2}\b/.test(exp.period) ? exp.period : ymLabel}
+                                </span>
+                              );
+                            })()}
                           </td>
 
                           {/* Vade / Tarih */}
@@ -5939,15 +6183,15 @@ function GiderlerPageContent() {
                     onChange={(e) => {
                       const nextDate = e.target.value;
                       let nextMonth = form.monthIndex;
-                      if (
-                        nextDate &&
-                        (form.entryType === "UTILITY_INVOICE" ||
-                          form.entryType === "CHEQUE_PAYMENT" ||
-                          form.category === "CHEQUE")
-                      ) {
-                        const d = new Date(nextDate);
-                        if (!isNaN(d.getTime())) {
-                          nextMonth = d.getMonth() + 1;
+                      if (nextDate) {
+                        const isoMatch = String(nextDate).match(/^(\d{4})-(\d{2})-(\d{2})/);
+                        if (isoMatch) {
+                          nextMonth = parseInt(isoMatch[2], 10);
+                        } else {
+                          const d = new Date(nextDate);
+                          if (!isNaN(d.getTime())) {
+                            nextMonth = d.getMonth() + 1;
+                          }
                         }
                       }
                       setForm({ ...form, dueDate: nextDate, monthIndex: nextMonth });
@@ -5982,7 +6226,14 @@ function GiderlerPageContent() {
                   </div>
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-44 overflow-y-auto p-0.5">
                     {formCustomInstallments.map((instVal, idx) => {
-                      const mNum = (((Number(form.monthIndex) || 9) - 1 + idx) % 12) + 1;
+                      const startMonth = Number(form.monthIndex) || 9;
+                      const startYear = (() => {
+                        const m = String(form.dueDate || "").match(/^(\d{4})-/);
+                        return m ? parseInt(m[1], 10) : startMonth >= 7 ? 2026 : 2027;
+                      })();
+                      const totalM = startMonth - 1 + idx;
+                      const mNum = (totalM % 12) + 1;
+                      const yNum = startYear + Math.floor(totalM / 12);
                       const targetTotal =
                         form.amountMode === "MONTHLY"
                           ? (Number(form.amountDue) || 0) * (Number(form.installmentCount) || 2)
@@ -5990,7 +6241,7 @@ function GiderlerPageContent() {
                       return (
                         <div key={idx} className="p-2 bg-white rounded-xl border border-purple-200">
                           <label className="block text-[10px] font-extrabold text-purple-900 mb-0.5">
-                            {idx + 1}. Taksit ({mNum}. Ay • {mNum >= 7 ? "2026" : "2027"})
+                            {idx + 1}. Taksit ({mNum}. Ay • {yNum})
                           </label>
                           <div className="flex items-center gap-1">
                             <input
@@ -6029,35 +6280,64 @@ function GiderlerPageContent() {
               )}
 
               {/* Ay Seçimi */}
-              <div>
-                <label className="block font-bold text-slate-700 mb-1">
-                  {form.entryType === "UTILITY_INVOICE" && Number(form.invoiceRepeatMonths) > 1
-                    ? "Faturanın Başlangıç Ayı (Sonraki Aylar Otomatik Oluşturulur)"
-                    : "Giderin Ait Olduğu Ay"}
-                </label>
-                <select
-                  value={form.monthIndex}
-                  onChange={(e) => setForm({ ...form, monthIndex: parseInt(e.target.value) || 9 })}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs font-semibold focus:outline-none"
-                >
-                  <optgroup label="📅 2026 Yılı (Temmuz – Aralık 2026)">
-                    <option value={7}>7. Ay (Temmuz 2026)</option>
-                    <option value={8}>8. Ay (Ağustos 2026)</option>
-                    <option value={9}>9. Ay (Eylül 2026)</option>
-                    <option value={10}>10. Ay (Ekim 2026)</option>
-                    <option value={11}>11. Ay (Kasım 2026)</option>
-                    <option value={12}>12. Ay (Aralık 2026)</option>
-                  </optgroup>
-                  <optgroup label="📅 2027 Yılı (Ocak – Haziran 2027)">
-                    <option value={1}>1. Ay (Ocak 2027)</option>
-                    <option value={2}>2. Ay (Şubat 2027)</option>
-                    <option value={3}>3. Ay (Mart 2027)</option>
-                    <option value={4}>4. Ay (Nisan 2027)</option>
-                    <option value={5}>5. Ay (Mayıs 2027)</option>
-                    <option value={6}>6. Ay (Haziran 2027)</option>
-                  </optgroup>
-                </select>
-              </div>
+              {(() => {
+                const dueYearMatch = String(form.dueDate || "").match(/^(\d{4})-(\d{2})-(\d{2})/);
+                const dueYear = dueYearMatch ? parseInt(dueYearMatch[1], 10) : null;
+                return (
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">
+                      {form.entryType === "UTILITY_INVOICE" && Number(form.invoiceRepeatMonths) > 1
+                        ? "Faturanın Başlangıç Ayı (Sonraki Aylar Otomatik Oluşturulur)"
+                        : `Giderin Ait Olduğu Ay (${dueYear ? `${dueYear} Yılı Son Ödeme Tarihine Göre` : "Son Ödeme Tarihine Göre"})`}
+                    </label>
+                    <select
+                      value={form.monthIndex}
+                      onChange={(e) => {
+                        const newM = parseInt(e.target.value, 10) || 9;
+                        let nextDue = form.dueDate;
+                        if (dueYearMatch) {
+                          const y = parseInt(dueYearMatch[1], 10);
+                          const day = parseInt(dueYearMatch[3], 10);
+                          const maxD = new Date(y, newM, 0).getDate();
+                          const safeD = Math.min(day, maxD);
+                          nextDue = `${y}-${String(newM).padStart(2, "0")}-${String(safeD).padStart(2, "0")}`;
+                        }
+                        setForm({ ...form, monthIndex: newM, dueDate: nextDue });
+                      }}
+                      className="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs font-semibold focus:outline-none"
+                    >
+                      {dueYear && dueYear !== 2026 && dueYear !== 2027 ? (
+                        <optgroup label={`📅 ${dueYear} Yılı (Son Ödeme Tarihi Yılı)`}>
+                          {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((m) => (
+                            <option key={m} value={m}>
+                              {m}. Ay ({TR_MONTH_FULL[m]} {dueYear})
+                            </option>
+                          ))}
+                        </optgroup>
+                      ) : (
+                        <>
+                          <optgroup label="📅 2026 Yılı (Temmuz – Aralık 2026)">
+                            <option value={7}>7. Ay (Temmuz 2026)</option>
+                            <option value={8}>8. Ay (Ağustos 2026)</option>
+                            <option value={9}>9. Ay (Eylül 2026)</option>
+                            <option value={10}>10. Ay (Ekim 2026)</option>
+                            <option value={11}>11. Ay (Kasım 2026)</option>
+                            <option value={12}>12. Ay (Aralık 2026)</option>
+                          </optgroup>
+                          <optgroup label="📅 2027 Yılı (Ocak – Haziran 2027)">
+                            <option value={1}>1. Ay (Ocak 2027)</option>
+                            <option value={2}>2. Ay (Şubat 2027)</option>
+                            <option value={3}>3. Ay (Mart 2027)</option>
+                            <option value={4}>4. Ay (Nisan 2027)</option>
+                            <option value={5}>5. Ay (Mayıs 2027)</option>
+                            <option value={6}>6. Ay (Haziran 2027)</option>
+                          </optgroup>
+                        </>
+                      )}
+                    </select>
+                  </div>
+                );
+              })()}
 
               {/* Açıklama */}
               <div>

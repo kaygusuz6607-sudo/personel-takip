@@ -176,6 +176,9 @@ export async function PUT(
     const status = numAmountPaid >= numAmountDue ? "PAID" : numAmountPaid > 0 ? "PARTIAL" : "PENDING";
 
     let computedDueDateStr = dueDateStr ?? existing.dueDateStr;
+    let computedMonthIndex: number | null =
+      monthIndex !== undefined ? (monthIndex ? Number(monthIndex) : null) : existing.monthIndex;
+    let computedPeriod = period ?? existing.period;
     if (dueDate) {
       const d = new Date(dueDate);
       if (!isNaN(d.getTime())) {
@@ -184,6 +187,10 @@ export async function PUT(
           "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"
         ];
         computedDueDateStr = `${d.getDate()} ${months[d.getMonth()]} ${d.getFullYear()}`;
+        computedMonthIndex = d.getMonth() + 1;
+        if (!period && (!existing.period || /^\d{1,2}\.\s*Ay/i.test(existing.period))) {
+          computedPeriod = `${computedMonthIndex}. Ay (${d.getFullYear()})`;
+        }
       }
     }
 
@@ -202,7 +209,7 @@ export async function PUT(
         title: title ?? existing.title,
         category: category ?? existing.category,
         subCategory: subCategory ?? existing.subCategory,
-        period: period ?? existing.period,
+        period: computedPeriod,
         installmentInfo: installmentInfo !== undefined ? installmentInfo : existing.installmentInfo,
         dueDateStr: computedDueDateStr,
         dueDate: dueDate ? new Date(dueDate) : existing.dueDate,
@@ -217,7 +224,7 @@ export async function PUT(
         paymentMethod: (category ?? existing.category) === "CREDIT_CARD" ? "CASH" : (paymentMethod ?? existing.paymentMethod),
         cardHolder: cardHolder !== undefined ? cardHolder : existing.cardHolder,
         cardBank: cardBank !== undefined ? cardBank : existing.cardBank,
-        monthIndex: monthIndex !== undefined ? (monthIndex ? Number(monthIndex) : null) : existing.monthIndex,
+        monthIndex: computedMonthIndex,
         phoneLines: serializedPhoneLines,
         chequeNo: chequeNo !== undefined ? chequeNo : existing.chequeNo,
         chequeBank: chequeBank !== undefined ? chequeBank : existing.chequeBank,
