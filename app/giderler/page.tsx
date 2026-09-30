@@ -2497,52 +2497,96 @@ function GiderlerPageContent() {
       {activeMainTab === "EXPENSES" && (
         <div className="space-y-6">
           {/* Header */}
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-            <div>
-              <h1 className="text-2xl font-bold text-slate-900 tracking-tight flex items-center gap-2.5">
-                <span>Okul Gider & Borç Takibi</span>
-                <span className="text-xs font-bold px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300">
-                  9. Ay & Cari Takvim
-                </span>
-              </h1>
-              <p className="text-sm text-slate-500 mt-0.5">
-                Kiralar, krediler, kredi kartları, veli iadeleri, tedarikçi çekleri ve telefon hatları
-              </p>
+          <div className="flex flex-col gap-3">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+              <div>
+                <h1 className="text-2xl font-bold text-slate-900 tracking-tight flex items-center gap-2.5 flex-wrap">
+                  <span>Okul Gider & Borç Takibi</span>
+                  <span className="text-xs font-bold px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300">
+                    {selectedMonth === "ALL"
+                      ? "Tüm Aylar (2026–2027 Cari Takvim)"
+                      : `${selectedMonth}. Ay (${Number(selectedMonth) >= 7 ? "2026" : "2027"}) & Cari Takvim`}
+                  </span>
+                </h1>
+                <p className="text-sm text-slate-500 mt-0.5">
+                  Kiralar, krediler, kredi kartları, veli iadeleri, tedarikçi çekleri ve telefon hatları
+                </p>
+              </div>
             </div>
 
-            {/* Ay Bazında Hızlı Gezinme Butonları */}
-            <div className="flex items-center gap-1.5 p-1 bg-slate-100 rounded-2xl border border-slate-200 overflow-x-auto max-w-full">
-              <span className="text-xs font-bold text-slate-500 px-2 flex items-center gap-1 shrink-0">
-                <Calendar className="w-3.5 h-3.5" /> Ekstre & Gider Ayı:
+            {/* Yıllara Göre Sıralı Ay Bazında Hızlı Gezinme Butonları (2026 & 2027) */}
+            <div className="flex flex-wrap items-center gap-1.5 p-2 bg-slate-100 rounded-2xl border border-slate-200">
+              <span className="text-xs font-extrabold text-slate-700 px-2 flex items-center gap-1 shrink-0">
+                <Calendar className="w-3.5 h-3.5 text-teal-700" /> Ekstre & Gider Ayı:
               </span>
-              {[
-                { key: "ALL", label: "Tüm Aylar" },
-                { key: "7", label: "7. Ay (Tem)" },
-                { key: "8", label: "8. Ay (Ağu)" },
-                { key: "9", label: "9. Ay (Eyl)" },
-                { key: "10", label: "10. Ay (Eki)" },
-                { key: "11", label: "11. Ay (Kas)" },
-                { key: "12", label: "12. Ay (Ara)" },
-                { key: "1", label: "1. Ay (Oca)" },
-                { key: "2", label: "2. Ay (Şub)" },
-                { key: "3", label: "3. Ay (Mar)" },
-                { key: "4", label: "4. Ay (Nis)" },
-                { key: "5", label: "5. Ay (May)" },
-                { key: "6", label: "6. Ay (Haz)" },
-              ].map((m) => (
-                <button
-                  key={m.key}
-                  type="button"
-                  onClick={() => setSelectedMonth(m.key)}
-                  className={`px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 ${
-                    selectedMonth === m.key
-                      ? "bg-white text-teal-800 shadow-xs border border-teal-200"
-                      : "text-slate-600 hover:text-slate-900 hover:bg-slate-200/60"
-                  }`}
-                >
-                  {m.label}
-                </button>
-              ))}
+
+              <button
+                type="button"
+                onClick={() => setSelectedMonth("ALL")}
+                className={`px-2.5 py-1.5 rounded-xl text-xs font-extrabold transition-all shrink-0 ${
+                  selectedMonth === "ALL"
+                    ? "bg-teal-700 text-white shadow-xs border border-teal-800"
+                    : "bg-white text-slate-700 border border-slate-200/80 hover:bg-slate-200/60"
+                }`}
+              >
+                Tüm Aylar (2026–2027)
+              </button>
+
+              {/* 2026 YILI GRUBU (7. Ay - 12. Ay) */}
+              <div className="flex items-center flex-wrap gap-1 px-2 py-1 rounded-xl bg-amber-50/90 border border-amber-200/90">
+                <span className="text-[11px] font-black text-amber-900 px-1.5 py-0.5 rounded-md bg-amber-200/80 border border-amber-300 shrink-0">
+                  📅 2026 Yılı
+                </span>
+                {[
+                  { key: "7", label: "7. Ay (Tem 2026)" },
+                  { key: "8", label: "8. Ay (Ağu 2026)" },
+                  { key: "9", label: "9. Ay (Eyl 2026)" },
+                  { key: "10", label: "10. Ay (Eki 2026)" },
+                  { key: "11", label: "11. Ay (Kas 2026)" },
+                  { key: "12", label: "12. Ay (Ara 2026)" },
+                ].map((m) => (
+                  <button
+                    key={m.key}
+                    type="button"
+                    onClick={() => setSelectedMonth(m.key)}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all shrink-0 ${
+                      selectedMonth === m.key
+                        ? "bg-teal-700 text-white shadow-xs border border-teal-800"
+                        : "bg-white/90 text-slate-700 border border-amber-200 hover:text-slate-950 hover:bg-amber-100/60"
+                    }`}
+                  >
+                    {m.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* 2027 YILI GRUBU (1. Ay - 6. Ay) */}
+              <div className="flex items-center flex-wrap gap-1 px-2 py-1 rounded-xl bg-indigo-50/90 border border-indigo-200/90">
+                <span className="text-[11px] font-black text-indigo-900 px-1.5 py-0.5 rounded-md bg-indigo-200/80 border border-indigo-300 shrink-0">
+                  📅 2027 Yılı
+                </span>
+                {[
+                  { key: "1", label: "1. Ay (Oca 2027)" },
+                  { key: "2", label: "2. Ay (Şub 2027)" },
+                  { key: "3", label: "3. Ay (Mar 2027)" },
+                  { key: "4", label: "4. Ay (Nis 2027)" },
+                  { key: "5", label: "5. Ay (May 2027)" },
+                  { key: "6", label: "6. Ay (Haz 2027)" },
+                ].map((m) => (
+                  <button
+                    key={m.key}
+                    type="button"
+                    onClick={() => setSelectedMonth(m.key)}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all shrink-0 ${
+                      selectedMonth === m.key
+                        ? "bg-indigo-700 text-white shadow-xs border border-indigo-800"
+                        : "bg-white/90 text-slate-700 border border-indigo-200 hover:text-slate-950 hover:bg-indigo-100/60"
+                    }`}
+                  >
+                    {m.label}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
 
@@ -2743,7 +2787,11 @@ function GiderlerPageContent() {
                 </div>
                 <p className="text-xs text-rose-800">
                   {selectedMonth !== "ALL"
-                    ? `${selectedMonth}. Ay öncesindeki geçmiş aylardan (${Number(selectedMonth) === 1 ? "12" : Number(selectedMonth) - 1}. Ay ve öncesi) kalan ve henüz kapatılmamış ödemeler:`
+                    ? `${selectedMonth}. Ay (${Number(selectedMonth) >= 7 ? "2026" : "2027"}) öncesindeki geçmiş aylardan (${
+                        Number(selectedMonth) === 1
+                          ? "12. Ay 2026"
+                          : `${Number(selectedMonth) - 1}. Ay ${Number(selectedMonth) - 1 >= 7 ? "2026" : "2027"}`
+                      } ve öncesi) kalan ve henüz kapatılmamış ödemeler:`
                     : "Seçilen aydan önceki dönemlerden kalan ve henüz kapatılmamış kiralar/ödemeler:"}
                 </p>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2 pt-1">
@@ -2751,7 +2799,12 @@ function GiderlerPageContent() {
                     <div key={re.id} className="p-2.5 bg-white border border-rose-200 rounded-xl flex items-center justify-between text-xs">
                       <div>
                         <p className="font-bold text-slate-900">{re.title}</p>
-                        <p className="text-[11px] text-slate-500">{re.period || "Önceki Ay"} • Vade: {re.dueDateStr || "-"}</p>
+                        <p className="text-[11px] text-slate-500">
+                          {re.monthIndex
+                            ? `${re.monthIndex}. Ay (${Number(re.monthIndex) >= 7 ? "2026" : "2027"})`
+                            : re.period || "Önceki Ay"}{" "}
+                          • Vade: {re.dueDateStr || "-"}
+                        </p>
                       </div>
                       <div className="text-right">
                         <span className="font-extrabold text-rose-600 block">{formatCurrency(re.amountRemaining)}</span>
@@ -3554,6 +3607,7 @@ function GiderlerPageContent() {
                                           >
                                             {card.monthlyBreakdown.map((mb) => {
                                               const isActiveM = selectedMonth === String(mb.monthIndex);
+                                              const mbYear = Number(mb.monthIndex) >= 7 ? "2026" : "2027";
                                               return (
                                                 <button
                                                   key={mb.monthIndex}
@@ -3569,9 +3623,9 @@ function GiderlerPageContent() {
                                                       ? "bg-white text-slate-700 border-slate-300 hover:bg-slate-100"
                                                       : "bg-emerald-50 text-emerald-700 border-emerald-200"
                                                   }`}
-                                                  title={`${mb.monthIndex}. Ay taksitlerini ve harcamalarını listele`}
+                                                  title={`${mb.monthIndex}. Ay (${mbYear}) taksitlerini ve harcamalarını listele`}
                                                 >
-                                                  {mb.monthIndex}.Ay: {formatCurrency(mb.remaining > 0 ? mb.remaining : mb.totalDue)}
+                                                  {mb.monthIndex}.Ay ({mbYear}): {formatCurrency(mb.remaining > 0 ? mb.remaining : mb.totalDue)}
                                                 </button>
                                               );
                                             })}
@@ -5906,7 +5960,7 @@ function GiderlerPageContent() {
                       return (
                         <div key={idx} className="p-2 bg-white rounded-xl border border-purple-200">
                           <label className="block text-[10px] font-extrabold text-purple-900 mb-0.5">
-                            {idx + 1}. Taksit ({mNum}. Ay)
+                            {idx + 1}. Taksit ({mNum}. Ay • {mNum >= 7 ? "2026" : "2027"})
                           </label>
                           <div className="flex items-center gap-1">
                             <input
@@ -5956,18 +6010,22 @@ function GiderlerPageContent() {
                   onChange={(e) => setForm({ ...form, monthIndex: parseInt(e.target.value) || 9 })}
                   className="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs font-semibold focus:outline-none"
                 >
-                  <option value={7}>7. Ay (Temmuz)</option>
-                  <option value={8}>8. Ay (Ağustos)</option>
-                  <option value={9}>9. Ay (Eylül)</option>
-                  <option value={10}>10. Ay (Ekim)</option>
-                  <option value={11}>11. Ay (Kasım)</option>
-                  <option value={12}>12. Ay (Aralık)</option>
-                  <option value={1}>1. Ay (Ocak)</option>
-                  <option value={2}>2. Ay (Şubat)</option>
-                  <option value={3}>3. Ay (Mart)</option>
-                  <option value={4}>4. Ay (Nisan)</option>
-                  <option value={5}>5. Ay (Mayıs)</option>
-                  <option value={6}>6. Ay (Haziran)</option>
+                  <optgroup label="📅 2026 Yılı (Temmuz – Aralık 2026)">
+                    <option value={7}>7. Ay (Temmuz 2026)</option>
+                    <option value={8}>8. Ay (Ağustos 2026)</option>
+                    <option value={9}>9. Ay (Eylül 2026)</option>
+                    <option value={10}>10. Ay (Ekim 2026)</option>
+                    <option value={11}>11. Ay (Kasım 2026)</option>
+                    <option value={12}>12. Ay (Aralık 2026)</option>
+                  </optgroup>
+                  <optgroup label="📅 2027 Yılı (Ocak – Haziran 2027)">
+                    <option value={1}>1. Ay (Ocak 2027)</option>
+                    <option value={2}>2. Ay (Şubat 2027)</option>
+                    <option value={3}>3. Ay (Mart 2027)</option>
+                    <option value={4}>4. Ay (Nisan 2027)</option>
+                    <option value={5}>5. Ay (Mayıs 2027)</option>
+                    <option value={6}>6. Ay (Haziran 2027)</option>
+                  </optgroup>
                 </select>
               </div>
 
@@ -6473,18 +6531,22 @@ function GiderlerPageContent() {
                       onChange={(e) => setCardTxForm({ ...cardTxForm, monthIndex: parseInt(e.target.value) || 9 })}
                       className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs font-bold text-slate-900 focus:outline-none"
                     >
-                      <option value={7}>7. Ay (Temmuz)</option>
-                      <option value={8}>8. Ay (Ağustos)</option>
-                      <option value={9}>9. Ay (Eylül)</option>
-                      <option value={10}>10. Ay (Ekim)</option>
-                      <option value={11}>11. Ay (Kasım)</option>
-                      <option value={12}>12. Ay (Aralık)</option>
-                      <option value={1}>1. Ay (Ocak)</option>
-                      <option value={2}>2. Ay (Şubat)</option>
-                      <option value={3}>3. Ay (Mart)</option>
-                      <option value={4}>4. Ay (Nisan)</option>
-                      <option value={5}>5. Ay (Mayıs)</option>
-                      <option value={6}>6. Ay (Haziran)</option>
+                      <optgroup label="📅 2026 Yılı (Temmuz – Aralık 2026)">
+                        <option value={7}>7. Ay (Temmuz 2026)</option>
+                        <option value={8}>8. Ay (Ağustos 2026)</option>
+                        <option value={9}>9. Ay (Eylül 2026)</option>
+                        <option value={10}>10. Ay (Ekim 2026)</option>
+                        <option value={11}>11. Ay (Kasım 2026)</option>
+                        <option value={12}>12. Ay (Aralık 2026)</option>
+                      </optgroup>
+                      <optgroup label="📅 2027 Yılı (Ocak – Haziran 2027)">
+                        <option value={1}>1. Ay (Ocak 2027)</option>
+                        <option value={2}>2. Ay (Şubat 2027)</option>
+                        <option value={3}>3. Ay (Mart 2027)</option>
+                        <option value={4}>4. Ay (Nisan 2027)</option>
+                        <option value={5}>5. Ay (Mayıs 2027)</option>
+                        <option value={6}>6. Ay (Haziran 2027)</option>
+                      </optgroup>
                     </select>
                   </div>
                 </div>
@@ -6524,7 +6586,7 @@ function GiderlerPageContent() {
                         return (
                           <div key={idx} className="p-2 bg-white rounded-xl border border-purple-200 shadow-2xs">
                             <label className="block text-[10px] font-extrabold text-purple-900 mb-0.5">
-                              {idx + 1}. Taksit ({mNum}. Ay)
+                              {idx + 1}. Taksit ({mNum}. Ay • {mNum >= 7 ? "2026" : "2027"})
                             </label>
                             <div className="flex items-center gap-1">
                               <input
