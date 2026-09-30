@@ -312,8 +312,8 @@ function GiderlerPageContent() {
   const [chequesOnly, setChequesOnly] = useState(false);
   const [dueTodayOnly, setDueTodayOnly] = useState(false);
 
-  // Ay Bazında Takip: 7 (Temmuz), 8 (Ağustos), 9 (Eylül), 10 (Ekim), ALL (Tümü)
-  const [selectedMonth, setSelectedMonth] = useState<string>("9");
+  // Ay Bazında Takip: 7 (Temmuz), 8 (Ağustos), 9 (Eylül), 10 (Ekim), ALL (Tümü) - İçinde bulunulan aya göre otomatik başlar
+  const [selectedMonth, setSelectedMonth] = useState<string>(() => String(new Date().getMonth() + 1));
   // Ödeme Yöntemi Filtresi: ALL, CASH, CREDIT_CARD, CHEQUE
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<string>("ALL");
   // Kart Sahibi Filtresi: ALL, Ahmet Taymaz, Duygu Köse, vb.
@@ -405,6 +405,7 @@ function GiderlerPageContent() {
       cardLabel: "Vakıfbank World KK",
       last4: "4821",
       cutoffDay: "25.09.2026",
+      statementDateISO: "2026-09-15",
       dueDateISO: "2026-09-25",
       cardLimit: 750000,
     },
@@ -416,6 +417,7 @@ function GiderlerPageContent() {
       cardLabel: "Akbank Business KK",
       last4: "9034",
       cutoffDay: "30.09.2026",
+      statementDateISO: "2026-09-20",
       dueDateISO: "2026-09-30",
       cardLimit: 750000,
     },
@@ -427,6 +429,7 @@ function GiderlerPageContent() {
       cardLabel: "Halkbank Paraf KK",
       last4: "5512",
       cutoffDay: "30.09.2026",
+      statementDateISO: "2026-09-20",
       dueDateISO: "2026-09-30",
       cardLimit: 750000,
     },
@@ -438,6 +441,7 @@ function GiderlerPageContent() {
       cardLabel: "Ziraat Bankkart KK",
       last4: "7189",
       cutoffDay: "07.09.2026",
+      statementDateISO: "2026-08-28",
       dueDateISO: "2026-09-07",
       cardLimit: 750000,
     },
@@ -449,6 +453,7 @@ function GiderlerPageContent() {
       cardLabel: "QNB CardFinans KK",
       last4: "6305",
       cutoffDay: "24.09.2026",
+      statementDateISO: "2026-09-14",
       dueDateISO: "2026-09-24",
       cardLimit: 750000,
     },
@@ -461,6 +466,7 @@ function GiderlerPageContent() {
       cardLabel: "Mac QNB Kredi Kartı",
       last4: "3102",
       cutoffDay: "29.09.2026",
+      statementDateISO: "2026-09-23",
       dueDateISO: "2026-09-29",
       cardLimit: 500000,
     },
@@ -472,6 +478,7 @@ function GiderlerPageContent() {
       cardLabel: "Mac Denizbank KK",
       last4: "8410",
       cutoffDay: "04.09.2026",
+      statementDateISO: "2026-08-24",
       dueDateISO: "2026-09-04",
       cardLimit: 500000,
     },
@@ -483,6 +490,7 @@ function GiderlerPageContent() {
       cardLabel: "Mac Ziraat KK",
       last4: "1945",
       cutoffDay: "14.09.2026",
+      statementDateISO: "2026-09-04",
       dueDateISO: "2026-09-14",
       cardLimit: 500000,
     },
@@ -495,6 +503,7 @@ function GiderlerPageContent() {
       cardLabel: "SIMCU - Ziraat Kart",
       last4: "5001",
       cutoffDay: "14.09.2026",
+      statementDateISO: "2026-09-04",
       dueDateISO: "2026-09-14",
       cardLimit: 750000,
     },
@@ -506,6 +515,7 @@ function GiderlerPageContent() {
       cardLabel: "SIMCU - Paraf Esnaf",
       last4: "5002",
       cutoffDay: "07.09.2026",
+      statementDateISO: "2026-09-02",
       dueDateISO: "2026-09-07",
       cardLimit: 750000,
     },
@@ -517,6 +527,7 @@ function GiderlerPageContent() {
       cardLabel: "SIMCU - Paraf Business",
       last4: "5003",
       cutoffDay: "07.09.2026",
+      statementDateISO: "2026-09-02",
       dueDateISO: "2026-09-07",
       cardLimit: 750000,
     },
@@ -529,6 +540,7 @@ function GiderlerPageContent() {
       cardLabel: "Halkbank Master/Troy KK",
       last4: "2210",
       cutoffDay: "30.09.2026",
+      statementDateISO: "2026-09-20",
       dueDateISO: "2026-09-30",
       cardLimit: 300000,
     },
@@ -540,6 +552,7 @@ function GiderlerPageContent() {
       cardLabel: "Kuveyt Türk KK",
       last4: "2215",
       cutoffDay: "20.09.2026",
+      statementDateISO: "2026-09-10",
       dueDateISO: "2026-09-20",
       cardLimit: 300000,
     },
@@ -551,6 +564,7 @@ function GiderlerPageContent() {
       cardLabel: "Kuveyt Türk KK",
       last4: "3310",
       cutoffDay: "10.09.2026",
+      statementDateISO: "2026-09-01",
       dueDateISO: "2026-09-10",
       cardLimit: 300000,
     },
@@ -562,6 +576,7 @@ function GiderlerPageContent() {
       cardLabel: "Türkiye Finans KK",
       last4: "3315",
       cutoffDay: "04.09.2026",
+      statementDateISO: "2026-08-25",
       dueDateISO: "2026-09-04",
       cardLimit: 300000,
     },
@@ -584,6 +599,7 @@ function GiderlerPageContent() {
     holder: "Ahmet Taymaz",
     bankName: "Vakıfbank",
     cardLabel: "",
+    statementDateISO: "2026-09-15",
     dueDateISO: "2026-09-25",
     cardLimit: "750000",
   });
@@ -675,6 +691,7 @@ function GiderlerPageContent() {
             const def = DEFAULT_AHMET_CARDS.find((d) => d.id === c.id);
             return {
               ...c,
+              statementDateISO: c.statementDateISO || def?.statementDateISO || "",
               cardLimit: Number(c.cardLimit) > 0 ? Number(c.cardLimit) : def?.cardLimit || 750000,
             };
           });
@@ -694,6 +711,7 @@ function GiderlerPageContent() {
                   ...defCard,
                   ...found,
                   holder: found.holder || defCard.holder,
+                  statementDateISO: found.statementDateISO || defCard.statementDateISO,
                   cardLimit: Number(found.cardLimit) > 0 ? Number(found.cardLimit) : defCard.cardLimit,
                 }
               : defCard;
@@ -723,6 +741,7 @@ function GiderlerPageContent() {
     const cleanHolder = newCardForm.holder.trim() || "Şirket Kartları (SIMCU)";
     const cleanBank = newCardForm.bankName.trim() || "Banka Kartı";
     const cleanLabel = newCardForm.cardLabel.trim() || `${cleanBank} Kredi Kartı`;
+    const statementISO = newCardForm.statementDateISO || "";
     const dueISO = newCardForm.dueDateISO || new Date().toISOString().split("T")[0];
     const limitNum = Math.max(0, Number(newCardForm.cardLimit) || 750000);
     const newCard = {
@@ -733,6 +752,7 @@ function GiderlerPageContent() {
       cardLabel: cleanLabel,
       last4: "",
       cutoffDay: formatSafeDate(dueISO),
+      statementDateISO: statementISO,
       dueDateISO: dueISO,
       cardLimit: limitNum,
     };
@@ -968,19 +988,24 @@ function GiderlerPageContent() {
     const title = (exp.title || "").toLowerCase();
     const bank = (exp.cardBank || "").toLowerCase();
     const desc = (exp.description || "").toLowerCase();
+    const combinedText = `${bank} ${title} ${desc}`;
 
-    if (desc.includes(`[${card.id}]`)) return true;
+    const explicitCardTag = desc.match(/\[(card-[^\]]+)\]/i);
+    if (explicitCardTag) {
+      return explicitCardTag[1].toLowerCase() === card.id.toLowerCase();
+    }
 
     const cardHolderLower = (card.holder || "").toLowerCase();
     const targetBank = (card.bankName || "").toLowerCase();
     const bankKeyword = targetBank.split(" ")[0]; // "vakıfbank", "akbank", "halkbank", "ziraat", "qnb", "denizbank", "kuveyt"
 
     const hasBankMatch =
-      bank.includes(bankKeyword) ||
-      title.includes(bankKeyword) ||
-      (bankKeyword.includes("vak") && (bank.includes("vak") || title.includes("vak"))) ||
-      (bankKeyword.includes("halk") && (bank.includes("paraf") || title.includes("paraf"))) ||
-      (bankKeyword.includes("kuveyt") && (bank.includes("kuveyt") || title.includes("kuveyt")));
+      combinedText.includes(bankKeyword) ||
+      (bankKeyword.includes("vak") && combinedText.includes("vak")) ||
+      (bankKeyword.includes("halk") && (combinedText.includes("paraf") || combinedText.includes("halk"))) ||
+      (bankKeyword.includes("kuveyt") && combinedText.includes("kuveyt")) ||
+      (bankKeyword.includes("qnb") && (combinedText.includes("qnb") || combinedText.includes("cardfinans"))) ||
+      (bankKeyword.includes("türkiye") && combinedText.includes("türkiye finans"));
 
     if (!hasBankMatch) return false;
 
@@ -988,14 +1013,17 @@ function GiderlerPageContent() {
     if (cardHolderLower.includes("ahmet")) {
       const isAhmet =
         holder.includes("ahmet") ||
-        title.includes("ahmet taymaz") ||
-        title.includes("(at kart") ||
+        combinedText.includes("ahmet taymaz") ||
+        combinedText.includes("(at kart") ||
         (!holder &&
-          !title.includes("mac") &&
-          !title.includes("simcu") &&
-          !title.includes("duygu") &&
-          !title.includes("emre") &&
-          (title.includes("vakıf") || title.includes("vakif")));
+          !combinedText.includes("mac") &&
+          !combinedText.includes("simcu") &&
+          !combinedText.includes("sır yapı") &&
+          !combinedText.includes("sir yapı") &&
+          !combinedText.includes("kaski") &&
+          !combinedText.includes("duygu") &&
+          !combinedText.includes("emre") &&
+          (combinedText.includes("vakıf") || combinedText.includes("vakif") || exp.category === "CREDIT_CARD" || exp.paymentMethod === "CREDIT_CARD"));
       return isAhmet;
     }
 
@@ -1005,9 +1033,9 @@ function GiderlerPageContent() {
         holder.includes("muhammed") ||
         holder.includes("çağır") ||
         holder.includes("mac") ||
-        title.includes("muhammed") ||
-        title.includes("mac ") ||
-        title.includes("(mac)")
+        combinedText.includes("muhammed") ||
+        combinedText.includes("mac ") ||
+        combinedText.includes("(mac)")
       );
     }
 
@@ -1016,19 +1044,21 @@ function GiderlerPageContent() {
       const isSimcu =
         holder.includes("simcu") ||
         holder.includes("şirket") ||
-        title.includes("simcu") ||
-        (!holder && (title.includes("kaski") || title.includes("kurumsal")));
+        combinedText.includes("simcu") ||
+        combinedText.includes("sır yapı") ||
+        combinedText.includes("sir yapı") ||
+        (!holder && (combinedText.includes("kaski") || combinedText.includes("kurumsal")));
       if (!isSimcu) return false;
 
       const labelLower = (card.cardLabel || "").toLowerCase();
-      if (labelLower.includes("esnaf") && title.includes("business")) return false;
-      if (labelLower.includes("business") && title.includes("esnaf")) return false;
+      if (labelLower.includes("esnaf") && combinedText.includes("business")) return false;
+      if (labelLower.includes("business") && !combinedText.includes("business")) return false;
       return true;
     }
 
     // 4. Diğer kart sahipleri (Duygu Köse, Emre Helvacı veya yeni eklenen kişi)
     const ownerFirstWord = cardHolderLower.split(" ")[0];
-    if (ownerFirstWord && (holder.includes(ownerFirstWord) || title.includes(ownerFirstWord))) {
+    if (ownerFirstWord && (holder.includes(ownerFirstWord) || combinedText.includes(ownerFirstWord))) {
       return true;
     }
 
@@ -1057,19 +1087,47 @@ function GiderlerPageContent() {
     return null;
   };
 
+  // Kartın bir kez girilen hesap kesim veya son ödeme gününü (gün sabit kalarak)
+  // ilgili aya ve yıla göre otomatik yeniler:
+  // 10. ayda -> 2026-10-GG, 11. ayda -> 2026-11-GG, 2027 yılı 01. ayda -> 2027-01-GG
+  const projectCardDateToActiveMonth = (
+    dateISO: string | undefined | null,
+    monthSelection: string,
+    fixedDayOverride?: number
+  ): string => {
+    if (!dateISO && !fixedDayOverride) return "";
+    const parts = String(dateISO || "").split("-");
+    const parsedDay =
+      fixedDayOverride && fixedDayOverride >= 1 && fixedDayOverride <= 31
+        ? fixedDayOverride
+        : parts.length === 3
+        ? parseInt(parts[2], 10)
+        : NaN;
+    if (isNaN(parsedDay) || parsedDay < 1 || parsedDay > 31) return dateISO || "";
+
+    const now = new Date();
+    const parsedSel = monthSelection !== "ALL" ? parseInt(monthSelection, 10) : NaN;
+    const targetMonth =
+      !isNaN(parsedSel) && parsedSel >= 1 && parsedSel <= 12 ? parsedSel : now.getMonth() + 1;
+
+    // 7..12 ayları -> 2026, 1..6 ayları -> 2027
+    const targetYear = targetMonth >= 7 ? 2026 : 2027;
+    const maxDaysInTargetMonth = new Date(targetYear, targetMonth, 0).getDate();
+    const safeDay = Math.min(parsedDay, maxDaysInTargetMonth);
+
+    return `${targetYear}-${String(targetMonth).padStart(2, "0")}-${String(safeDay).padStart(2, "0")}`;
+  };
+
   const getExpenseEffectiveDateISO = (e: SchoolExpense): string | null => {
-    // 1. Önce bu gider bir kredi kartına bağlıysa, o kartın güncel son ödeme gününü baz al
+    // 1. Önce bu gider bir kredi kartına bağlıysa, o kartın sabit son ödeme gününü giderin ayına göre baz al
     const matchedCard = findMatchingCardForExpense(e);
-    if (matchedCard && matchedCard.dueDateISO) {
-      const [yStr, mStr, dStr] = matchedCard.dueDateISO.split("-");
-      const baseYear = parseInt(yStr) || 2026;
-      const baseMonth = parseInt(mStr) || 9;
-      const targetDay = parseInt(dStr) || 15;
-      const expMonth = e.monthIndex || baseMonth;
-      const expYear = expMonth < 7 && baseMonth >= 7 ? baseYear + 1 : baseYear;
-      const maxDays = new Date(expYear, expMonth, 0).getDate();
-      const safeDay = Math.min(targetDay, maxDays);
-      return `${expYear}-${String(expMonth).padStart(2, "0")}-${String(safeDay).padStart(2, "0")}`;
+    if (matchedCard && (matchedCard.dueDateISO || (matchedCard as any).dueDay)) {
+      const expMonthStr = e.monthIndex ? String(e.monthIndex) : selectedMonth;
+      return projectCardDateToActiveMonth(
+        matchedCard.dueDateISO,
+        expMonthStr,
+        (matchedCard as any).dueDay
+      );
     }
 
     // 2. Kart eşleşmesi yoksa giderin kendi dueDate alanını kullan
@@ -1430,11 +1488,50 @@ function GiderlerPageContent() {
       const isInstallment = form.entryType === "INSTALLMENT";
       const isRecurringInvoice = form.entryType === "UTILITY_INVOICE";
 
+      let finalCardHolder = form.cardHolder;
+      let finalCardBank = form.cardBank;
+      let finalDescription = form.description || "";
+
+      if (form.category === "CREDIT_CARD" || form.paymentMethod === "CREDIT_CARD") {
+        const matchedCard =
+          ahmetCards.find(
+            (c) =>
+              finalDescription.includes(`[${c.id}]`) ||
+              (c.holder === form.cardHolder && c.bankName === form.cardBank)
+          ) ||
+          ahmetCards.find((c) =>
+            doesExpenseMatchAhmetCard(
+              {
+                ...form,
+                id: "temp",
+                amountDue: Number(form.amountDue) || 0,
+                amountPaid: 0,
+                amountRemaining: Number(form.amountDue) || 0,
+                status: "PENDING",
+              } as any,
+              c
+            )
+          ) ||
+          ahmetCards.find((c) => c.id === selectedVisualCardId) ||
+          ahmetCards[0];
+
+        if (matchedCard) {
+          if (!finalCardHolder) finalCardHolder = matchedCard.holder;
+          if (!finalCardBank) finalCardBank = matchedCard.bankName;
+          if (!/\[(card-[^\]]+)\]/i.test(finalDescription)) {
+            finalDescription = `${finalDescription ? finalDescription + " " : ""}[${matchedCard.id}]`.trim();
+          }
+        }
+      }
+
       const res = await fetch(url, {
         method,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           ...form,
+          cardHolder: finalCardHolder,
+          cardBank: finalCardBank,
+          description: finalDescription,
           isCommitment,
           isInstallment,
           isRecurringInvoice,
@@ -1544,13 +1641,23 @@ function GiderlerPageContent() {
       const monthStatementRemaining = monthTx.reduce((s, e) => s + e.amountRemaining, 0);
 
       // Tüm aylar (yaptığım tüm harcamaların toplam ödeyeceğim tutarı)
-      const allTimeTotalDue = allTx.reduce((s, e) => s + e.amountDue, 0);
-      const allTimeTotalPaid = allTx.reduce((s, e) => s + e.amountPaid, 0);
-      const allTimeTotalRemaining = allTx.reduce((s, e) => s + e.amountRemaining, 0);
+      // Düzenli aylık fatura talimatlarında ("Aylık Düzenli Fatura") henüz kesilmemiş gelecek 11 ay yerine cari/seçili ay baz alınır;
+      // normal kart harcamaları ve taksitli alışverişlerin tamamı kullanılabilir limitten düşer.
+      const limitAffectingTx = allTx.filter((e) => {
+        const isFutureRecurringUtility =
+          e.periodStatus === "Aylık Fatura" ||
+          ((e.description || "").includes("Aylık Düzenli Fatura") && e.periodStatus !== "Cari Dönem");
+        if (!isFutureRecurringUtility) return true;
+        return targetMonthNum !== null ? e.monthIndex === targetMonthNum : false;
+      });
+
+      const allTimeTotalDue = limitAffectingTx.reduce((s, e) => s + e.amountDue, 0);
+      const allTimeTotalPaid = limitAffectingTx.reduce((s, e) => s + e.amountPaid, 0);
+      const allTimeTotalRemaining = limitAffectingTx.reduce((s, e) => s + e.amountRemaining, 0);
 
       // Kart Limiti, Kullanılan (Toplam Kalan Borç) ve Kullanılabilir Limit
       const cardLimit = Number((card as any).cardLimit) > 0 ? Number((card as any).cardLimit) : 750000;
-      const usedLimit = allTimeTotalRemaining;
+      const usedLimit = Number(allTimeTotalRemaining.toFixed(2));
       const availableLimit = Math.max(0, Number((cardLimit - usedLimit).toFixed(2)));
 
       // Aylara göre taksit/ekstre dağılımı
@@ -1567,8 +1674,22 @@ function GiderlerPageContent() {
         })
         .filter((m) => m.count > 0);
 
+      const effectiveStatementDateISO = projectCardDateToActiveMonth(
+        (card as any).statementDateISO,
+        selectedMonth,
+        (card as any).statementDay
+      );
+      const effectiveDueDateISO = projectCardDateToActiveMonth(
+        card.dueDateISO,
+        selectedMonth,
+        (card as any).dueDay
+      );
+
       return {
         ...card,
+        statementDateISO: effectiveStatementDateISO,
+        dueDateISO: effectiveDueDateISO,
+        cutoffDay: formatSafeDate(effectiveDueDateISO),
         allTx,
         monthTx,
         monthStatementTotal,
@@ -1654,13 +1775,29 @@ function GiderlerPageContent() {
     }
   };
 
+  const handleCardStatementDateChange = (cardId: string, newStatementDateISO: string) => {
+    if (!newStatementDateISO) return;
+    const dayNum = parseInt(newStatementDateISO.split("-")[2], 10);
+    const updatedCards = ahmetCards.map((c) =>
+      c.id === cardId
+        ? {
+            ...c,
+            statementDateISO: newStatementDateISO,
+            ...(dayNum >= 1 && dayNum <= 31 ? { statementDay: dayNum } : {}),
+          }
+        : c
+    );
+    saveAhmetCards(updatedCards);
+  };
+
   const handleCardDueDateChange = async (cardId: string, newDateISO: string) => {
     if (!newDateISO) return;
     const formattedShort = formatSafeDate(newDateISO);
+    const dayNum = parseInt(newDateISO.split("-")[2], 10);
     const prevCard = ahmetCards.find((c) => c.id === cardId);
     if (!prevCard) return;
 
-    if (selectedDueDateFilter && prevCard.dueDateISO === selectedDueDateFilter) {
+    if (selectedDueDateFilter) {
       setSelectedDueDateFilter(newDateISO);
     }
 
@@ -1670,6 +1807,7 @@ function GiderlerPageContent() {
             ...c,
             dueDateISO: newDateISO,
             cutoffDay: formattedShort,
+            ...(dayNum >= 1 && dayNum <= 31 ? { dueDay: dayNum } : {}),
           }
         : c
     );
@@ -1708,7 +1846,7 @@ function GiderlerPageContent() {
 
   const openCardTxModal = (cardId: string) => {
     const todayStr = new Date().toISOString().split("T")[0];
-    const targetCard = ahmetCards.find((c) => c.id === cardId) || ahmetCards[0];
+    const targetCard = ahmetCardsComputed.find((c) => c.id === cardId) || ahmetCardsComputed[0];
     if (targetCard) {
       setSelectedVisualCardId(targetCard.id);
     }
@@ -2445,7 +2583,7 @@ function GiderlerPageContent() {
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-5 gap-2">
+                    <div className="grid grid-cols-1 sm:grid-cols-6 gap-2">
                       <div>
                         <label className="block text-[10px] font-bold text-slate-600 mb-0.5">Kart Sahibi / Şirket *</label>
                         <input
@@ -2489,6 +2627,15 @@ function GiderlerPageContent() {
                           onChange={(e) => setNewCardForm({ ...newCardForm, cardLabel: e.target.value })}
                           placeholder="Örn: Paraf Business, World..."
                           className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-bold text-indigo-700 mb-0.5">Hesap Kesim Tarihi</label>
+                        <input
+                          type="date"
+                          value={newCardForm.statementDateISO}
+                          onChange={(e) => setNewCardForm({ ...newCardForm, statementDateISO: e.target.value })}
+                          className="w-full px-2 py-1.5 border border-slate-300 rounded-lg text-xs font-bold"
                         />
                       </div>
                       <div>
@@ -2728,9 +2875,24 @@ function GiderlerPageContent() {
                                           )}
                                         </div>
 
-                                        {/* Manuel Son Ödeme Tarihi (Değiştirildiğinde Tüm Ödemelere Yansır) */}
+                                        {/* Manuel Hesap Kesim Tarihi */}
                                         <div
                                           className="mt-1.5 flex items-center justify-between gap-1 bg-white/90 px-2 py-1 rounded-lg border border-slate-200"
+                                          onClick={(e) => e.stopPropagation()}
+                                        >
+                                          <span className="text-[10px] font-bold text-indigo-700 shrink-0">Hesap Kesim:</span>
+                                          <input
+                                            type="date"
+                                            value={(card as any).statementDateISO || ""}
+                                            onChange={(e) => handleCardStatementDateChange(card.id, e.target.value)}
+                                            className="bg-transparent text-slate-900 font-extrabold text-[11px] focus:outline-none cursor-pointer w-[102px]"
+                                            title="Kartın hesap kesim tarihini girin"
+                                          />
+                                        </div>
+
+                                        {/* Manuel Son Ödeme Tarihi (Değiştirildiğinde Tüm Ödemelere Yansır) */}
+                                        <div
+                                          className="mt-1 flex items-center justify-between gap-1 bg-white/90 px-2 py-1 rounded-lg border border-slate-200"
                                           onClick={(e) => e.stopPropagation()}
                                         >
                                           <span className="text-[10px] font-bold text-slate-600 shrink-0">Son Ödeme:</span>
@@ -4668,32 +4830,46 @@ function GiderlerPageContent() {
                     <div>
                       <span className="block text-[10px] font-bold text-purple-900 mb-1">
                         {form.category === "CREDIT_CARD"
-                          ? "Hangi Kredi Kartının Borcu / Harcaması? (Son ödeme tarihi otomatik gelir):"
-                          : "Kayıtlı Kartlardan Seç (Son ödeme tarihi otomatik gelir):"}
+                          ? "Hangi Kredi Kartının Borcu / Harcaması? (Harcama kullanılabilir limitten düşer):"
+                          : "Kayıtlı Kartlardan Seç (Harcama seçilen kartın kullanılabilir limitinden düşer):"}
                       </span>
-                      <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto">
-                        {ahmetCards.map((c) => {
+                      <div className="flex flex-wrap gap-1 max-h-28 overflow-y-auto">
+                        {ahmetCardsComputed.map((c) => {
                           const bt = getBankTheme(c.bankName);
-                          const isChosen = form.cardHolder === c.holder && form.cardBank === c.bankName;
+                          const hasTag = (form.description || "").includes(`[${c.id}]`);
+                          const isChosen =
+                            hasTag ||
+                            (!/\[(card-[^\]]+)\]/i.test(form.description || "") &&
+                              form.cardHolder === c.holder &&
+                              form.cardBank === c.bankName);
                           return (
                             <button
                               key={c.id}
                               type="button"
-                              onClick={() =>
+                              onClick={() => {
+                                const cleanedDesc = (form.description || "")
+                                  .replace(/\[(card-[^\]]+)\]/gi, "")
+                                  .trim();
                                 setForm({
                                   ...form,
                                   cardHolder: c.holder,
                                   cardBank: c.bankName,
                                   dueDate: c.dueDateISO || form.dueDate,
-                                })
-                              }
-                              className={`px-2 py-0.5 rounded text-[10px] font-bold border transition-all ${
+                                  description: `${cleanedDesc ? cleanedDesc + " " : ""}[${c.id}]`.trim(),
+                                });
+                              }}
+                              className={`px-2 py-1 rounded text-[10px] font-bold border transition-all text-left ${
                                 isChosen
                                   ? `${bt.badge} ring-2 ring-offset-1 ring-slate-400`
                                   : "bg-white text-slate-700 border-slate-200 hover:bg-slate-100"
                               }`}
                             >
-                              {c.holder} • {c.bankName}
+                              <span>
+                                {c.holder} • {c.cardLabel || c.bankName}
+                              </span>
+                              <span className="ml-1 text-[9px] text-emerald-700 font-extrabold">
+                                (Kalan Limit: {formatCurrency(c.availableLimit)})
+                              </span>
                             </button>
                           );
                         })}
@@ -5305,10 +5481,10 @@ function GiderlerPageContent() {
               {/* 1. Hangi Kart Kullanıldı? */}
               <div>
                 <label className="block font-extrabold text-slate-800 mb-1.5">
-                  1. Hangi Kredi Kartı Kullanıldı? ({ahmetCards.length} Kayıtlı Kart)
+                  1. Hangi Kredi Kartı Kullanıldı? ({ahmetCardsComputed.length} Kayıtlı Kart)
                 </label>
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5 max-h-40 overflow-y-auto p-0.5">
-                  {ahmetCards.map((c) => {
+                  {ahmetCardsComputed.map((c) => {
                     const active = cardTxForm.cardId === c.id;
                     const bt = getBankTheme(c.bankName);
                     return (
@@ -5336,6 +5512,9 @@ function GiderlerPageContent() {
                         </div>
                         <span className="font-bold text-[11px] text-slate-900 block truncate mt-0.5">
                           👤 {c.holder}
+                        </span>
+                        <span className="text-[9px] font-extrabold text-emerald-700 block truncate">
+                          Kullanılabilir: {formatCurrency(c.availableLimit)}
                         </span>
                       </button>
                     );
@@ -5559,36 +5738,56 @@ function GiderlerPageContent() {
                   </div>
                 )}
 
-                {/* Canlı Hesaplama Özeti (Bu Ayki Taksit & Toplam Ödenecek Tutar) */}
-                {(Number(cardTxForm.amount) > 0 ||
-                  cardTxCustomInstallments.some((v) => Number(v) > 0)) && (
-                  <div className="p-3 rounded-xl bg-amber-50 border border-amber-300 flex items-center justify-between text-xs">
-                    <div>
-                      <span className="text-[11px] font-bold text-amber-900 block">
-                        1. Taksit (Bu Ay Ekstreye Yansıyacak):
-                      </span>
-                      <span className="text-base font-extrabold text-slate-950">
-                        {formatCurrency(
-                          Number(cardTxForm.installmentCount) > 1
-                            ? Number(cardTxCustomInstallments[0]) || 0
-                            : Number(cardTxForm.amount) || 0
-                        )}
-                      </span>
+                {/* Canlı Hesaplama Özeti (Bu Ayki Taksit, Toplam Ödenecek Tutar & Kullanılabilir Limitten Düşüm) */}
+                {(() => {
+                  const selectedCardObj =
+                    ahmetCardsComputed.find((c) => c.id === cardTxForm.cardId) || ahmetCardsComputed[0];
+                  const totalTxSpending =
+                    Number(cardTxForm.installmentCount) > 1
+                      ? cardTxCustomInstallments.reduce((s, v) => s + (Number(v) || 0), 0)
+                      : Number(cardTxForm.amount) || 0;
+                  const firstInstAmount =
+                    Number(cardTxForm.installmentCount) > 1
+                      ? Number(cardTxCustomInstallments[0]) || 0
+                      : Number(cardTxForm.amount) || 0;
+                  const currentAvail = selectedCardObj ? selectedCardObj.availableLimit : 0;
+                  const remainingAvailAfterTx = Math.max(0, Number((currentAvail - totalTxSpending).toFixed(2)));
+
+                  if (totalTxSpending <= 0) return null;
+
+                  return (
+                    <div className="p-3 rounded-xl bg-amber-50 border border-amber-300 space-y-2 text-xs">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <span className="text-[11px] font-bold text-amber-900 block">
+                            1. Taksit (Bu Ay Ekstreye Yansıyacak):
+                          </span>
+                          <span className="text-base font-extrabold text-slate-950">
+                            {formatCurrency(firstInstAmount)}
+                          </span>
+                        </div>
+                        <div className="text-right">
+                          <span className="text-[11px] font-bold text-amber-900 block">
+                            Toplam Harcama (Limitten Düşecek):
+                          </span>
+                          <span className="text-base font-extrabold text-rose-600">
+                            -{formatCurrency(totalTxSpending)}
+                          </span>
+                        </div>
+                      </div>
+                      {selectedCardObj && (
+                        <div className="pt-2 border-t border-amber-200/80 flex items-center justify-between text-[11px]">
+                          <span className="text-slate-700">
+                            Mevcut Kullanılabilir Limit: <strong>{formatCurrency(currentAvail)}</strong>
+                          </span>
+                          <span className="text-emerald-800 font-extrabold">
+                            Harcama Sonrası Kalan Limit: {formatCurrency(remainingAvailAfterTx)}
+                          </span>
+                        </div>
+                      )}
                     </div>
-                    <div className="text-right">
-                      <span className="text-[11px] font-bold text-amber-900 block">
-                        Toplam Ödeyeceğiniz Harcama Tutarı:
-                      </span>
-                      <span className="text-base font-extrabold text-purple-900">
-                        {formatCurrency(
-                          Number(cardTxForm.installmentCount) > 1
-                            ? cardTxCustomInstallments.reduce((s, v) => s + (Number(v) || 0), 0)
-                            : Number(cardTxForm.amount) || 0
-                        )}
-                      </span>
-                    </div>
-                  </div>
-                )}
+                  );
+                })()}
               </div>
 
               {/* 5. İşlem / Son Ödeme Tarihi ve Açıklama */}

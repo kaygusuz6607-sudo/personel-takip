@@ -213,10 +213,13 @@ export async function GET(request: Request) {
     const creditCardExpenses = allExpenses.filter((e) => {
       if (e.category === "LOAN" || e.category === "CHEQUE") return false;
       const t = (e.title || "").toLowerCase();
+      const d = (e.description || "").toLowerCase();
       return (
         e.category === "CREDIT_CARD" ||
         e.paymentMethod === "CREDIT_CARD" ||
         Boolean(e.cardBank) ||
+        Boolean(e.cardHolder) ||
+        /\[(card-[^\]]+)\]/i.test(d) ||
         t.includes(" kk") ||
         t.includes("kart") ||
         t.includes("paraf") ||
