@@ -157,12 +157,22 @@ export function Sidebar() {
     { href: "/maas", label: "Maaş / Tahakkuk", icon: Calculator },
     { href: "/odeme", label: "Personel Ödeme", icon: CreditCard },
     { href: "/giderler", label: "Okul Gider & Taksit", icon: Coins },
+    { href: "/tedarikci-cariler", label: "Tedarikçi & Ürün Carileri", icon: Building2 },
+    { href: "/giderler?tab=GOLD_DAYS", label: "Altın Günleri Takibi", icon: Coins },
     { href: "/cari", label: "Muhasebe & Cari", icon: ReceiptText },
     { href: "/izin", label: "İzin Girişi & Takip", icon: CalendarCheck },
     { href: "/raporlar", label: "Raporlar & Excel", icon: FileSpreadsheet },
     { href: "/kullanicilar", label: "Yetkili Kullanıcılar", icon: ShieldCheck },
     { href: "/yedekleme", label: "Yedek & Senkronizasyon", icon: HardDrive },
   ];
+
+  const [currentQuery, setCurrentQuery] = useState("");
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      setCurrentQuery(window.location.search);
+    }
+  }, [pathname]);
 
   const getInitials = (name?: string) => {
     if (!name) return "US";
@@ -173,6 +183,13 @@ export function Sidebar() {
 
   const isActive = (path: string) => {
     if (path === "/" && pathname === "/") return true;
+    if (path.includes("?")) {
+      const [p, q] = path.split("?");
+      return pathname === p && currentQuery.includes(q);
+    }
+    if (path === "/giderler") {
+      return pathname === "/giderler" && !currentQuery.includes("tab=GOLD_DAYS");
+    }
     if (path !== "/" && pathname.startsWith(path)) return true;
     return false;
   };

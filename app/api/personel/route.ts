@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { syncStaffPayrolls } from "@/lib/payroll-sync";
 
 export async function GET(request: Request) {
   try {
@@ -165,6 +166,11 @@ export async function POST(request: Request) {
         salaryConfig: true,
       },
     });
+
+    // Yeni personel aktifse cari ekstre ve ilk açık bordro kaydını otomatik senkronize et
+    if (newStaff.status === "ACTIVE") {
+      await syncStaffPayrolls(newStaff.id, { createCurrentIfMissing: true });
+    }
 
     return NextResponse.json(newStaff, { status: 201 });
   } catch (error: any) {

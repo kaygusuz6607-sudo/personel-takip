@@ -38,6 +38,7 @@ export async function GET(request: Request) {
       where: {
         installmentInfo: { not: null },
         monthIndex: { not: null },
+        category: { notIn: ["GOLD_DAY", "SUPPLIER"] },
       },
     });
     for (const exp of instCandidates) {

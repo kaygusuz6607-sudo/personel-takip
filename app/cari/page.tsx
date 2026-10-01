@@ -486,6 +486,21 @@ function CariContent() {
                           : "Elden / Kayıtsız"}
                       </span>
                     </div>
+
+                    <div className="h-6 w-px bg-slate-200" />
+
+                    <div>
+                      <span className="text-[10px] text-slate-400 block font-medium">Kayıtlı Güncel Maaş:</span>
+                      <span className="font-bold text-teal-800 bg-teal-50 px-2 py-0.5 rounded border border-teal-200 inline-block">
+                        {selectedStaff.salaryConfig?.salaryType === "HOURLY"
+                          ? `${selectedStaff.salaryConfig.hourlyRate} TL/saat`
+                          : selectedStaff.salaryConfig?.salaryType === "DAILY"
+                          ? `${selectedStaff.salaryConfig.dailyRate} TL/gün`
+                          : selectedStaff.salaryConfig?.salaryType === "HYBRID"
+                          ? `${formatCurrency(selectedStaff.salaryConfig.monthlySalary)} + ${selectedStaff.salaryConfig.hourlyRate} TL/saat`
+                          : formatCurrency(selectedStaff.salaryConfig?.monthlySalary || 0)}
+                      </span>
+                    </div>
                   </div>
                 </div>
 

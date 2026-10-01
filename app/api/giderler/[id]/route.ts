@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { ensureSupplierCariTables } from "@/lib/supplier-cari-sync";
 
 export async function PUT(
   request: Request,
@@ -16,6 +17,10 @@ export async function PUT(
     if (!existing) {
       return NextResponse.json({ error: "Gider kaydı bulunamadı" }, { status: 404 });
     }
+
+    const supMatch = (existing.description || "").match(
+      /\[SUPPLIER_CARI:([^:\]]+):(\d{4}-\d{1,2})\]/
+    );
 
     // Parçalı ödeme ekleme isteği gelmişse
     if (body.action === "ADD_PAYMENT") {
@@ -35,8 +40,9 @@ export async function PUT(
         }
       } catch (e) {}
 
+      const payDateStr = body.date || new Date().toISOString().split("T")[0];
       history.push({
-        date: new Date().toISOString().split("T")[0],
+        date: payDateStr,
         amount: payAmount,
         note: body.note || "Parçalı Ödeme",
       });
@@ -64,11 +70,36 @@ export async function PUT(
         },
       });
 
+      if (supMatch) {
+        try {
+          await ensureSupplierCariTables();
+          const supplierId = supMatch[1];
+          const ym = supMatch[2];
+          const [y, m] = ym.split("-");
+          const dueISO = `${y}-${String(m).padStart(2, "0")}-15`;
+          await prisma.$executeRawUnsafe(
+            `INSERT INTO SupplierCariTransaction (id, supplierId, txType, date, dueDate, itemTitle, quantity, unitPrice, amount, paymentMethod, notes, createdAt)
+             VALUES (?, ?, 'PAYMENT', ?, ?, ?, 1, ?, ?, ?, ?, ?)`,
+            `stx-pay-${Date.now()}`,
+            supplierId,
+            payDateStr,
+            dueISO,
+            body.note || `${ym} Dönemi Ödemesi`,
+            payAmount,
+            payAmount,
+            existing.paymentMethod || "CASH",
+            body.note || "Giderler listesinden ödendi",
+            new Date().toISOString()
+          );
+        } catch {}
+      }
+
       return NextResponse.json(updated);
     }
 
     // Tamamını ödendi olarak işaretleme
     if (body.action === "MARK_PAID") {
+      const remainingToPay = Math.max(0, Number((existing.amountDue - existing.amountPaid).toFixed(2)));
       let newDescription = existing.description;
       if (newDescription && newDescription.toLowerCase().includes("kaldı")) {
         newDescription = "Tüm taksitler ödendi - Borç tamamen kapandı";
@@ -83,6 +114,32 @@ export async function PUT(
           ...(newDescription !== existing.description ? { description: newDescription } : {}),
         },
       });
+
+      if (supMatch && remainingToPay > 0) {
+        try {
+          await ensureSupplierCariTables();
+          const supplierId = supMatch[1];
+          const ym = supMatch[2];
+          const [y, m] = ym.split("-");
+          const dueISO = `${y}-${String(m).padStart(2, "0")}-15`;
+          const todayISO = new Date().toISOString().split("T")[0];
+          await prisma.$executeRawUnsafe(
+            `INSERT INTO SupplierCariTransaction (id, supplierId, txType, date, dueDate, itemTitle, quantity, unitPrice, amount, paymentMethod, notes, createdAt)
+             VALUES (?, ?, 'PAYMENT', ?, ?, ?, 1, ?, ?, ?, ?, ?)`,
+            `stx-pay-${Date.now()}`,
+            supplierId,
+            todayISO,
+            dueISO,
+            `${ym} Dönemi Tam Ödeme`,
+            remainingToPay,
+            remainingToPay,
+            existing.paymentMethod || "CASH",
+            "Giderler listesinden ödendi olarak işaretlendi",
+            new Date().toISOString()
+          );
+        } catch {}
+      }
+
       return NextResponse.json(updated);
     }
 

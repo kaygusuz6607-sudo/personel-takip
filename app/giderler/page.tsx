@@ -35,6 +35,7 @@ import {
   ShieldAlert,
   ChevronDown,
   ChevronUp,
+  ChevronRight,
   CreditCard as CardIcon,
   PhoneCall,
   QrCode,
@@ -44,6 +45,8 @@ import {
   Upload,
 } from "lucide-react";
 import QRCode from "qrcode";
+import SupplierCariPanel from "./components/SupplierCariPanel";
+import GoldDaysPanel from "./components/GoldDaysPanel";
 
 interface PaymentHistoryItem {
   date: string;
@@ -104,6 +107,8 @@ const CATEGORY_MAP: Record<string, { label: string; icon: any; color: string; ba
   LOAN: { label: "Banka Kredisi", icon: Landmark, color: "text-indigo-700", badgeBg: "bg-indigo-50 text-indigo-800 border-indigo-200" },
   STUDENT_REFUND: { label: "Kayıt Silme İadesi", icon: GraduationCap, color: "text-rose-700", badgeBg: "bg-rose-50 text-rose-800 border-rose-200" },
   CHEQUE: { label: "Çek Ödemesi", icon: FileText, color: "text-emerald-700", badgeBg: "bg-emerald-50 text-emerald-800 border-emerald-200" },
+  SUPPLIER: { label: "Tedarikçi Cari", icon: Building2, color: "text-teal-700", badgeBg: "bg-teal-50 text-teal-800 border-teal-200" },
+  GOLD_DAY: { label: "Altın Günü", icon: Coins, color: "text-amber-700", badgeBg: "bg-amber-50 text-amber-900 border-amber-300" },
   TAX_SGK: { label: "SGK & Vergi", icon: Landmark, color: "text-cyan-700", badgeBg: "bg-cyan-50 text-cyan-800 border-cyan-200" },
   SALARY: { label: "Maaş", icon: Banknote, color: "text-teal-700", badgeBg: "bg-teal-50 text-teal-800 border-teal-200" },
   COMPENSATION: { label: "Tazminat", icon: Coins, color: "text-orange-700", badgeBg: "bg-orange-50 text-orange-800 border-orange-200" },
@@ -293,8 +298,8 @@ const CARD_OWNER_PRESETS = [
 function GiderlerPageContent() {
   // SSR Hydration koruması
   const [isMounted, setIsMounted] = useState(false);
-  // Aktif Sekme: EXPENSES (Okul Giderleri) | ASSETS (Araç / Mülk Sigorta & Kasko)
-  const [activeMainTab, setActiveMainTab] = useState<"EXPENSES" | "ASSETS">("EXPENSES");
+  // Aktif Sekme: EXPENSES (Okul Giderleri) | SUPPLIERS (Tedarikçi Carileri) | ASSETS (Araç / Mülk Sigorta & Kasko) | GOLD_DAYS (Altın Günleri)
+  const [activeMainTab, setActiveMainTab] = useState<"EXPENSES" | "SUPPLIERS" | "ASSETS" | "GOLD_DAYS">("EXPENSES");
 
   useEffect(() => {
     setIsMounted(true);
@@ -302,6 +307,14 @@ function GiderlerPageContent() {
       const params = new URLSearchParams(window.location.search);
       if (params.get("tab") === "ASSETS") {
         setActiveMainTab("ASSETS");
+      } else if (params.get("tab") === "SUPPLIERS") {
+        setActiveMainTab("SUPPLIERS");
+      } else if (params.get("tab") === "GOLD_DAYS") {
+        setActiveMainTab("GOLD_DAYS");
+      }
+      const mParam = params.get("month");
+      if (mParam) {
+        setSelectedMonth(mParam);
       }
     } catch {}
   }, []);
@@ -321,6 +334,13 @@ function GiderlerPageContent() {
   const [commitmentsOnly, setCommitmentsOnly] = useState(false);
   const [chequesOnly, setChequesOnly] = useState(false);
   const [dueTodayOnly, setDueTodayOnly] = useState(false);
+
+  const todayStr = useMemo(() => new Date().toISOString().slice(0, 10), []);
+  const todayGoldDayExpenses = useMemo(() => {
+    return expenses.filter(
+      (e) => e.category === "GOLD_DAY" && e.dueDate && e.dueDate.slice(0, 10) === todayStr && e.status !== "PAID"
+    );
+  }, [expenses, todayStr]);
 
   const TR_MONTH_SHORT = ["", "Oca", "Şub", "Mar", "Nis", "May", "Haz", "Tem", "Ağu", "Eyl", "Eki", "Kas", "Ara"];
   const TR_MONTH_FULL = [
@@ -954,9 +974,30 @@ function GiderlerPageContent() {
   }, []);
 
   const stats = useMemo(() => {
+    const isCardPm = (e: SchoolExpense) =>
+      e.category !== "CREDIT_CARD" &&
+      e.category !== "CHEQUE" &&
+      e.paymentMethod === "CREDIT_CARD";
+
     const totalDue = monthBaseExpenses.reduce((sum, e) => sum + (Number(e.amountDue) || 0), 0);
     const totalPaid = monthBaseExpenses.reduce((sum, e) => sum + (Number(e.amountPaid) || 0), 0);
     const totalRemaining = monthBaseExpenses.reduce((sum, e) => sum + (Number(e.amountRemaining) || 0), 0);
+
+    const cardDue = monthBaseExpenses
+      .filter(isCardPm)
+      .reduce((sum, e) => sum + (Number(e.amountDue) || 0), 0);
+    const cashDue = Math.max(0, totalDue - cardDue);
+
+    const cardPaid = monthBaseExpenses
+      .filter(isCardPm)
+      .reduce((sum, e) => sum + (Number(e.amountPaid) || 0), 0);
+    const cashPaid = Math.max(0, totalPaid - cardPaid);
+
+    const cardRemaining = monthBaseExpenses
+      .filter(isCardPm)
+      .reduce((sum, e) => sum + (Number(e.amountRemaining) || 0), 0);
+    const cashRemaining = Math.max(0, totalRemaining - cardRemaining);
+
     const countTotal = monthBaseExpenses.length;
     const countPending = monthBaseExpenses.filter((e) => e.status === "PENDING").length;
     const countPartial = monthBaseExpenses.filter((e) => e.status === "PARTIAL").length;
@@ -970,6 +1011,12 @@ function GiderlerPageContent() {
       totalDue,
       totalPaid,
       totalRemaining,
+      cashDue,
+      cardDue,
+      cashPaid,
+      cardPaid,
+      cashRemaining,
+      cardRemaining,
       countTotal,
       countPending,
       countPartial,
@@ -2583,9 +2630,9 @@ function GiderlerPageContent() {
 
   return (
     <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto w-full space-y-6">
-      {/* Üst Sekmeler: Okul Giderleri | Araç & Mülk Takibi | Personel Cari */}
+      {/* Üst Sekmeler: Okul Giderleri | Tedarikçi Carileri | Araç & Mülk Takibi | Personel Cari */}
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-3">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <button
             type="button"
             onClick={() => setActiveMainTab("EXPENSES")}
@@ -2604,6 +2651,19 @@ function GiderlerPageContent() {
 
           <button
             type="button"
+            onClick={() => setActiveMainTab("SUPPLIERS")}
+            className={`px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2 transition-all ${
+              activeMainTab === "SUPPLIERS"
+                ? "bg-amber-600 text-white shadow-xs"
+                : "text-slate-600 hover:text-slate-900 hover:bg-slate-100"
+            }`}
+          >
+            <ReceiptText className="w-4 h-4" />
+            <span>🏪 Tedarikçi & Ürün Carileri (Alınan / Ödenen)</span>
+          </button>
+
+          <button
+            type="button"
             onClick={() => setActiveMainTab("ASSETS")}
             className={`px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2 transition-all ${
               activeMainTab === "ASSETS"
@@ -2616,6 +2676,24 @@ function GiderlerPageContent() {
             {assetWarningCount > 0 && (
               <span className="px-2 py-0.5 rounded-full text-[11px] bg-rose-600 text-white animate-pulse">
                 {assetWarningCount} Acil Uyarı
+              </span>
+            )}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveMainTab("GOLD_DAYS")}
+            className={`px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2 transition-all ${
+              activeMainTab === "GOLD_DAYS"
+                ? "bg-amber-500 text-slate-950 shadow-xs ring-2 ring-amber-400"
+                : "text-slate-600 hover:text-slate-900 hover:bg-slate-100"
+            }`}
+          >
+            <Coins className="w-4 h-4 text-amber-600" />
+            <span>🪙 Altın Günleri Takibi</span>
+            {todayGoldDayExpenses.length > 0 && (
+              <span className="px-2 py-0.5 rounded-full text-[10px] bg-rose-600 text-white font-black animate-pulse">
+                BUGÜN GÜN VAR!
               </span>
             )}
           </button>
@@ -2691,6 +2769,35 @@ function GiderlerPageContent() {
       {/* ============================================================== */}
       {activeMainTab === "EXPENSES" && (
         <div className="space-y-6">
+          {/* BUGÜN ALTIN GÜNÜ UYARI BİLDİRİMİ */}
+          {todayGoldDayExpenses.length > 0 && (
+            <div className="bg-gradient-to-r from-amber-500 via-amber-400 to-yellow-500 border-2 border-amber-600/40 rounded-2xl p-4 shadow-md text-slate-950 flex flex-col sm:flex-row items-center justify-between gap-3 animate-pulse">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-slate-950 text-amber-400 flex items-center justify-center shrink-0 shadow">
+                  <Coins className="w-6 h-6 animate-bounce" />
+                </div>
+                <div>
+                  <h3 className="font-black text-sm tracking-wide flex items-center gap-2">
+                    <span>🔔 BUGÜN ALTIN GÜNÜ VAR! ({todayGoldDayExpenses.length} Adet Ödeme)</span>
+                  </h3>
+                  <p className="text-xs font-semibold text-slate-900 mt-0.5">
+                    {todayGoldDayExpenses.map((g) => `${g.title}: ₺${g.amountDue.toLocaleString("tr-TR")}`).join(" • ")}
+                    {" — "}
+                    <span className="underline">Altın günü borçları nakit olarak ödenir.</span>
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setActiveMainTab("GOLD_DAYS")}
+                className="px-4 py-2 bg-slate-950 hover:bg-slate-800 text-amber-400 rounded-xl font-black text-xs shrink-0 shadow transition-all flex items-center gap-1.5"
+              >
+                <span>Altın Günleri Paneline Git</span>
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
+          )}
+
           {/* Header */}
           <div className="flex flex-col gap-3">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
@@ -3182,7 +3289,7 @@ function GiderlerPageContent() {
           )}
 
           {/* 4 Özet Finans Kartı (Kompakt & Tıklanabilir Filtreleme — Tıklandığında Diğer Kartların Verileri Değişmez) */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
             {/* Toplam Ödenecek (Tıklayınca Tümünü Gösterir) */}
             <button
               type="button"
@@ -3192,22 +3299,33 @@ function GiderlerPageContent() {
                 setCommitmentsOnly(false);
                 setChequesOnly(false);
               }}
-              className={`p-3 rounded-xl border transition-all text-left flex items-center justify-between ${
+              className={`p-3 rounded-xl border transition-all text-left flex flex-col justify-between gap-2 ${
                 selectedStatus === "ALL" && !installmentOnly && !commitmentsOnly && !chequesOnly
                   ? "bg-slate-50 border-slate-500 ring-1 ring-slate-500/20"
                   : "bg-white border-slate-200/80 hover:border-slate-400 shadow-2xs"
               }`}
             >
-              <div>
-                <div className="flex items-center gap-1">
-                  <p className="text-[11px] font-bold text-slate-700">Toplam Ödenecek</p>
-                  <span className="text-[9px] text-slate-600 bg-slate-100 px-1 py-0.2 rounded font-bold">Tümü</span>
+              <div className="flex items-start justify-between gap-2 w-full">
+                <div>
+                  <div className="flex items-center gap-1">
+                    <p className="text-[11px] font-bold text-slate-700">Toplam Ödenecek</p>
+                    <span className="text-[9px] text-slate-600 bg-slate-100 px-1 py-0.2 rounded font-bold">Tümü ({stats.countTotal})</span>
+                  </div>
+                  <p className="text-lg font-extrabold text-slate-900 mt-0.5">{formatCurrency(stats.totalDue)}</p>
                 </div>
-                <p className="text-lg font-extrabold text-slate-900 mt-0.5">{formatCurrency(stats.totalDue)}</p>
-                <p className="text-[10px] text-slate-500 font-medium">{stats.countTotal} işlem kaydı</p>
+                <div className="w-8 h-8 rounded-lg bg-slate-100 text-slate-700 flex items-center justify-center shrink-0">
+                  <Coins className="w-4 h-4" />
+                </div>
               </div>
-              <div className="w-8 h-8 rounded-lg bg-slate-100 text-slate-700 flex items-center justify-center">
-                <Coins className="w-4 h-4" />
+              <div className="pt-1.5 border-t border-slate-200/70 flex flex-col gap-0.5 text-[10px] w-full">
+                <div className="flex items-center justify-between text-slate-700">
+                  <span className="font-semibold">💵 Nakit:</span>
+                  <span className="font-extrabold text-slate-900">{formatCurrency(stats.cashDue)}</span>
+                </div>
+                <div className="flex items-center justify-between text-purple-800">
+                  <span className="font-semibold">💳 Kartla:</span>
+                  <span className="font-extrabold">{formatCurrency(stats.cardDue)}</span>
+                </div>
               </div>
             </button>
 
@@ -3215,22 +3333,33 @@ function GiderlerPageContent() {
             <button
               type="button"
               onClick={() => setSelectedStatus(selectedStatus === "PAID" ? "ALL" : "PAID")}
-              className={`p-3 rounded-xl border transition-all text-left flex items-center justify-between ${
+              className={`p-3 rounded-xl border transition-all text-left flex flex-col justify-between gap-2 ${
                 selectedStatus === "PAID"
                   ? "bg-emerald-50 border-emerald-500 ring-1 ring-emerald-500/20"
                   : "bg-white border-slate-200/80 hover:border-emerald-300 shadow-2xs"
               }`}
             >
-              <div>
-                <div className="flex items-center gap-1">
-                  <p className="text-[11px] font-bold text-emerald-700">Toplam Ödenen</p>
-                  <span className="text-[9px] text-emerald-600 bg-emerald-100 px-1 py-0.2 rounded font-bold">Filtrele</span>
+              <div className="flex items-start justify-between gap-2 w-full">
+                <div>
+                  <div className="flex items-center gap-1">
+                    <p className="text-[11px] font-bold text-emerald-700">Toplam Ödenen</p>
+                    <span className="text-[9px] text-emerald-600 bg-emerald-100 px-1 py-0.2 rounded font-bold">Filtrele ({stats.countPaid})</span>
+                  </div>
+                  <p className="text-lg font-extrabold text-emerald-600 mt-0.5">{formatCurrency(stats.totalPaid)}</p>
                 </div>
-                <p className="text-lg font-extrabold text-emerald-600 mt-0.5">{formatCurrency(stats.totalPaid)}</p>
-                <p className="text-[10px] text-emerald-700 font-medium">{stats.countPaid} tamamlanan</p>
+                <div className="w-8 h-8 rounded-lg bg-emerald-100/70 text-emerald-700 flex items-center justify-center shrink-0">
+                  <CheckCircle2 className="w-4 h-4" />
+                </div>
               </div>
-              <div className="w-8 h-8 rounded-lg bg-emerald-100/70 text-emerald-700 flex items-center justify-center">
-                <CheckCircle2 className="w-4 h-4" />
+              <div className="pt-1.5 border-t border-emerald-200/60 flex flex-col gap-0.5 text-[10px] w-full">
+                <div className="flex items-center justify-between text-emerald-800">
+                  <span className="font-semibold">💵 Nakit:</span>
+                  <span className="font-extrabold">{formatCurrency(stats.cashPaid)}</span>
+                </div>
+                <div className="flex items-center justify-between text-purple-800">
+                  <span className="font-semibold">💳 Kartla:</span>
+                  <span className="font-extrabold">{formatCurrency(stats.cardPaid)}</span>
+                </div>
               </div>
             </button>
 
@@ -3238,36 +3367,53 @@ function GiderlerPageContent() {
             <button
               type="button"
               onClick={() => setSelectedStatus(selectedStatus === "PENDING" ? "ALL" : "PENDING")}
-              className={`p-3 rounded-xl border transition-all text-left flex items-center justify-between ${
+              className={`p-3 rounded-xl border transition-all text-left flex flex-col justify-between gap-2 ${
                 selectedStatus === "PENDING"
                   ? "bg-rose-50 border-rose-500 ring-1 ring-rose-500/20"
                   : "bg-white border-slate-200/80 hover:border-rose-300 shadow-2xs"
               }`}
             >
-              <div>
-                <div className="flex items-center gap-1">
-                  <p className="text-[11px] font-bold text-rose-700">Kalan Net Borç</p>
-                  <span className="text-[9px] text-rose-600 bg-rose-100 px-1 py-0.2 rounded font-bold">Filtrele</span>
+              <div className="flex items-start justify-between gap-2 w-full">
+                <div>
+                  <div className="flex items-center gap-1">
+                    <p className="text-[11px] font-bold text-rose-700">Kalan Net Borç</p>
+                    <span className="text-[9px] text-rose-600 bg-rose-100 px-1 py-0.2 rounded font-bold">
+                      Filtrele ({stats.countPending + stats.countPartial})
+                    </span>
+                  </div>
+                  <p className="text-lg font-extrabold text-rose-600 mt-0.5">{formatCurrency(stats.totalRemaining)}</p>
                 </div>
-                <p className="text-lg font-extrabold text-rose-600 mt-0.5">{formatCurrency(stats.totalRemaining)}</p>
-                <p className="text-[10px] text-rose-700 font-medium">{stats.countPending + stats.countPartial} bekleyen</p>
+                <div className="w-8 h-8 rounded-lg bg-rose-100/70 text-rose-700 flex items-center justify-center shrink-0">
+                  <AlertCircle className="w-4 h-4" />
+                </div>
               </div>
-              <div className="w-8 h-8 rounded-lg bg-rose-100/70 text-rose-700 flex items-center justify-center">
-                <AlertCircle className="w-4 h-4" />
+              <div className="pt-1.5 border-t border-rose-200/60 flex flex-col gap-0.5 text-[10px] w-full">
+                <div className="flex items-center justify-between text-rose-900">
+                  <span className="font-semibold">💵 Nakit:</span>
+                  <span className="font-extrabold">{formatCurrency(stats.cashRemaining)}</span>
+                </div>
+                <div className="flex items-center justify-between text-purple-800">
+                  <span className="font-semibold">💳 Kartla:</span>
+                  <span className="font-extrabold">{formatCurrency(stats.cardRemaining)}</span>
+                </div>
               </div>
             </button>
 
             {/* Taksit & Taahhüt & Çek */}
-            <div className="bg-white p-3 rounded-xl border border-slate-200/80 shadow-2xs flex items-center justify-between">
-              <div>
-                <p className="text-[11px] font-semibold text-purple-700">Taksit, Taahhüt & Çek</p>
-                <p className="text-lg font-extrabold text-purple-700 mt-0.5">{stats.countInstallment + stats.countCommitment + stats.countCheques} Kalem</p>
-                <p className="text-[10px] text-purple-600">
-                  {stats.countInstallment} Taksit • {stats.countCommitment} Taahhüt • {stats.countCheques} Çek
-                </p>
+            <div className="bg-white p-3 rounded-xl border border-slate-200/80 shadow-2xs flex flex-col justify-between gap-2">
+              <div className="flex items-start justify-between gap-2 w-full">
+                <div>
+                  <p className="text-[11px] font-semibold text-purple-700">Taksit, Taahhüt & Çek</p>
+                  <p className="text-lg font-extrabold text-purple-700 mt-0.5">
+                    {stats.countInstallment + stats.countCommitment + stats.countCheques} Kalem
+                  </p>
+                </div>
+                <div className="w-8 h-8 rounded-lg bg-purple-50 text-purple-700 flex items-center justify-center shrink-0">
+                  <Layers className="w-4 h-4" />
+                </div>
               </div>
-              <div className="w-8 h-8 rounded-lg bg-purple-50 text-purple-700 flex items-center justify-center">
-                <Layers className="w-4 h-4" />
+              <div className="pt-1.5 border-t border-slate-100 text-[10px] text-purple-700 font-semibold">
+                {stats.countInstallment} Taksit • {stats.countCommitment} Taahhüt • {stats.countCheques} Çek
               </div>
             </div>
           </div>
@@ -4358,35 +4504,28 @@ function GiderlerPageContent() {
           </div>
 
           {/* ============================================================== */}
-          {/* 📞 TELEFON FATURALARI, 5 NUMARA GİRME & TAAHHÜT TAKİP EKRANI   */}
+          {/* 📞 TELEFON FATURALARI & TAAHHÜT TAKİP EKRANI (MİNİMALİST BAR)   */}
           {/* ============================================================== */}
-          <div className="bg-white rounded-2xl border border-blue-200 shadow-xs overflow-hidden">
-            <div className="px-5 py-3.5 bg-gradient-to-r from-blue-900 via-blue-800 to-indigo-900 text-white flex flex-col md:flex-row md:items-center justify-between gap-3">
-              <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-xl bg-white/15 flex items-center justify-center border border-white/20 shrink-0">
-                  <PhoneCall className="w-5 h-5 text-blue-200" />
-                </div>
-                <div>
-                  <h2 className="text-sm font-extrabold tracking-tight flex items-center gap-2 flex-wrap">
-                    <span>Telefon Faturaları, 5 Numara / Kullanan Kişi & Taahhüt Takip Ekranı</span>
-                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-500/30 text-blue-100 border border-blue-300/30">
-                      Tek Fatura • Çoklu Numara • 10 Gün Kala Hatırlatma
-                    </span>
-                  </h2>
-                  <p className="text-[11px] text-blue-200">
-                    Vodafone vb. tek fatura içerisindeki 5 farklı numarayı, kimin kullandığını, kullanım ücretini ve taahhüt tarihini buradan girin veya ekranı gizleyin
-                  </p>
-                </div>
+          <div className="bg-white rounded-xl border border-slate-200/90 shadow-2xs overflow-hidden">
+            <div className="px-3.5 py-2 bg-slate-50/80 flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <PhoneCall className="w-4 h-4 text-blue-600 shrink-0" />
+                <h2 className="text-xs sm:text-sm font-bold text-slate-800">
+                  Telefon Faturaları & 5 Hat Taahhüt Takibi
+                </h2>
+                <span className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-blue-50 text-blue-700 border border-blue-200/70">
+                  {phoneInvoicesForPanel.length} Fatura
+                </span>
               </div>
 
-              <div className="flex items-center gap-2 flex-wrap">
+              <div className="flex items-center gap-1.5 flex-wrap">
                 <button
                   type="button"
                   onClick={openNewPhoneInvoiceModal}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-extrabold bg-emerald-500 hover:bg-emerald-600 text-white shadow-sm transition-colors"
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold bg-emerald-600 hover:bg-emerald-700 text-white transition-colors"
                 >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>+ Telefon Faturası Ekle</span>
+                  <Plus className="w-3 h-3" />
+                  <span>+ Fatura Ekle</span>
                 </button>
                 <button
                   type="button"
@@ -4397,41 +4536,36 @@ function GiderlerPageContent() {
                       openNewPhoneInvoiceModal();
                     }
                   }}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-extrabold bg-white text-blue-900 hover:bg-blue-50 shadow-sm transition-colors"
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold bg-blue-600 hover:bg-blue-700 text-white transition-colors"
                 >
-                  <PhoneCall className="w-3.5 h-3.5 text-blue-700" />
-                  <span>📞 Telefon Numarası / Taahhüt Gir</span>
+                  <PhoneCall className="w-3 h-3" />
+                  <span>Numara / Taahhüt Gir</span>
                 </button>
                 <button
                   type="button"
                   onClick={() => setShowPhoneSection(!showPhoneSection)}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-white/10 hover:bg-white/20 text-white border border-white/15 transition-colors"
+                  className="inline-flex items-center gap-1 px-2 py-1 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 text-slate-600 text-[11px] font-semibold transition-colors"
                 >
-                  <span>{showPhoneSection ? "Ekranı Gizle" : "Ekranı Göster"}</span>
-                  {showPhoneSection ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                  <span>{showPhoneSection ? "Gizle" : "Göster"}</span>
+                  {showPhoneSection ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
                 </button>
               </div>
             </div>
 
             {showPhoneSection && (
-              <div className="p-4 bg-slate-50/60 space-y-3">
+              <div className="p-3 bg-slate-50/40 border-t border-slate-200/80 space-y-2.5">
                 {phoneInvoicesForPanel.length === 0 ? (
-                  <div className="bg-white rounded-xl border border-dashed border-blue-300 p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                    <div>
-                      <p className="text-xs font-extrabold text-slate-800">
-                        Henüz kayıtlı bir Telefon / Vodafone faturası bulunmuyor.
-                      </p>
-                      <p className="text-[11px] text-slate-500 mt-0.5">
-                        Tek fatura altında 5 farklı numarayı, kullanan kişiyi ve taahhüt bitiş tarihini tanımlamak için yeni telefon faturası ekleyin.
-                      </p>
-                    </div>
+                  <div className="bg-white rounded-lg border border-dashed border-slate-300 px-3.5 py-2.5 flex items-center justify-between gap-3">
+                    <p className="text-xs text-slate-600">
+                      Henüz kayıtlı bir Telefon / Vodafone faturası bulunmuyor.
+                    </p>
                     <button
                       type="button"
                       onClick={openNewPhoneInvoiceModal}
-                      className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-extrabold bg-blue-600 hover:bg-blue-700 text-white shadow-sm shrink-0"
+                      className="inline-flex items-center gap-1 px-3 py-1 rounded-lg text-[11px] font-bold bg-blue-600 hover:bg-blue-700 text-white shrink-0"
                     >
-                      <Plus className="w-4 h-4" />
-                      <span>+ Telefon Faturası & 5 Numara Ekle</span>
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>+ Ekle</span>
                     </button>
                   </div>
                 ) : (
@@ -4876,7 +5010,7 @@ function GiderlerPageContent() {
                               <span className="text-[11px] text-slate-500 block mt-0.5">
                                 {(exp.status === "PAID" || exp.amountRemaining <= 0) && exp.description.toLowerCase().includes("kaldı")
                                   ? "Tüm taksitler ödendi - Borç tamamen kapandı ✅"
-                                  : exp.description}
+                                  : exp.description.replace(/\[SUPPLIER_CARI:[^\]]+\]/g, "").trim()}
                               </span>
                             )}
 
@@ -5266,7 +5400,20 @@ function GiderlerPageContent() {
       )}
 
       {/* ============================================================== */}
-      {/* SEKME 2: ARAÇ & MÜLK TAKİBİ (Kasko, Muayene, Sigorta)         */}
+      {/* SEKME 2: TEDARİKÇİ & ÜRÜN CARİLERİ (ALINAN / ÖDENEN TAKİBİ)    */}
+      {/* ============================================================== */}
+      {activeMainTab === "SUPPLIERS" && (
+        <SupplierCariPanel
+          onSynced={fetchExpenses}
+          onNavigateToMonthExpense={(ym) => {
+            setSelectedMonth(ym);
+            setActiveMainTab("EXPENSES");
+          }}
+        />
+      )}
+
+      {/* ============================================================== */}
+      {/* SEKME 3: ARAÇ & MÜLK TAKİBİ (Kasko, Muayene, Sigorta)         */}
       {/* ============================================================== */}
       {activeMainTab === "ASSETS" && (
         <div className="space-y-6">
@@ -5421,6 +5568,19 @@ function GiderlerPageContent() {
             )}
           </div>
         </div>
+      )}
+
+      {/* ============================================================== */}
+      {/* SEKME 4: ALTIN GÜNLERİ TAKİBİ                                  */}
+      {/* ============================================================== */}
+      {activeMainTab === "GOLD_DAYS" && (
+        <GoldDaysPanel
+          onRefreshMainExpenses={fetchExpenses}
+          onNavigateToMonthExpense={(ym) => {
+            setSelectedMonth(ym);
+            setActiveMainTab("EXPENSES");
+          }}
+        />
       )}
 
       {/* ============================================================== */}

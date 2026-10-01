@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { syncStaffPayrolls } from "@/lib/payroll-sync";
 
 export async function GET(
   request: Request,
@@ -69,41 +70,64 @@ export async function PUT(
       officialSalaryPart,
     } = body;
 
-    // Önce departman ilişkilerini güncelle
-    await prisma.staffDepartment.deleteMany({
-      where: { staffId: id },
+    const existingStaff = await prisma.staff.findUnique({
+      where: { id },
+      include: { salaryConfig: true },
     });
 
-    const isPermanent = isMebPermanent === undefined ? true : (isMebPermanent === true || isMebPermanent === "true");
+    if (!existingStaff) {
+      return NextResponse.json({ error: "Personel bulunamadı" }, { status: 404 });
+    }
 
-    const updateData: any = {
-      tcNo,
-      fullName,
-      birthDate: birthDate ? new Date(birthDate) : null,
-      phone,
-      phone2,
-      email,
-      iban,
-      accountNumber,
-      title,
-      hireDate: hireDate ? new Date(hireDate) : null,
-      terminationDate: terminationDate ? new Date(terminationDate) : null,
-      mebAssignmentDate: mebAssignmentDate ? new Date(mebAssignmentDate) : null,
-      mebAssignmentEndDate: mebAssignmentDate && !isPermanent && mebAssignmentEndDate ? new Date(mebAssignmentEndDate) : null,
-      isMebPermanent: mebAssignmentDate ? isPermanent : false,
-      unofficialWorkPeriod,
-      sgkStartDate: sgkStartDate ? new Date(sgkStartDate) : null,
-      notes,
-      status,
-      ...(photoUrl !== undefined ? { photoUrl } : {}),
-    };
+    if (departmentIds !== undefined && Array.isArray(departmentIds)) {
+      await prisma.staffDepartment.deleteMany({
+        where: { staffId: id },
+      });
+    }
 
+    const isPermanent =
+      isMebPermanent === undefined
+        ? (existingStaff.isMebPermanent ?? true)
+        : (isMebPermanent === true || isMebPermanent === "true");
+
+    const updateData: any = {};
+    if (tcNo !== undefined) updateData.tcNo = tcNo;
+    if (fullName !== undefined) updateData.fullName = fullName;
+    if (birthDate !== undefined) updateData.birthDate = birthDate ? new Date(birthDate) : null;
+    if (phone !== undefined) updateData.phone = phone;
+    if (phone2 !== undefined) updateData.phone2 = phone2;
+    if (email !== undefined) updateData.email = email;
+    if (iban !== undefined) updateData.iban = iban;
+    if (accountNumber !== undefined) updateData.accountNumber = accountNumber;
+    if (title !== undefined) updateData.title = title;
+    if (hireDate !== undefined) updateData.hireDate = hireDate ? new Date(hireDate) : null;
+    if (terminationDate !== undefined) updateData.terminationDate = terminationDate ? new Date(terminationDate) : null;
+    if (mebAssignmentDate !== undefined) {
+      updateData.mebAssignmentDate = mebAssignmentDate ? new Date(mebAssignmentDate) : null;
+      updateData.isMebPermanent = mebAssignmentDate ? isPermanent : false;
+      if (mebAssignmentEndDate !== undefined) {
+        updateData.mebAssignmentEndDate =
+          mebAssignmentDate && !isPermanent && mebAssignmentEndDate ? new Date(mebAssignmentEndDate) : null;
+      }
+    }
     if (isMebEndNotified !== undefined) {
       updateData.isMebEndNotified = Boolean(isMebEndNotified);
     } else if (mebAssignmentEndDate !== undefined) {
-      // Bitiş tarihi değiştirildiyse bildirimi yeniden aç
       updateData.isMebEndNotified = false;
     }
+    if (unofficialWorkPeriod !== undefined) updateData.unofficialWorkPeriod = unofficialWorkPeriod;
+    if (sgkStartDate !== undefined) updateData.sgkStartDate = sgkStartDate ? new Date(sgkStartDate) : null;
+    if (notes !== undefined) updateData.notes = notes;
+    if (status !== undefined) updateData.status = status;
+    if (photoUrl !== undefined) updateData.photoUrl = photoUrl;
+
+    const salaryCreateOrUpdate = {
+      salaryType: salaryType !== undefined ? salaryType : (existingStaff.salaryConfig?.salaryType || "MONTHLY"),
+      monthlySalary: monthlySalary !== undefined ? Number(monthlySalary) || 0 : (existingStaff.salaryConfig?.monthlySalary || 0),
+      hourlyRate: hourlyRate !== undefined ? Number(hourlyRate) || 0 : (existingStaff.salaryConfig?.hourlyRate || 0),
+      dailyRate: dailyRate !== undefined ? Number(dailyRate) || 0 : (existingStaff.salaryConfig?.dailyRate || 0),
+      officialSalaryPart: officialSalaryPart !== undefined ? Number(officialSalaryPart) || 0 : (existingStaff.salaryConfig?.officialSalaryPart || 0),
+    };
 
     const updated = await prisma.staff.update({
       where: { id },
@@ -111,33 +135,28 @@ export async function PUT(
         ...updateData,
         salaryConfig: {
           upsert: {
-            create: {
-              salaryType: salaryType || "MONTHLY",
-              monthlySalary: Number(monthlySalary) || 0,
-              hourlyRate: Number(hourlyRate) || 0,
-              dailyRate: Number(dailyRate) || 0,
-              officialSalaryPart: Number(officialSalaryPart) || 0,
-            },
-            update: {
-              salaryType: salaryType || "MONTHLY",
-              monthlySalary: Number(monthlySalary) || 0,
-              hourlyRate: Number(hourlyRate) || 0,
-              dailyRate: Number(dailyRate) || 0,
-              officialSalaryPart: Number(officialSalaryPart) || 0,
-            },
+            create: salaryCreateOrUpdate,
+            update: salaryCreateOrUpdate,
           },
         },
-        departments: {
-          create: departmentIds.map((deptId: string) => ({
-            departmentId: deptId,
-          })),
-        },
+        ...(departmentIds !== undefined && Array.isArray(departmentIds)
+          ? {
+              departments: {
+                create: departmentIds.map((deptId: string) => ({
+                  departmentId: deptId,
+                })),
+              },
+            }
+          : {}),
       },
       include: {
         departments: { include: { department: true } },
         salaryConfig: true,
       },
     });
+
+    // Personelin açık/ödenmemiş bordrolarını ve cari hareketlerini güncel maaş ile anında eşleştir
+    await syncStaffPayrolls(id, { createCurrentIfMissing: true });
 
     return NextResponse.json(updated);
   } catch (error: any) {

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { calculateOfficialSplit } from "@/lib/payroll-calculator";
+import { syncStaffPayrolls } from "@/lib/payroll-sync";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -9,6 +10,9 @@ export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const staffId = searchParams.get("staffId");
+
+    // Personel maaş veya sözleşme güncellemelerini açık bordrolarla ve cari hareketlerle otomatik eşleştir
+    await syncStaffPayrolls(staffId || undefined, { createCurrentIfMissing: true });
 
     // 1. Tüm personellerin temel listesi ve cari özetleri (Sol/Üst seçim listesi için)
     const allStaff = await prisma.staff.findMany({
@@ -84,8 +88,9 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: "Personel bulunamadı" }, { status: 404 });
     }
 
-    // Her dönemin banka (resmî) ve elden (nakit) ayrımını atama tarihine göre kesin hesapla
+    // Her dönemin banka (resmî) ve elden (nakit) ayrımını atama tarihine ve kayıtlı ayarlara göre kesin hesapla
     const detailedPayrolls = staff.payrolls.map((p) => {
+      const isManualElden = Boolean(p.notes && p.notes.includes("[MANUEL_ELDEN]"));
       const split = calculateOfficialSplit({
         netTotal: p.netTotal,
         monthlySalary: staff.salaryConfig?.monthlySalary || 0,
@@ -98,6 +103,7 @@ export async function GET(request: Request) {
         sgkStartDate: staff.sgkStartDate,
         officialSalaryPart: staff.salaryConfig?.officialSalaryPart || 0,
         reportDays: p.reportDays,
+        manualUnofficialAmount: isManualElden ? p.unofficialAmount : null,
       });
 
       return {

@@ -463,6 +463,96 @@ model QuoteSetting {
   updatedAt       DateTime @updatedAt
 }
 
+// ==================== ALTIN GÜNLERİ TAKİP MODÜLÜ ====================
 
+model GoldDayGroup {
+  id              String         @id @default(uuid())
+  title           String         // Grup Adı (Örn: Ayın 10'u Ajda Bilezik Grubu)
+  goldType        String         @default("AJDA_BILEZIK") // AJDA_BILEZIK, CEYREK_ALTIN, YARIM_ALTIN, TAM_ALTIN, GRAM_ALTIN, CASH
+  goldTypeLabel   String?        @default("Ajda Bilezik")
+  totalMembers    Int            @default(26) // Toplam Kişi / Hisse Sayısı
+  userShareCount  Int            @default(1)  // Muhammed Ali Çağır'ın katıldığı hisse/kişi sayısı (örn: 5)
+  defaultAmount   Float          @default(63150) // Varsayılan Altın / Gün Tutarı (TL)
+  meetingFrequency String?       @default("THRICE_MONTHLY") // ONCE_MONTHLY, TWICE_MONTHLY, THRICE_MONTHLY, CUSTOM
+  daysList        String?        @default("1,10,20") // Ay içindeki günler (Örn: "1,10,20" veya "10" veya "1,15")
+  dayOfMonth      Int?           @default(10) // Geriye dönük uyumluluk için ilk gün
+  startYear       Int            @default(2026)
+  startMonth      Int            @default(10)
+  notes           String?
+  status          String         @default("ACTIVE") // ACTIVE, COMPLETED, ARCHIVED
+  rounds          GoldDayRound[]
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+}
 
+model GoldDayRound {
+  id                  String       @id @default(uuid())
+  groupId             String
+  group               GoldDayGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  roundIndex          Int          // 1, 2, 3...
+  dueDate             DateTime     // Vade Tarihi
+  dueDateStr          String?      // "10 Ekim 2026"
+  year                Int
+  month               Int          // 1 - 12
+  recipientName       String       // Gün Sırası Kimde (Feyza, Muhammed Ali vb.)
+  isUserTurn          Boolean      @default(false) // Sıra Muhammed Ali'de mi?
+  goldAmount          Float        @default(0) // O ayki toplam altın değeri (TL)
+  payingMembersCount  Int          @default(25) // Ödeme yapan kişi sayısı (totalMembers - 1)
+  perMemberAmount     Float        @default(0) // Kişi başı düşen pay (goldAmount / payingMembersCount)
+  userShareCount      Int          @default(1) // Muhammed Ali'nin bu tur ödeyeceği hisse sayısı (sıra ondaysa userShareCount - 1)
+  userAmountToPay     Float        @default(0) // Muhammed Ali'nin ödeyeceği nakit tutar
+  isPaid              Boolean      @default(false)
+  paidDate            DateTime?
+  paidAmount          Float        @default(0)
+  notes               String?
+  expenseId           String?      // SchoolExpense ile eşleşme ID'si
+  createdAt           DateTime     @default(now())
+  updatedAt           DateTime     @updatedAt
+}
 
+// ==================== TEDARİKÇİ CARİ MODÜLLERİ ====================
+
+model ChequePhotoStore {
+  id        String   @id
+  photoUrl  String?
+  title     String?
+  updatedAt String?
+}
+
+model SupplierCariAccount {
+  id               String                    @id
+  name             String
+  productSummary   String
+  category         String?                   @default("Tedarikçi")
+  unitLabel        String?                   @default("Adet")
+  defaultUnitPrice Float?                    @default(0)
+  paymentDay       Int?                      @default(15)
+  nextPaymentDate  String?
+  paymentMethod    String?                   @default("CASH")
+  cardHolder       String?
+  cardBank         String?
+  phone            String?
+  iban             String?
+  notes            String?
+  transactions     SupplierCariTransaction[]
+  createdAt        String
+  updatedAt        String
+}
+
+model SupplierCariTransaction {
+  id            String              @id
+  supplierId    String
+  supplier      SupplierCariAccount @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  txType        String              // PURCHASE, PAYMENT
+  date          String
+  dueDate       String?
+  itemTitle     String
+  quantity      Float?              @default(1)
+  unitPrice     Float?              @default(0)
+  amount        Float               @default(0)
+  paymentMethod String?             @default("CASH")
+  cardHolder    String?
+  cardBank      String?
+  notes         String?
+  createdAt     String
+}
