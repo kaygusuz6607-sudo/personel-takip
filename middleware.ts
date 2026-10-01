@@ -18,6 +18,7 @@ export async function middleware(request: NextRequest) {
   if (
     pathname === "/api/auth/login" ||
     pathname === "/api/auth/logout" ||
+    pathname === "/api/health" ||
     pathname.startsWith("/foto-yukle") ||
     pathname.endsWith("/foto")
   ) {

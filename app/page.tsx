@@ -6,43 +6,14 @@ import { DashboardSalarySchedule, SalaryStaffItem } from "@/components/Dashboard
 export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {
-  const activeStaff = await prisma.staff.count({ where: { status: "ACTIVE", terminationDate: null } });
-  const passiveStaff = await prisma.staff.count({ where: { OR: [{ status: "PASSIVE" }, { terminationDate: { not: null } }] } });
-  const totalStaff = await prisma.staff.count();
-  const onLeaveStaff = await prisma.staff.count({ where: { status: "ON_LEAVE" } });
-  const totalStudents = await prisma.student.count();
-  const totalLeads = await prisma.lead.count();
-  const newLeads = await prisma.lead.count({ where: { status: "NEW" } });
+  // Veritabanı hatası olursa uygulama tamamen çökmesin
+  let activeStaff = 0, passiveStaff = 0, totalStaff = 0, onLeaveStaff = 0;
+  let totalStudents = 0, totalLeads = 0, newLeads = 0;
+  let departments: any[] = [];
+  let recentStaff: any[] = [];
+  let latestPayrolls: any[] = [];
+  let allActiveStaff: any[] = [];
 
-  const departments = await prisma.department.findMany({
-    include: {
-      _count: {
-        select: {
-          staffs: {
-            where: {
-              staff: {
-                status: "ACTIVE",
-                terminationDate: null,
-              },
-            },
-          },
-        },
-      },
-    },
-    orderBy: { name: "asc" },
-  });
-
-  const recentStaff = await prisma.staff.findMany({
-    where: { status: "ACTIVE", terminationDate: null },
-    take: 6,
-    orderBy: { createdAt: "desc" },
-    include: {
-      departments: { include: { department: true } },
-      salaryConfig: true,
-    },
-  });
-
-  // Son bordro verileri (dinamik)
   const now = new Date();
   const currentYear = now.getFullYear();
   const currentMonth = now.getMonth() + 1;
@@ -53,57 +24,85 @@ export default async function DashboardPage() {
   let activeYear = currentYear;
   let activeMonth = currentMonth;
 
-  let latestPayrolls = await prisma.payroll.findMany({
-    where: { year: activeYear, month: activeMonth },
-    include: {
-      staff: {
-        include: {
-          departments: { include: { department: true } },
-          salaryConfig: true,
-        },
-      },
-    },
-  });
+  try {
+    [activeStaff, passiveStaff, totalStaff, onLeaveStaff, totalStudents, totalLeads, newLeads] = await Promise.all([
+      prisma.staff.count({ where: { status: "ACTIVE", terminationDate: null } }),
+      prisma.staff.count({ where: { OR: [{ status: "PASSIVE" }, { terminationDate: { not: null } }] } }),
+      prisma.staff.count(),
+      prisma.staff.count({ where: { status: "ON_LEAVE" } }),
+      prisma.student.count(),
+      prisma.lead.count(),
+      prisma.lead.count({ where: { status: "NEW" } }),
+    ]);
 
-  if (latestPayrolls.length === 0) {
-    const latestOne = await prisma.payroll.findFirst({
-      orderBy: [{ year: "desc" }, { month: "desc" }],
-    });
-    if (latestOne) {
-      activeYear = latestOne.year;
-      activeMonth = latestOne.month;
-      latestPayrolls = await prisma.payroll.findMany({
-        where: { year: activeYear, month: activeMonth },
-        include: {
-          staff: {
-            include: {
-              departments: { include: { department: true } },
-              salaryConfig: true,
+    departments = await prisma.department.findMany({
+      include: {
+        _count: {
+          select: {
+            staffs: {
+              where: { staff: { status: "ACTIVE", terminationDate: null } },
             },
           },
         },
-      });
-    }
-  }
+      },
+      orderBy: { name: "asc" },
+    });
 
-  // Tüm aktif çalışanları çek ve kategorize et (Öğretmenler, İdari Personeller, Destek Personelleri)
-  const allActiveStaff = await prisma.staff.findMany({
-    where: {
-      status: "ACTIVE",
-      terminationDate: null,
-    },
-    include: {
-      departments: { include: { department: true } },
-      salaryConfig: true,
-      payrolls: {
-        where: {
-          year: activeYear,
-          month: activeMonth,
+    recentStaff = await prisma.staff.findMany({
+      where: { status: "ACTIVE", terminationDate: null },
+      take: 6,
+      orderBy: { createdAt: "desc" },
+      include: {
+        departments: { include: { department: true } },
+        salaryConfig: true,
+      },
+    });
+
+    latestPayrolls = await prisma.payroll.findMany({
+      where: { year: activeYear, month: activeMonth },
+      include: {
+        staff: {
+          include: {
+            departments: { include: { department: true } },
+            salaryConfig: true,
+          },
         },
       },
-    },
-    orderBy: { fullName: "asc" },
-  });
+    });
+
+    if (latestPayrolls.length === 0) {
+      const latestOne = await prisma.payroll.findFirst({
+        orderBy: [{ year: "desc" }, { month: "desc" }],
+      });
+      if (latestOne) {
+        activeYear = latestOne.year;
+        activeMonth = latestOne.month;
+        latestPayrolls = await prisma.payroll.findMany({
+          where: { year: activeYear, month: activeMonth },
+          include: {
+            staff: {
+              include: {
+                departments: { include: { department: true } },
+                salaryConfig: true,
+              },
+            },
+          },
+        });
+      }
+    }
+
+    allActiveStaff = await prisma.staff.findMany({
+      where: { status: "ACTIVE", terminationDate: null },
+      include: {
+        departments: { include: { department: true } },
+        salaryConfig: true,
+        payrolls: { where: { year: activeYear, month: activeMonth } },
+      },
+      orderBy: { fullName: "asc" },
+    });
+  } catch (err) {
+    console.error("Dashboard veri yükleme hatası:", err);
+  }
 
   const teacherStaffs: SalaryStaffItem[] = [];
   const branchStaffs: SalaryStaffItem[] = [];
