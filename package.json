@@ -7,6 +7,8 @@
     "build": "prisma generate && next build",
     "start": "next start",
     "lint": "next lint",
+    "db:sqlite": "node scripts/switch-db.js sqlite",
+    "db:postgres": "node scripts/switch-db.js postgres",
     "postinstall": "node -e \"process.env.NODE_TLS_REJECT_UNAUTHORIZED='0'; require('child_process').execSync('npx prisma generate', {stdio: 'inherit'})\""
   },
   "dependencies": {

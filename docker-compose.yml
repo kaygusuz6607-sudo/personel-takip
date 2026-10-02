@@ -1,0 +1,15 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: personel_takip_app
+    restart: always
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+    volumes:
+      # Veritabanını kalıcı tutmak için host ile eşleştir
+      - ./prisma/dev.db:/app/prisma/dev.db
