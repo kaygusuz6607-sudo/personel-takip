@@ -99,6 +99,16 @@ function getSchedulePreview(
   return result;
 }
 
+const isUserTurnName = (name: string): boolean => {
+  const n = (name || "").toLowerCase().trim();
+  return (
+    n.includes("muhammed") ||
+    n.includes("muhammet") ||
+    n.includes("maç") ||
+    n.includes("mac")
+  );
+};
+
 function buildInitialManualRounds(
   totalMembers: number,
   startYear: number,
@@ -151,9 +161,7 @@ function buildInitialManualRounds(
     const isoDate = `${rYear}-${padMonth}-${padDay}`;
 
     const recipientName = rawNames[i] || `Katılımcı ${roundIndex}`;
-    const isUserTurn =
-      recipientName.toLowerCase().includes("muhammed") ||
-      recipientName.toLowerCase().includes("muhammet");
+    const isUserTurn = isUserTurnName(recipientName);
 
     list.push({
       roundIndex,
@@ -381,17 +389,21 @@ export default function GoldDaysPanel({
 
   // Taksit Planını Manuel Düzenleme (Toplu / Excel Tarzı)
   const openBulkEditModal = (group: GoldDayGroup) => {
+    const isCeyrek = group.goldType === "CEYREK_ALTIN";
+    const payingCount = group.totalMembers - 1;
     const items = group.rounds.map((r) => ({
       id: r.id,
       roundIndex: r.roundIndex,
       dueDate: r.dueDate ? new Date(r.dueDate).toISOString().split("T")[0] : "",
       recipientName: r.recipientName,
       isUserTurn: r.isUserTurn,
-      goldAmount: r.goldAmount,
+      goldAmount: isCeyrek && r.goldAmount <= group.defaultAmount
+        ? group.defaultAmount * payingCount
+        : r.goldAmount,
       notes: r.notes || "",
     }));
     setBulkRounds(items);
-    setBulkGlobalAmount(group.defaultAmount);
+    setBulkGlobalAmount(isCeyrek ? group.defaultAmount * payingCount : group.defaultAmount);
     setBulkEditModalOpen(true);
   };
 
@@ -898,14 +910,26 @@ export default function GoldDaysPanel({
                   🗓️ Ödeme Günleri: Her ayın {selectedGroup.daysList || "1, 10, 20"}&apos;si ({selectedGroup.daysList ? selectedGroup.daysList.split(",").length : 3} Kez/Ay)
                 </span>
               </div>
-              <p className="text-xs text-slate-500 mt-1">
-                Altın Değeri: <strong>{formatCurrency(selectedGroup.defaultAmount)}</strong> • Ödeme Yapan:{" "}
-                <strong>{selectedGroup.totalMembers - 1} Kişi</strong> (Gün sırası olan ödemez) • Kişi Başı:{" "}
-                <strong>
-                  {formatCurrency(selectedGroup.defaultAmount / (selectedGroup.totalMembers - 1))}
-                </strong>{" "}
-                • Ödeme Yöntemi: <strong className="text-emerald-700">NAKİT</strong>
-              </p>
+              {selectedGroup.goldType === "CEYREK_ALTIN" ? (
+                <p className="text-xs text-slate-500 mt-1">
+                  1 Çeyrek Bedeli: <strong>{formatCurrency(selectedGroup.defaultAmount)}</strong> • Ödeme Yapan:{" "}
+                  <strong>{selectedGroup.totalMembers - 1} Kişi</strong> (Gün sırası olan ödemez) • Kişi Başı:{" "}
+                  <strong className="text-amber-800">1 Çeyrek ({formatCurrency(selectedGroup.defaultAmount)})</strong> • Tur Başı Teslim Alınan Toplam:{" "}
+                  <strong className="text-slate-900">
+                    {formatCurrency(selectedGroup.defaultAmount * (selectedGroup.totalMembers - 1))} ({selectedGroup.totalMembers - 1} Çeyrek)
+                  </strong>{" "}
+                  • Ödeme Yöntemi: <strong className="text-emerald-700">NAKİT</strong>
+                </p>
+              ) : (
+                <p className="text-xs text-slate-500 mt-1">
+                  Altın Değeri: <strong>{formatCurrency(selectedGroup.defaultAmount)}</strong> • Ödeme Yapan:{" "}
+                  <strong>{selectedGroup.totalMembers - 1} Kişi</strong> (Gün sırası olan ödemez) • Kişi Başı:{" "}
+                  <strong>
+                    {formatCurrency(selectedGroup.defaultAmount / (selectedGroup.totalMembers - 1))}
+                  </strong>{" "}
+                  • Ödeme Yöntemi: <strong className="text-emerald-700">NAKİT</strong>
+                </p>
+              )}
             </div>
 
             <div className="flex items-center gap-2 self-start sm:self-auto flex-wrap">
@@ -1651,9 +1675,7 @@ export default function GoldDaysPanel({
                                   value={mr.recipientName}
                                   onChange={(e) => {
                                     const val = e.target.value;
-                                    const isUser =
-                                      val.toLowerCase().includes("muhammed") ||
-                                      val.toLowerCase().includes("muhammet");
+                                    const isUser = isUserTurnName(val);
                                     setGroupForm((prev) => ({ ...prev, meetingFrequency: "CUSTOM" }));
                                     setManualScheduleRounds((prev) =>
                                       prev.map((r, i) =>
@@ -2126,9 +2148,7 @@ export default function GoldDaysPanel({
                                   value={mr.recipientName}
                                   onChange={(e) => {
                                     const val = e.target.value;
-                                    const isUser =
-                                      val.toLowerCase().includes("muhammed") ||
-                                      val.toLowerCase().includes("muhammet");
+                                    const isUser = isUserTurnName(val);
                                     setRedistributeRounds((prev) =>
                                       prev.map((r, i) =>
                                         i === idx ? { ...r, recipientName: val, isUserTurn: isUser } : r
@@ -2426,8 +2446,11 @@ export default function GoldDaysPanel({
                     </thead>
                     <tbody className="divide-y divide-slate-100">
                       {bulkRounds.map((r, idx) => {
+                        const isCeyrek = selectedGroup.goldType === "CEYREK_ALTIN";
                         const payingMembers = selectedGroup.totalMembers - 1;
-                        const perMem = payingMembers > 0 ? r.goldAmount / payingMembers : 0;
+                        const perMem = isCeyrek
+                          ? (selectedGroup.defaultAmount || 11250)
+                          : (payingMembers > 0 ? r.goldAmount / payingMembers : 0);
                         const effShares = r.isUserTurn
                           ? Math.max(0, selectedGroup.userShareCount - 1)
                           : selectedGroup.userShareCount;
@@ -2464,9 +2487,7 @@ export default function GoldDaysPanel({
                                 value={r.recipientName}
                                 onChange={(e) => {
                                   const val = e.target.value;
-                                  const isUser =
-                                    val.toLowerCase().includes("muhammed") ||
-                                    val.toLowerCase().includes("muhammet");
+                                  const isUser = isUserTurnName(val);
                                   setBulkRounds((prev) =>
                                     prev.map((item, i) =>
                                       i === idx

@@ -31,6 +31,17 @@ function getTodayISO(): string {
   return `${y}-${m}-${d}`;
 }
 
+function checkIsUserTurn(name: string): boolean {
+  if (!name) return false;
+  const n = name.toLowerCase().trim();
+  return (
+    n.includes("muhammed") ||
+    n.includes("muhammet") ||
+    n.includes("maç") ||
+    n.includes("mac")
+  );
+}
+
 function parseDaysList(daysInput: any): number[] {
   if (Array.isArray(daysInput)) {
     const parsed = daysInput
@@ -206,8 +217,12 @@ export async function POST(request: Request) {
     });
 
     // 2. Turları (Rounds) ve Okul Giderleri Taksit Kayıtlarını Oluştur
+    const isCeyrek = goldType === "CEYREK_ALTIN";
     const payingMembersCount = tMembers - 1; // Gün sahibi ödeme yapmaz!
-    const perMemberAmount = payingMembersCount > 0 ? Number((defAmt / payingMembersCount).toFixed(2)) : 0;
+    const perMemberAmount = isCeyrek
+      ? defAmt
+      : (payingMembersCount > 0 ? Number((defAmt / payingMembersCount).toFixed(2)) : 0);
+    const poolGoldAmount = isCeyrek ? defAmt * payingMembersCount : defAmt;
 
     const roundsToCreate: any[] = [];
 
@@ -218,13 +233,15 @@ export async function POST(request: Request) {
         const roundIndex = i + 1;
         const recipientName = cr.recipientName || `Katılımcı ${roundIndex}`;
         const isUserTurn =
-          Boolean(cr.isUserTurn) ||
-          recipientName.toLowerCase().includes("muhammed") ||
-          recipientName.toLowerCase().includes("muhammet");
+          Boolean(cr.isUserTurn) || checkIsUserTurn(recipientName);
 
-        const goldAmount = Number(cr.goldAmount) || defAmt;
         const roundPayingCount = tMembers - 1;
-        const roundPerMember = roundPayingCount > 0 ? Number((goldAmount / roundPayingCount).toFixed(2)) : 0;
+        const goldAmount = isCeyrek
+          ? (Number(cr.goldAmount) > defAmt ? Number(cr.goldAmount) : defAmt * roundPayingCount)
+          : (Number(cr.goldAmount) || defAmt);
+        const roundPerMember = isCeyrek
+          ? defAmt
+          : (roundPayingCount > 0 ? Number((goldAmount / roundPayingCount).toFixed(2)) : 0);
 
         // Muhammed Ali'nin bu tur ödeyeceği hisse sayısı:
         // Eğer gün sırası kendisindeyse katıldığı 5 hisseden 1'i ödemez, kalan 4 hissesi öder!
@@ -269,13 +286,12 @@ export async function POST(request: Request) {
             ? String(memberNames[i]).trim()
             : `Katılımcı ${roundIndex}`;
 
-        const isUserTurn =
-          recipientName.toLowerCase().includes("muhammed") ||
-          recipientName.toLowerCase().includes("muhammet");
+        const isUserTurn = checkIsUserTurn(recipientName);
 
         // Muhammed Ali sıra kendisindeyse 1 eksik hisse öder
         const effectiveUserShares = isUserTurn ? Math.max(0, uShares - 1) : uShares;
         const userAmountToPay = Number((perMemberAmount * effectiveUserShares).toFixed(2));
+        const roundGoldAmount = poolGoldAmount;
 
         roundsToCreate.push({
           roundIndex,
@@ -285,14 +301,16 @@ export async function POST(request: Request) {
           month: rMonth,
           recipientName,
           isUserTurn,
-          goldAmount: defAmt,
+          goldAmount: roundGoldAmount,
           payingMembersCount,
           perMemberAmount,
           userShareCount: effectiveUserShares,
           userAmountToPay,
           isPaid: false,
           notes: isUserTurn
-            ? `🎉 Gün Sırası Muhammed Ali'de — Toplam ₺${defAmt.toLocaleString("tr-TR")} teslim alınacak (${effectiveUserShares} hisse ödenecek)`
+            ? (isCeyrek
+                ? `🎉 Gün Sırası Muhammed Ali'de — Toplam ${payingMembersCount} Çeyrek (₺${roundGoldAmount.toLocaleString("tr-TR")}) teslim alınacak (${effectiveUserShares} hisse ödenecek)`
+                : `🎉 Gün Sırası Muhammed Ali'de — Toplam ₺${defAmt.toLocaleString("tr-TR")} teslim alınacak (${effectiveUserShares} hisse ödenecek)`)
             : "",
         });
       }
@@ -308,6 +326,10 @@ export async function POST(request: Request) {
           : ` (${rData.userShareCount} Hisse)`;
 
         const dayNum = rData.dueDate.getDate();
+        const expenseDesc = isCeyrek
+          ? `Altın Günü | Grup: ${group.title} | Sıra: ${rData.recipientName}${userTurnNote} | Kişi Başı: 1 Çeyrek (₺${rData.perMemberAmount.toLocaleString("tr-TR")}) | Toplam Altın: ${rData.payingMembersCount} Çeyrek (₺${rData.goldAmount.toLocaleString("tr-TR")})`
+          : `Altın Günü | Grup: ${group.title} | Sıra: ${rData.recipientName}${userTurnNote} | Toplam Altın: ₺${rData.goldAmount.toLocaleString("tr-TR")} (${rData.payingMembersCount} kişi) | Kişi Başı: ₺${rData.perMemberAmount.toLocaleString("tr-TR")}`;
+
         const expense = await prisma.schoolExpense.create({
           data: {
             title: `🪙 Altın Günü: ${group.title} (Sıra: ${rData.recipientName})`,
@@ -324,7 +346,7 @@ export async function POST(request: Request) {
             periodStatus: "Cari Dönem",
             paymentMethod: "CASH", // Altın günü kesinlikle NAKİT ödenir
             monthIndex: rData.month,
-            description: `Altın Günü | Grup: ${group.title} | Sıra: ${rData.recipientName}${userTurnNote} | Toplam Altın: ₺${rData.goldAmount.toLocaleString("tr-TR")} (${rData.payingMembersCount} kişi) | Kişi Başı: ₺${rData.perMemberAmount.toLocaleString("tr-TR")}`,
+            description: expenseDesc,
           },
         });
         expenseId = expense.id;
@@ -412,12 +434,17 @@ export async function PUT(request: Request) {
       const isUserTurn =
         body.isUserTurn !== undefined
           ? Boolean(body.isUserTurn)
-          : (newRecipient.toLowerCase().includes("muhammed") ||
-             newRecipient.toLowerCase().includes("muhammet"));
+          : checkIsUserTurn(newRecipient);
 
-      const newGoldAmount = goldAmount !== undefined ? Math.max(0, Number(goldAmount)) : round.goldAmount;
+      const isCeyrek = round.group.goldType === "CEYREK_ALTIN";
       const payingCount = round.group.totalMembers - 1;
-      const perMember = payingCount > 0 ? Number((newGoldAmount / payingCount).toFixed(2)) : 0;
+      const defAmt = round.group.defaultAmount;
+      const newGoldAmount = isCeyrek
+        ? (goldAmount !== undefined && Number(goldAmount) > defAmt ? Number(goldAmount) : defAmt * payingCount)
+        : (goldAmount !== undefined ? Math.max(0, Number(goldAmount)) : round.goldAmount);
+      const perMember = isCeyrek
+        ? defAmt
+        : (payingCount > 0 ? Number((newGoldAmount / payingCount).toFixed(2)) : 0);
       const effectiveUserShares = isUserTurn
         ? Math.max(0, round.group.userShareCount - 1)
         : round.group.userShareCount;
@@ -460,6 +487,10 @@ export async function PUT(request: Request) {
       // SchoolExpense senkronizasyonu
       if (round.expenseId) {
         try {
+          const roundExpDesc = isCeyrek
+            ? `Altın Günü | Grup: ${round.group.title} | Sıra: ${newRecipient} | Kişi Başı: 1 Çeyrek (₺${perMember.toLocaleString("tr-TR")}) | Toplam Altın: ${payingCount} Çeyrek (₺${newGoldAmount.toLocaleString("tr-TR")}) | Muhammed Ali (${effectiveUserShares} Hisse)`
+            : `Altın Günü | Grup: ${round.group.title} | Sıra: ${newRecipient} | Toplam Altın: ₺${newGoldAmount.toLocaleString("tr-TR")} / ${payingCount} kişi | Muhammed Ali (${effectiveUserShares} Hisse)`;
+
           await prisma.schoolExpense.update({
             where: { id: round.expenseId },
             data: {
@@ -472,7 +503,7 @@ export async function PUT(request: Request) {
               status: finalIsPaid ? "PAID" : "PENDING",
               monthIndex: newMonth,
               period: `${newMonth}.Ay`,
-              description: `Altın Günü | Grup: ${round.group.title} | Sıra: ${newRecipient} | Toplam Altın: ₺${newGoldAmount.toLocaleString("tr-TR")} / ${payingCount} kişi | Muhammed Ali (${effectiveUserShares} Hisse)`,
+              description: roundExpDesc,
             },
           });
         } catch {}
@@ -631,7 +662,9 @@ export async function PUT(request: Request) {
         });
       }
 
+      const isCeyrek = group.goldType === "CEYREK_ALTIN";
       const payingCount = group.totalMembers - 1;
+      const defAmt = group.defaultAmount;
 
       for (const item of body.rounds) {
         if (!item.id) continue;
@@ -639,11 +672,14 @@ export async function PUT(request: Request) {
         const isUserTurn =
           item.isUserTurn !== undefined
             ? Boolean(item.isUserTurn)
-            : recipientName.toLowerCase().includes("muhammed") ||
-              recipientName.toLowerCase().includes("muhammet");
+            : checkIsUserTurn(recipientName);
 
-        const goldAmount = Math.max(0, Number(item.goldAmount) || group.defaultAmount);
-        const perMember = payingCount > 0 ? Number((goldAmount / payingCount).toFixed(2)) : 0;
+        const goldAmount = isCeyrek
+          ? (Number(item.goldAmount) > defAmt ? Number(item.goldAmount) : defAmt * payingCount)
+          : Math.max(0, Number(item.goldAmount) || defAmt);
+        const perMember = isCeyrek
+          ? defAmt
+          : (payingCount > 0 ? Number((goldAmount / payingCount).toFixed(2)) : 0);
         const effectiveUserShares = isUserTurn
           ? Math.max(0, group.userShareCount - 1)
           : group.userShareCount;
@@ -675,6 +711,10 @@ export async function PUT(request: Request) {
 
         if (updatedRound.expenseId) {
           try {
+            const bulkExpDesc = isCeyrek
+              ? `Altın Günü | Grup: ${group.title} | Sıra: ${recipientName} | Kişi Başı: 1 Çeyrek (₺${perMember.toLocaleString("tr-TR")}) | Toplam Altın: ${payingCount} Çeyrek (₺${goldAmount.toLocaleString("tr-TR")}) | Muhammed Ali (${effectiveUserShares} Hisse)`
+              : `Altın Günü | Grup: ${group.title} | Sıra: ${recipientName} | Toplam Altın: ₺${goldAmount.toLocaleString("tr-TR")} / ${payingCount} kişi | Muhammed Ali (${effectiveUserShares} Hisse)`;
+
             await prisma.schoolExpense.update({
               where: { id: updatedRound.expenseId },
               data: {
@@ -687,7 +727,7 @@ export async function PUT(request: Request) {
                 status: updatedRound.isPaid ? "PAID" : "PENDING",
                 monthIndex: month,
                 period: `${month}.Ay (${dueDate.getDate()}. Gün)`,
-                description: `Altın Günü | Grup: ${group.title} | Sıra: ${recipientName} | Toplam Altın: ₺${goldAmount.toLocaleString("tr-TR")} / ${payingCount} kişi | Muhammed Ali (${effectiveUserShares} Hisse)`,
+                description: bulkExpDesc,
               },
             });
           } catch {}
