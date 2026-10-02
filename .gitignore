@@ -8,3 +8,6 @@ dev.db-journal
 cloudflared.exe
 sqlite_migration_dump.json
 *.tsbuildinfo
+*.zip
+*.key
+YEDEK_PAKETI/
