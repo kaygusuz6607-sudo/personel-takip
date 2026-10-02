@@ -98,7 +98,7 @@ const TURKISH_MONTHS = [
 
 const DEFAULT_MASTER_PRICES: MasterPrices = {
   academicYear: "2026-2027",
-  educationPrice: 176000,
+  educationPrice: 220000,
   diningPrice: 80000,
   stationeryPrice: 65000,
   stationeryProportionalPrice: 40000,
@@ -108,16 +108,16 @@ const DEFAULT_MASTER_PRICES: MasterPrices = {
 };
 
 const DEFAULT_MONTHLY_PRICES: MonthlyPriceRow[] = [
-  { id: "m1", year: "2026", monthName: "Eylül", month: "Eylül 2026", remainingDays: 183.5, education: 176000, dining: 80000, stationeryTotal: 65000, stationeryProportional: 40000, publicationFixed: 25000, totalPrice: 321000, roundedPrice: 321000 },
-  { id: "m2", year: "2026", monthName: "Ekim", month: "Ekim 2026", remainingDays: 165.5, education: 158736, dining: 72153, stationeryTotal: 61076, stationeryProportional: 36076, publicationFixed: 25000, totalPrice: 291965, roundedPrice: 292000 },
-  { id: "m3", year: "2026", monthName: "Kasım", month: "Kasım 2026", remainingDays: 145.0, education: 139074, dining: 63215, stationeryTotal: 56608, stationeryProportional: 31608, publicationFixed: 25000, totalPrice: 258896, roundedPrice: 259000 },
-  { id: "m4", year: "2026", monthName: "Aralık", month: "Aralık 2026", remainingDays: 129.0, education: 123728, dining: 56240, stationeryTotal: 53120, stationeryProportional: 28120, publicationFixed: 25000, totalPrice: 233087, roundedPrice: 233000 },
-  { id: "m5", year: "2027", monthName: "Ocak", month: "Ocak 2027", remainingDays: 106.0, education: 101668, dining: 46213, stationeryTotal: 48106, stationeryProportional: 23106, publicationFixed: 25000, totalPrice: 195986, roundedPrice: 196000 },
-  { id: "m6", year: "2027", monthName: "Şubat", month: "Şubat 2027", remainingDays: 91.0, education: 87281, dining: 39673, stationeryTotal: 44837, stationeryProportional: 19837, publicationFixed: 25000, totalPrice: 171790, roundedPrice: 172000 },
-  { id: "m7", year: "2027", monthName: "Mart", month: "Mart 2027", remainingDays: 76.0, education: 72894, dining: 33134, stationeryTotal: 41567, stationeryProportional: 16567, publicationFixed: 25000, totalPrice: 147594, roundedPrice: 148000 },
-  { id: "m8", year: "2027", monthName: "Nisan", month: "Nisan 2027", remainingDays: 58.0, education: 55629, dining: 25286, stationeryTotal: 37643, stationeryProportional: 12643, publicationFixed: 25000, totalPrice: 118559, roundedPrice: 119000 },
-  { id: "m9", year: "2027", monthName: "Mayıs", month: "Mayıs 2027", remainingDays: 37.0, education: 35488, dining: 16131, stationeryTotal: 33065, stationeryProportional: 8065, publicationFixed: 25000, totalPrice: 84684, roundedPrice: 85000 },
-  { id: "m10", year: "2027", monthName: "Haziran", month: "Haziran 2027", remainingDays: 19.0, education: 18223, dining: 8283, stationeryTotal: 16642, stationeryProportional: 4142, publicationFixed: 12500, totalPrice: 43128, roundedPrice: 43000 },
+  { id: "m1", year: "2026", monthName: "Eylül", month: "Eylül 2026", remainingDays: 183.5, education: 220000, dining: 80000, stationeryTotal: 65000, stationeryProportional: 40000, publicationFixed: 25000, totalPrice: 365000, roundedPrice: 365000 },
+  { id: "m2", year: "2026", monthName: "Ekim", month: "Ekim 2026", remainingDays: 165.5, education: 200000, dining: 72000, stationeryTotal: 60000, stationeryProportional: 35000, publicationFixed: 25000, totalPrice: 332000, roundedPrice: 332000 },
+  { id: "m3", year: "2026", monthName: "Kasım", month: "Kasım 2026", remainingDays: 145.0, education: 175000, dining: 64000, stationeryTotal: 55000, stationeryProportional: 30000, publicationFixed: 25000, totalPrice: 294000, roundedPrice: 294000 },
+  { id: "m4", year: "2026", monthName: "Aralık", month: "Aralık 2026", remainingDays: 129.0, education: 156250, dining: 58000, stationeryTotal: 50000, stationeryProportional: 25000, publicationFixed: 25000, totalPrice: 264250, roundedPrice: 264000 },
+  { id: "m5", year: "2027", monthName: "Ocak", month: "Ocak 2027", remainingDays: 106.0, education: 127500, dining: 49000, stationeryTotal: 45000, stationeryProportional: 20000, publicationFixed: 25000, totalPrice: 221500, roundedPrice: 222000 },
+  { id: "m6", year: "2027", monthName: "Şubat", month: "Şubat 2027", remainingDays: 91.0, education: 112500, dining: 42000, stationeryTotal: 40000, stationeryProportional: 15000, publicationFixed: 25000, totalPrice: 194500, roundedPrice: 195000 },
+  { id: "m7", year: "2027", monthName: "Mart", month: "Mart 2027", remainingDays: 76.0, education: 93750, dining: 38000, stationeryTotal: 35000, stationeryProportional: 10000, publicationFixed: 25000, totalPrice: 166750, roundedPrice: 167000 },
+  { id: "m8", year: "2027", monthName: "Nisan", month: "Nisan 2027", remainingDays: 58.0, education: 72500, dining: 32000, stationeryTotal: 30000, stationeryProportional: 5000, publicationFixed: 25000, totalPrice: 134500, roundedPrice: 135000 },
+  { id: "m9", year: "2027", monthName: "Mayıs", month: "Mayıs 2027", remainingDays: 37.0, education: 47500, dining: 25000, stationeryTotal: 25000, stationeryProportional: 0, publicationFixed: 25000, totalPrice: 97500, roundedPrice: 98000 },
+  { id: "m10", year: "2027", monthName: "Haziran", month: "Haziran 2027", remainingDays: 19.0, education: 22500, dining: 10000, stationeryTotal: 15000, stationeryProportional: 2500, publicationFixed: 12500, totalPrice: 47500, roundedPrice: 48000 },
 ];
 
 function normalizeMonthlyRow(raw: any, idx = 0): MonthlyPriceRow {
@@ -210,7 +210,7 @@ export default function TekliflerPage() {
     year: "2026",
     monthName: "Eylül",
     remainingDays: 183.5,
-    education: 176000,
+    education: 220000,
     dining: 80000,
     stationeryTotal: 65000,
     stationeryProportional: 40000,
@@ -347,7 +347,7 @@ export default function TekliflerPage() {
           setMasterPrices((prev) => ({
             ...prev,
             academicYear: data.academicYear || "2026-2027",
-            educationPrice: Number(data.educationPrice) || 176000,
+            educationPrice: Number(data.educationPrice) || 220000,
             diningPrice: Number(data.diningPrice) || 80000,
             stationeryPrice: Number(data.stationeryPrice) || 65000,
             summerPrice: Number(data.summerPrice) || 45000,
@@ -502,7 +502,7 @@ export default function TekliflerPage() {
   // Üstteki Baz Değerlere ve Hizmet Günlerine Göre Tüm Ayları Otomatik Oranla
   const handleRecalculateAllMonthsFromBase = () => {
     const totalDays = Number(masterPrices.totalServiceDays) || 183.5;
-    const baseEdu = Number(masterPrices.educationPrice) || 176000;
+    const baseEdu = Number(masterPrices.educationPrice) || 220000;
     const baseDine = Number(masterPrices.diningPrice) || 80000;
     const baseStatPro = Number(masterPrices.stationeryProportionalPrice) || 40000;
     const basePubFixed = Number(masterPrices.publicationFixedPrice) || 25000;
@@ -536,7 +536,7 @@ export default function TekliflerPage() {
   // Aylık Tablodaki Tek Bir Hücreyi Güncelleme (Yıl, Ay, Eğitim, Yemek, Kırtasiye vb.)
   const handleMonthlyRowChange = (id: string, field: keyof MonthlyPriceRow, val: any) => {
     const totalDays = Number(masterPrices.totalServiceDays) || 183.5;
-    const baseEdu = Number(masterPrices.educationPrice) || 176000;
+    const baseEdu = Number(masterPrices.educationPrice) || 220000;
     const baseDine = Number(masterPrices.diningPrice) || 80000;
     const baseStatPro = Number(masterPrices.stationeryProportionalPrice) || 40000;
 
@@ -596,7 +596,7 @@ export default function TekliflerPage() {
 
   const addMonthlyRow = () => {
     const defaultYear = tableYearFilter !== "ALL" ? tableYearFilter : "2027";
-    const edu = Number(masterPrices.educationPrice) || 176000;
+    const edu = Number(masterPrices.educationPrice) || 220000;
     const dine = Number(masterPrices.diningPrice) || 80000;
     const statPro = Number(masterPrices.stationeryProportionalPrice) || 40000;
     const pubFixed = Number(masterPrices.publicationFixedPrice) || 25000;
