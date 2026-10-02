@@ -28,6 +28,7 @@ import {
   GraduationCap,
   School,
   FileText,
+  UserMinus,
 } from "lucide-react";
 import { PWAInstallButton } from "@/components/PWAInstallButton";
 import { ThemeToggle } from "@/components/ThemeToggle";
@@ -166,6 +167,7 @@ export function Sidebar() {
     { href: "/odeme", label: "Personel Ödeme", icon: CreditCard },
     { href: "/giderler", label: "Okul Gider & Taksit", icon: Coins },
     { href: "/tedarikci-cariler", label: "Tedarikçi & Ürün Carileri", icon: Building2 },
+    { href: "/kayit-silme-iadeleri", label: "Kayıt Silme İadeleri", icon: UserMinus },
     { href: "/giderler?tab=GOLD_DAYS", label: "Altın Günleri Takibi", icon: Coins },
     { href: "/cari", label: "Muhasebe & Cari", icon: ReceiptText },
     { href: "/izin", label: "İzin Girişi & Takip", icon: CalendarCheck },

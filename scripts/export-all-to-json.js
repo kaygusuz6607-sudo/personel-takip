@@ -35,7 +35,9 @@ async function exportAll() {
         goldDayRounds: await prisma.goldDayRound.count(),
         chequePhotoStores: await prisma.chequePhotoStore.count(),
         supplierCariAccounts: await prisma.supplierCariAccount.count(),
-        supplierCariTransactions: await prisma.supplierCariTransaction.count()
+        supplierCariTransactions: await prisma.supplierCariTransaction.count(),
+        studentRefunds: await prisma.studentRefund.count(),
+        refundInstallments: await prisma.refundInstallment.count()
       },
       tables: {
         user: await prisma.user.findMany(),
@@ -61,7 +63,9 @@ async function exportAll() {
         goldDayRound: await prisma.goldDayRound.findMany(),
         chequePhotoStore: await prisma.chequePhotoStore.findMany(),
         supplierCariAccount: await prisma.supplierCariAccount.findMany(),
-        supplierCariTransaction: await prisma.supplierCariTransaction.findMany()
+        supplierCariTransaction: await prisma.supplierCariTransaction.findMany(),
+        studentRefund: await prisma.studentRefund.findMany(),
+        refundInstallment: await prisma.refundInstallment.findMany()
       }
     };
 

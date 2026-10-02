@@ -556,3 +556,42 @@ model SupplierCariTransaction {
   notes         String?
   createdAt     String
 }
+
+// ==================== KAYIT SİLME İADELERİ MODÜLÜ ====================
+
+model StudentRefund {
+  id                String              @id @default(uuid())
+  studentName       String              // Öğrenci Adı Soyadı (Örn: Alp Tuğrul Karaman)
+  parentName        String?             // Veli / Muhatap Adı
+  phone             String?             // İletişim Telefonu
+  iban              String?             // İade IBAN No
+  reason            String?             // Kayıt Silme Nedeni (Nakil, Sağlık vb.)
+  cancellationDate  DateTime?           @default(now()) // Kayıt Silme Tarihi
+  startDate         DateTime            // İlk Ödeme Başlama Tarihi
+  totalAmount       Float               @default(0) // Toplam İade Tutarı (TL) (Örn: 122.500 TL)
+  installmentCount  Int                 @default(1) // Taksit Sayısı (Örn: 5)
+  notes             String?             // Not / Açıklama
+  status            String              @default("ACTIVE") // ACTIVE, COMPLETED, CANCELLED
+  installments      RefundInstallment[]
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+}
+
+model RefundInstallment {
+  id              String        @id @default(uuid())
+  refundId        String
+  refund          StudentRefund @relation(fields: [refundId], references: [id], onDelete: Cascade)
+  installmentNo   Int           // 1, 2, 3...
+  dueDate         DateTime      // Vade Tarihi
+  dueDateStr      String?       // "15 Ekim 2026"
+  amount          Float         @default(0) // Taksit Tutarı
+  paidAmount      Float         @default(0) // Ödenen Tutar
+  remainingAmount Float         @default(0) // Kalan Tutar
+  status          String        @default("PENDING") // PENDING, PAID, PARTIAL
+  paymentDate     DateTime?     // Fiili Ödeme Tarihi
+  paymentMethod   String?       @default("BANK_TRANSFER") // BANK_TRANSFER, CASH, CREDIT_CARD
+  notes           String?       // Dekont no / işlem notu
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+}
+
