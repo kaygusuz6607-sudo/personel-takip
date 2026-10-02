@@ -123,6 +123,14 @@ export function Sidebar() {
     }
   };
 
+  const [currentQuery, setCurrentQuery] = useState("");
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      setCurrentQuery(window.location.search);
+    }
+  }, [pathname]);
+
   useEffect(() => {
     if (pathname === "/login") return;
     fetch("/api/auth/me")
@@ -165,14 +173,6 @@ export function Sidebar() {
     { href: "/kullanicilar", label: "Yetkili Kullanıcılar", icon: ShieldCheck },
     { href: "/yedekleme", label: "Yedek & Senkronizasyon", icon: HardDrive },
   ];
-
-  const [currentQuery, setCurrentQuery] = useState("");
-
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      setCurrentQuery(window.location.search);
-    }
-  }, [pathname]);
 
   const getInitials = (name?: string) => {
     if (!name) return "US";
