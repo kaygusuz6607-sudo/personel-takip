@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { INITIAL_EXPENSES_DATA } from "@/lib/seed-expenses";
+import { syncAllRefundsToSchoolExpenses } from "@/lib/student-refund-sync";
 
 export async function GET(request: Request) {
   try {
@@ -33,67 +34,8 @@ export async function GET(request: Request) {
       }
     }
 
-    // Mevcut taksitli işlemlerin (örn. 2t/6t, 1t/4t) gelecek aylardaki (10. Ay, 11. Ay, 12. Ay vb.) taksit kayıtları eksikse otomatik oluştur
-    const instCandidates = await prisma.schoolExpense.findMany({
-      where: {
-        installmentInfo: { not: null },
-        monthIndex: { not: null },
-        category: { notIn: ["GOLD_DAY", "SUPPLIER"] },
-      },
-    });
-    for (const exp of instCandidates) {
-      const match = (exp.installmentInfo || "").match(/^(\d+)t\/(\d+)t$/i);
-      if (!match) continue;
-      const cur = parseInt(match[1]);
-      const total = parseInt(match[2]);
-      if (total <= 1 || cur >= total || !exp.monthIndex) continue;
-
-      const nextInstStr = `${cur + 1}t/${total}t`;
-      const hasNext = instCandidates.some(
-        (other) => other.title === exp.title && other.installmentInfo === nextInstStr
-      );
-      if (!hasNext) {
-        const baseD = exp.dueDate ? new Date(exp.dueDate) : new Date(2026, (exp.monthIndex || 9) - 1, 15);
-        for (let step = 1; step <= total - cur; step++) {
-          const instNum = cur + step;
-          const targetMonthIdx = (((exp.monthIndex || 9) - 1 + step) % 12) + 1;
-          const itemDate = addMonthsPreservingDay(baseD, step);
-          const itemDateStr = formatTurkishDate(itemDate);
-          const instCode = `${instNum}t/${total}t`;
-
-          const alreadyThere = await prisma.schoolExpense.findFirst({
-            where: { title: exp.title, installmentInfo: instCode },
-          });
-          if (!alreadyThere) {
-            await prisma.schoolExpense.create({
-              data: {
-                title: exp.title,
-                category: exp.category,
-                subCategory: exp.subCategory,
-                period: instCode,
-                installmentInfo: instCode,
-                monthIndex: targetMonthIdx,
-                dueDate: itemDate,
-                dueDateStr: itemDateStr,
-                amountDue: exp.amountDue,
-                amountPaid: 0,
-                amountRemaining: exp.amountDue,
-                status: "PENDING",
-                periodStatus: "Gelecek Dönem",
-                description: exp.description,
-                isCommitment: exp.isCommitment,
-                commitmentMonths: exp.commitmentMonths,
-                commitmentEndDate: exp.commitmentEndDate,
-                paymentMethod: exp.category === "CREDIT_CARD" ? "CASH" : exp.paymentMethod,
-                cardHolder: exp.cardHolder,
-                cardBank: exp.cardBank,
-                phoneLines: exp.phoneLines,
-              },
-            });
-          }
-        }
-      }
-    }
+    // Kayıt silme iadeleri taksitlerini Okul Gider & Borç Takibi tablosuyla eşitle
+    await syncAllRefundsToSchoolExpenses();
 
     // Kredi kartı borçları ve çek ödemeleri nakit ödenir: mevcut CREDIT_CARD ve CHEQUE kategorisindeki kayıtların ödeme yöntemini CASH olarak düzelt
     await prisma.schoolExpense.updateMany({

@@ -11,3 +11,5 @@ sqlite_migration_dump.json
 *.zip
 *.key
 YEDEK_PAKETI/
+scripts/staging/
+cosmos_tum_veriler.json

@@ -43,6 +43,7 @@ import {
   Eye,
   RefreshCw,
   Upload,
+  UserMinus,
 } from "lucide-react";
 import QRCode from "qrcode";
 import SupplierCariPanel from "./components/SupplierCariPanel";
@@ -2165,13 +2166,36 @@ function GiderlerPageContent() {
     }
   };
 
-  const handleDelete = async (id: string, title: string) => {
-    if (!confirm(`"${title}" gider kaydını silmek istediğinize emin misiniz?`)) return;
+  const handleDelete = async (id: string, title: string, exp?: SchoolExpense) => {
+    let deleteAllSeries = false;
+    if (exp?.installmentInfo) {
+      const askAll = confirm(
+        `"${title}" (${exp.installmentInfo}) taksitli bir ödemedir.\n\n` +
+        `Bu plana ait TÜM TAKSİTLERİ topluca silmek istiyor musunuz?\n\n` +
+        `• [Tamam] = Bu başlığa ait TÜM taksitleri siler\n` +
+        `• [İptal] = Sadece SEÇİLİ BU TAKSİTİ silme adımına geçer`
+      );
+      if (askAll) {
+        if (!confirm(`DİKKAT: "${title}" başlığına ait tüm taksitler kalıcı olarak silinecek. Emin misiniz?`)) return;
+        deleteAllSeries = true;
+      } else {
+        if (!confirm(`Sadece bu döneme ait "${title} (${exp.installmentInfo})" taksitini silmek istediğinize emin misiniz?`)) return;
+      }
+    } else {
+      if (!confirm(`"${title}" gider kaydını silmek istediğinize emin misiniz?`)) return;
+    }
+
     try {
-      const res = await fetch(`/api/giderler/${id}`, { method: "DELETE" });
-      if (res.ok) fetchExpenses();
+      const url = deleteAllSeries ? `/api/giderler/${id}?deleteAllSeries=true` : `/api/giderler/${id}`;
+      const res = await fetch(url, { method: "DELETE" });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        fetchExpenses();
+      } else {
+        alert(data.error || "Gider kaydı silinemedi.");
+      }
     } catch (e) {
-      alert("Silinemedi");
+      alert("Gider kaydı silinemedi (Bağlantı hatası)");
     }
   };
 
@@ -2697,6 +2721,14 @@ function GiderlerPageContent() {
               </span>
             )}
           </button>
+
+          <Link
+            href="/kayit-silme-iadeleri"
+            className="px-4 py-2 rounded-xl text-sm font-semibold text-slate-600 hover:text-rose-700 hover:bg-rose-50 flex items-center gap-2 transition-colors border border-transparent hover:border-rose-200"
+          >
+            <UserMinus className="w-4 h-4 text-rose-600" />
+            <span>Kayıt Silme İadeleri</span>
+          </Link>
 
           <Link
             href="/cari"
@@ -4481,7 +4513,7 @@ function GiderlerPageContent() {
                                         </button>
                                         <button
                                           type="button"
-                                          onClick={() => handleDelete(tx.id, tx.title)}
+                                          onClick={() => handleDelete(tx.id, tx.title, tx)}
                                           className="p-1 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded-lg"
                                           title="Sil"
                                         >
@@ -5010,8 +5042,20 @@ function GiderlerPageContent() {
                               <span className="text-[11px] text-slate-500 block mt-0.5">
                                 {(exp.status === "PAID" || exp.amountRemaining <= 0) && exp.description.toLowerCase().includes("kaldı")
                                   ? "Tüm taksitler ödendi - Borç tamamen kapandı ✅"
-                                  : exp.description.replace(/\[SUPPLIER_CARI:[^\]]+\]/g, "").trim()}
+                                  : exp.description.replace(/\[SUPPLIER_CARI:[^\]]+\]|\[STUDENT_REFUND:[^\]]+\]/g, "").trim()}
                               </span>
+                            )}
+
+                            {exp.category === "STUDENT_REFUND" && (
+                              <div className="mt-1 flex items-center gap-1.5">
+                                <Link
+                                  href="/kayit-silme-iadeleri"
+                                  className="inline-flex items-center gap-1 text-[10px] font-bold text-rose-700 hover:text-rose-900 bg-rose-50 hover:bg-rose-100 px-2 py-0.5 rounded border border-rose-200 transition-colors"
+                                >
+                                  <UserMinus className="w-3 h-3 text-rose-600" />
+                                  <span>İade Dosyası & Taksit Tablosu →</span>
+                                </Link>
+                              </div>
                             )}
 
                             {/* Çoklu Telefon Hatları Dökümü (Tek Fatura İçi 5 Numara, Kullanan Kişi, Ücret ve Taahhüt Tarihi) */}
@@ -5380,7 +5424,7 @@ function GiderlerPageContent() {
                               </button>
                               <button
                                 type="button"
-                                onClick={() => handleDelete(exp.id, exp.title)}
+                                onClick={() => handleDelete(exp.id, exp.title, exp)}
                                 className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
                                 title="Sil"
                               >

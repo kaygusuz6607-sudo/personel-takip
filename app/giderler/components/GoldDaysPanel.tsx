@@ -115,7 +115,8 @@ function buildInitialManualRounds(
   startMonth: number,
   daysList: string,
   defaultAmount: number,
-  membersText: string = ""
+  membersText: string = "",
+  goldType: string = "AJDA_BILEZIK"
 ): Array<{
   roundIndex: number;
   dueDate: string;
@@ -135,6 +136,10 @@ function buildInitialManualRounds(
     .split(/[\n,;]+/)
     .map((s) => s.trim())
     .filter(Boolean);
+
+  const isAjda = goldType === "AJDA_BILEZIK";
+  const payingMembers = Math.max(1, totalMembers - 1);
+  const roundGoldPool = isAjda ? defaultAmount : defaultAmount * payingMembers;
 
   const list: Array<{
     roundIndex: number;
@@ -168,7 +173,7 @@ function buildInitialManualRounds(
       dueDate: isoDate,
       recipientName,
       isUserTurn,
-      goldAmount: defaultAmount,
+      goldAmount: roundGoldPool,
       notes: "",
     });
   }
@@ -209,9 +214,11 @@ function applyDaysToRounds<T extends { dueDate: string }>(
 
 const GOLD_TYPE_OPTIONS = [
   { value: "AJDA_BILEZIK", label: "💍 Ajda Bilezik", defaultPrice: 63150 },
-  { value: "CEYREK_ALTIN", label: "🪙 Çeyrek Altın", defaultPrice: 5250 },
-  { value: "YARIM_ALTIN", label: "🥇 Yarım Altın", defaultPrice: 10500 },
-  { value: "TAM_ALTIN", label: "🏅 Tam Altın", defaultPrice: 21000 },
+  { value: "CEYREK_ALTIN", label: "🪙 Çeyrek Altın", defaultPrice: 11250 },
+  { value: "YARIM_ALTIN", label: "🥇 Yarım Altın", defaultPrice: 22500 },
+  { value: "TAM_ALTIN", label: "🏅 Tam Altın", defaultPrice: 43100 },
+  { value: "CUMHURIYET_ALTIN", label: "🇹🇷 Cumhuriyet Altını", defaultPrice: 43100 },
+  { value: "ATA_ALTIN", label: "🎖️ Ata Altın", defaultPrice: 43500 },
   { value: "GRAM_ALTIN", label: "🥈 Gram Altın", defaultPrice: 3100 },
   { value: "CASH", label: "💵 Nakit / Serbest Tutar", defaultPrice: 50000 },
 ];
@@ -389,7 +396,7 @@ export default function GoldDaysPanel({
 
   // Taksit Planını Manuel Düzenleme (Toplu / Excel Tarzı)
   const openBulkEditModal = (group: GoldDayGroup) => {
-    const isCeyrek = group.goldType === "CEYREK_ALTIN";
+    const isAjda = group.goldType === "AJDA_BILEZIK";
     const payingCount = group.totalMembers - 1;
     const items = group.rounds.map((r) => ({
       id: r.id,
@@ -397,13 +404,13 @@ export default function GoldDaysPanel({
       dueDate: r.dueDate ? new Date(r.dueDate).toISOString().split("T")[0] : "",
       recipientName: r.recipientName,
       isUserTurn: r.isUserTurn,
-      goldAmount: isCeyrek && r.goldAmount <= group.defaultAmount
+      goldAmount: !isAjda && r.goldAmount <= group.defaultAmount
         ? group.defaultAmount * payingCount
         : r.goldAmount,
       notes: r.notes || "",
     }));
     setBulkRounds(items);
-    setBulkGlobalAmount(isCeyrek ? group.defaultAmount * payingCount : group.defaultAmount);
+    setBulkGlobalAmount(!isAjda ? group.defaultAmount * payingCount : group.defaultAmount);
     setBulkEditModalOpen(true);
   };
 
@@ -910,22 +917,31 @@ export default function GoldDaysPanel({
                   🗓️ Ödeme Günleri: Her ayın {selectedGroup.daysList || "1, 10, 20"}&apos;si ({selectedGroup.daysList ? selectedGroup.daysList.split(",").length : 3} Kez/Ay)
                 </span>
               </div>
-              {selectedGroup.goldType === "CEYREK_ALTIN" ? (
+              {selectedGroup.goldType === "AJDA_BILEZIK" ? (
                 <p className="text-xs text-slate-500 mt-1">
-                  1 Çeyrek Bedeli: <strong>{formatCurrency(selectedGroup.defaultAmount)}</strong> • Ödeme Yapan:{" "}
-                  <strong>{selectedGroup.totalMembers - 1} Kişi</strong> (Gün sırası olan ödemez) • Kişi Başı:{" "}
-                  <strong className="text-amber-800">1 Çeyrek ({formatCurrency(selectedGroup.defaultAmount)})</strong> • Tur Başı Teslim Alınan Toplam:{" "}
+                  1 Ajda Bilezik Bedeli: <strong>{formatCurrency(selectedGroup.defaultAmount)}</strong> • Ödeme Yapan:{" "}
+                  <strong>{selectedGroup.totalMembers - 1} Kişi</strong> (Gün sırası olan ödemez) • Kişi Başı Pay:{" "}
+                  <strong className="text-amber-800">
+                    {formatCurrency(selectedGroup.defaultAmount / (selectedGroup.totalMembers - 1))}
+                  </strong>{" "}
+                  • Tur Başı Teslim Alınan Toplam:{" "}
                   <strong className="text-slate-900">
-                    {formatCurrency(selectedGroup.defaultAmount * (selectedGroup.totalMembers - 1))} ({selectedGroup.totalMembers - 1} Çeyrek)
+                    {formatCurrency(selectedGroup.defaultAmount)} (1 Ajda Bilezik)
                   </strong>{" "}
                   • Ödeme Yöntemi: <strong className="text-emerald-700">NAKİT</strong>
                 </p>
               ) : (
                 <p className="text-xs text-slate-500 mt-1">
-                  Altın Değeri: <strong>{formatCurrency(selectedGroup.defaultAmount)}</strong> • Ödeme Yapan:{" "}
+                  1 Adet {selectedGroup.goldTypeLabel || selectedGroup.goldType} Bedeli:{" "}
+                  <strong>{formatCurrency(selectedGroup.defaultAmount)}</strong> • Ödeme Yapan:{" "}
                   <strong>{selectedGroup.totalMembers - 1} Kişi</strong> (Gün sırası olan ödemez) • Kişi Başı:{" "}
-                  <strong>
-                    {formatCurrency(selectedGroup.defaultAmount / (selectedGroup.totalMembers - 1))}
+                  <strong className="text-amber-800">
+                    1 Adet ({formatCurrency(selectedGroup.defaultAmount)})
+                  </strong>{" "}
+                  • Tur Başı Teslim Alınan Toplam:{" "}
+                  <strong className="text-slate-900">
+                    {formatCurrency(selectedGroup.defaultAmount * (selectedGroup.totalMembers - 1))} (
+                    {selectedGroup.totalMembers - 1} Adet {selectedGroup.goldTypeLabel || selectedGroup.goldType})
                   </strong>{" "}
                   • Ödeme Yöntemi: <strong className="text-emerald-700">NAKİT</strong>
                 </p>
@@ -1175,12 +1191,28 @@ export default function GoldDaysPanel({
                     value={groupForm.goldType}
                     onChange={(e) => {
                       const sel = GOLD_TYPE_OPTIONS.find((o) => o.value === e.target.value);
+                      const newType = e.target.value;
+                      const newLabel = sel ? sel.label.replace(/^[^\s]+\s/, "") : e.target.value;
+                      const newPrice = sel ? sel.defaultPrice : groupForm.defaultAmount;
+                      const isNewAjda = newType === "AJDA_BILEZIK";
+                      const paying = Math.max(1, groupForm.totalMembers - 1);
+                      const newGoldPool = isNewAjda ? newPrice : newPrice * paying;
+
                       setGroupForm({
                         ...groupForm,
-                        goldType: e.target.value,
-                        goldTypeLabel: sel ? sel.label.replace(/^[^\s]+\s/, "") : e.target.value,
-                        defaultAmount: sel ? sel.defaultPrice : groupForm.defaultAmount,
+                        goldType: newType,
+                        goldTypeLabel: newLabel,
+                        defaultAmount: newPrice,
                       });
+
+                      if (enableManualSchedule || manualScheduleRounds.length > 0) {
+                        setManualScheduleRounds((prev) =>
+                          prev.map((r) => ({
+                            ...r,
+                            goldAmount: newGoldPool,
+                          }))
+                        );
+                      }
                     }}
                     className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl font-semibold text-slate-800 focus:outline-none"
                   >
@@ -1194,18 +1226,39 @@ export default function GoldDaysPanel({
 
                 <div>
                   <label className="block font-bold text-slate-700 mb-1">
-                    Toplam Altın / Gün Tutarı (TL)
+                    {groupForm.goldType === "AJDA_BILEZIK"
+                      ? "1 Adet Ajda Bilezik Bedeli (TL)"
+                      : `1 Adet ${groupForm.goldTypeLabel || "Altın"} Bedeli (Hisse Başı TL)`}
                   </label>
                   <input
                     type="number"
                     step="any"
                     required
                     value={groupForm.defaultAmount}
-                    onChange={(e) =>
-                      setGroupForm({ ...groupForm, defaultAmount: parseFloat(e.target.value) || 0 })
-                    }
+                    onChange={(e) => {
+                      const val = parseFloat(e.target.value) || 0;
+                      const isAj = groupForm.goldType === "AJDA_BILEZIK";
+                      const paying = Math.max(1, groupForm.totalMembers - 1);
+                      const newGoldPool = isAj ? val : val * paying;
+
+                      setGroupForm({ ...groupForm, defaultAmount: val });
+
+                      if (enableManualSchedule || manualScheduleRounds.length > 0) {
+                        setManualScheduleRounds((prev) =>
+                          prev.map((r) => ({
+                            ...r,
+                            goldAmount: newGoldPool,
+                          }))
+                        );
+                      }
+                    }}
                     className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-amber-900 focus:outline-none"
                   />
+                  <span className="text-[10px] text-slate-500 block mt-0.5">
+                    {groupForm.goldType === "AJDA_BILEZIK"
+                      ? "Ödeme yapan katılımcılar bu bilezik tutarını eşit bölüşür."
+                      : `Her katılımcı tur başına 1 adet ${groupForm.goldTypeLabel || "altın"} (₺${groupForm.defaultAmount.toLocaleString("tr-TR")}) öder.`}
+                  </span>
                 </div>
               </div>
 
@@ -1293,7 +1346,8 @@ export default function GoldDaysPanel({
                             groupForm.startMonth,
                             "1, 10, 20",
                             groupForm.defaultAmount,
-                            groupForm.membersText
+                            groupForm.membersText,
+                            groupForm.goldType
                           )
                         );
                       }
@@ -1325,7 +1379,8 @@ export default function GoldDaysPanel({
                             groupForm.startMonth,
                             "1, 15",
                             groupForm.defaultAmount,
-                            groupForm.membersText
+                            groupForm.membersText,
+                            groupForm.goldType
                           )
                         );
                       }
@@ -1357,7 +1412,8 @@ export default function GoldDaysPanel({
                             groupForm.startMonth,
                             "10",
                             groupForm.defaultAmount,
-                            groupForm.membersText
+                            groupForm.membersText,
+                            groupForm.goldType
                           )
                         );
                       }
@@ -1387,7 +1443,8 @@ export default function GoldDaysPanel({
                             groupForm.startMonth,
                             groupForm.daysList,
                             groupForm.defaultAmount,
-                            groupForm.membersText
+                            groupForm.membersText,
+                            groupForm.goldType
                           )
                         );
                         setEnableManualSchedule(true);
@@ -1428,204 +1485,209 @@ export default function GoldDaysPanel({
                         meetingFrequency: freq,
                         dayOfMonth: parseInt(val.split(/[,;\s]+/)[0]) || 1,
                       });
-                      if (enableManualSchedule || manualScheduleRounds.length > 0) {
-                        setManualScheduleRounds(
-                          buildInitialManualRounds(
-                            groupForm.totalMembers,
-                            groupForm.startYear,
-                            groupForm.startMonth,
-                            val,
-                            groupForm.defaultAmount,
-                            groupForm.membersText
-                          )
-                        );
-                      }
-                    }}
-                    className="flex-1 p-2 bg-white border border-slate-300 rounded-xl font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-amber-500/20"
-                  />
-                  <span className="text-[11px] text-slate-500 shrink-0">
-                    (Virgülle ayırarak giriniz)
-                  </span>
-                </div>
-
-                {/* Canlı Takvim Önizlemesi */}
-                <div className="p-2.5 bg-amber-50 border border-amber-200/80 rounded-xl space-y-1.5">
-                  <div className="flex items-center justify-between text-[11px] font-bold text-amber-950">
-                    <span className="flex items-center gap-1">
-                      <Calendar className="w-3.5 h-3.5 text-amber-700" />
-                      İlk Turların Tarih Dağılımı Önizlemesi:
-                    </span>
-                    <span className="text-amber-800 font-extrabold">
-                      {groupForm.totalMembers} Tur ~{" "}
-                      {Math.ceil(
-                        groupForm.totalMembers /
-                          Math.max(
-                            1,
-                            groupForm.daysList
-                              .split(/[,;\s]+/)
-                              .filter((d) => d && !isNaN(Number(d))).length || 1
-                          )
-                      )}{" "}
-                      Ayda Tamamlanır
-                    </span>
-                  </div>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5 text-[11px]">
-                    {getSchedulePreview(
-                      groupForm.daysList,
-                      groupForm.startYear,
-                      groupForm.startMonth,
-                      groupForm.totalMembers
-                    ).map((p) => (
-                      <div
-                        key={p.round}
-                        className="bg-white border border-amber-200/80 rounded-lg p-1.5 flex items-center justify-between"
-                      >
-                        <span className="font-extrabold text-slate-700">{p.round}. Tur:</span>
-                        <span className="font-black text-amber-950">{p.dateStr}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-
-              <div>
-                <label className="block font-bold text-slate-700 mb-1">
-                  Katılımcı Sıra Listesi (İsteğe Bağlı)
-                </label>
-                <textarea
-                  rows={3}
-                  placeholder={`Her satıra bir isim yazınız:\nFeyza\nAyşe\nMuhammed Ali (1. Hisse)\nBetül...`}
-                  value={groupForm.membersText}
-                  onChange={(e) => setGroupForm({ ...groupForm, membersText: e.target.value })}
-                  className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 font-mono text-[11px] focus:outline-none"
-                />
-                <span className="text-[10px] text-slate-400 block mt-0.5">
-                  Boş bırakırsanız Katılımcı 1, Katılımcı 2 olarak otomatik açılır.
-                </span>
-              </div>
-
-              {/* Taksit Planını Manuel Düzenleme Bölümü (Yeni Grup) */}
-              <div className="p-3 bg-slate-50 border border-slate-200 rounded-2xl space-y-3">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h4 className="font-extrabold text-slate-800 text-xs flex items-center gap-1.5">
-                      <FileSpreadsheet className="w-4 h-4 text-indigo-600" />
-                      <span>Taksit Planını Manuel & Serbest Olarak Düzenle</span>
-                    </h4>
-                    <p className="text-[10px] text-slate-500">
-                      Turların vadelerini, isimlerini veya altın değerlerini taksit tablosu gibi tek tek elle belirleyebilirsiniz.
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (!enableManualSchedule) {
-                        setGroupForm((prev) => ({ ...prev, meetingFrequency: "CUSTOM" }));
-                        if (manualScheduleRounds.length === 0) {
+                        if (enableManualSchedule || manualScheduleRounds.length > 0) {
                           setManualScheduleRounds(
                             buildInitialManualRounds(
                               groupForm.totalMembers,
                               groupForm.startYear,
                               groupForm.startMonth,
-                              groupForm.daysList,
+                              val,
                               groupForm.defaultAmount,
-                              groupForm.membersText
+                              groupForm.membersText,
+                              groupForm.goldType
                             )
                           );
                         }
-                      }
-                      setEnableManualSchedule(!enableManualSchedule);
-                    }}
-                    className={`px-3 py-1.5 rounded-xl font-bold text-xs border transition-all ${
-                      enableManualSchedule
-                        ? "bg-indigo-600 text-white border-indigo-700"
-                        : "bg-white text-indigo-700 border-indigo-200 hover:bg-indigo-50"
-                    }`}
-                  >
-                    {enableManualSchedule ? "Manuel Tabloyu Gizle" : "✍️ Taksitleri Manuel Düzenle"}
-                  </button>
+                      }}
+                      className="flex-1 p-2 bg-white border border-slate-300 rounded-xl font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-amber-500/20"
+                    />
+                    <span className="text-[11px] text-slate-500 shrink-0">
+                      (Virgülle ayırarak giriniz)
+                    </span>
+                  </div>
+
+                  {/* Canlı Takvim Önizlemesi */}
+                  <div className="p-2.5 bg-amber-50 border border-amber-200/80 rounded-xl space-y-1.5">
+                    <div className="flex items-center justify-between text-[11px] font-bold text-amber-950">
+                      <span className="flex items-center gap-1">
+                        <Calendar className="w-3.5 h-3.5 text-amber-700" />
+                        İlk Turların Tarih Dağılımı Önizlemesi:
+                      </span>
+                      <span className="text-amber-800 font-extrabold">
+                        {groupForm.totalMembers} Tur ~{" "}
+                        {Math.ceil(
+                          groupForm.totalMembers /
+                            Math.max(
+                              1,
+                              groupForm.daysList
+                                .split(/[,;\s]+/)
+                                .filter((d) => d && !isNaN(Number(d))).length || 1
+                            )
+                        )}{" "}
+                        Ayda Tamamlanır
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5 text-[11px]">
+                      {getSchedulePreview(
+                        groupForm.daysList,
+                        groupForm.startYear,
+                        groupForm.startMonth,
+                        groupForm.totalMembers
+                      ).map((p) => (
+                        <div
+                          key={p.round}
+                          className="bg-white border border-amber-200/80 rounded-lg p-1.5 flex items-center justify-between"
+                        >
+                          <span className="font-extrabold text-slate-700">{p.round}. Tur:</span>
+                          <span className="font-black text-amber-950">{p.dateStr}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
                 </div>
 
-                {enableManualSchedule && (
-                  <div className="space-y-2 pt-2 border-t border-slate-200">
-                    <div className="flex flex-wrap items-center justify-between gap-2 bg-indigo-50/50 p-2 rounded-xl border border-indigo-100">
-                      <span className="text-[11px] font-bold text-indigo-950">
-                        ⚡ Hızlı Tarih Dağıtıcı:
-                      </span>
-                      <div className="flex items-center gap-1 flex-wrap">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setGroupForm((prev) => ({
-                              ...prev,
-                              meetingFrequency: "THRICE_MONTHLY",
-                              daysList: "1, 10, 20",
-                              dayOfMonth: 1,
-                            }));
-                            const initial = buildInitialManualRounds(
-                              groupForm.totalMembers,
-                              groupForm.startYear,
-                              groupForm.startMonth,
-                              "1, 10, 20",
-                              groupForm.defaultAmount,
-                              groupForm.membersText
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">
+                    Katılımcı Sıra Listesi (İsteğe Bağlı)
+                  </label>
+                  <textarea
+                    rows={3}
+                    placeholder={`Her satıra bir isim yazınız:\nFeyza\nAyşe\nMuhammed Ali (1. Hisse)\nBetül...`}
+                    value={groupForm.membersText}
+                    onChange={(e) => setGroupForm({ ...groupForm, membersText: e.target.value })}
+                    className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 font-mono text-[11px] focus:outline-none"
+                  />
+                  <span className="text-[10px] text-slate-400 block mt-0.5">
+                    Boş bırakırsanız Katılımcı 1, Katılımcı 2 olarak otomatik açılır.
+                  </span>
+                </div>
+
+                {/* Taksit Planını Manuel Düzenleme Bölümü (Yeni Grup) */}
+                <div className="p-3 bg-slate-50 border border-slate-200 rounded-2xl space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h4 className="font-extrabold text-slate-800 text-xs flex items-center gap-1.5">
+                        <FileSpreadsheet className="w-4 h-4 text-indigo-600" />
+                        <span>Taksit Planını Manuel & Serbest Olarak Düzenle</span>
+                      </h4>
+                      <p className="text-[10px] text-slate-500">
+                        Turların vadelerini, isimlerini veya altın değerlerini taksit tablosu gibi tek tek elle belirleyebilirsiniz.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (!enableManualSchedule) {
+                          setGroupForm((prev) => ({ ...prev, meetingFrequency: "CUSTOM" }));
+                          if (manualScheduleRounds.length === 0) {
+                            setManualScheduleRounds(
+                              buildInitialManualRounds(
+                                groupForm.totalMembers,
+                                groupForm.startYear,
+                                groupForm.startMonth,
+                                groupForm.daysList,
+                                groupForm.defaultAmount,
+                                groupForm.membersText,
+                                groupForm.goldType
+                              )
                             );
-                            setManualScheduleRounds(initial);
-                          }}
-                          className={`px-2 py-1 rounded-lg text-[10px] font-bold border transition-colors ${
-                            groupForm.meetingFrequency === "THRICE_MONTHLY"
-                              ? "bg-indigo-600 text-white border-indigo-700"
-                              : "bg-white hover:bg-indigo-100 border-indigo-200 text-indigo-900"
-                          }`}
-                        >
-                          Ayda 3 Kez (1, 10, 20)
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setGroupForm((prev) => ({
-                              ...prev,
-                              meetingFrequency: "TWICE_MONTHLY",
-                              daysList: "1, 15",
-                              dayOfMonth: 1,
-                            }));
-                            const initial = buildInitialManualRounds(
-                              groupForm.totalMembers,
-                              groupForm.startYear,
-                              groupForm.startMonth,
-                              "1, 15",
-                              groupForm.defaultAmount,
-                              groupForm.membersText
-                            );
-                            setManualScheduleRounds(initial);
-                          }}
-                          className={`px-2 py-1 rounded-lg text-[10px] font-bold border transition-colors ${
-                            groupForm.meetingFrequency === "TWICE_MONTHLY"
-                              ? "bg-indigo-600 text-white border-indigo-700"
-                              : "bg-white hover:bg-indigo-100 border-indigo-200 text-indigo-900"
-                          }`}
-                        >
-                          Ayda 2 Kez (1, 15)
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setGroupForm((prev) => ({
-                              ...prev,
-                              meetingFrequency: "ONCE_MONTHLY",
-                              daysList: "10",
-                              dayOfMonth: 10,
-                            }));
-                            const initial = buildInitialManualRounds(
-                              groupForm.totalMembers,
-                              groupForm.startYear,
-                              groupForm.startMonth,
-                              "10",
-                              groupForm.defaultAmount,
-                              groupForm.membersText
-                            );
-                            setManualScheduleRounds(initial);
-                          }}
+                          }
+                        }
+                        setEnableManualSchedule(!enableManualSchedule);
+                      }}
+                      className={`px-3 py-1.5 rounded-xl font-bold text-xs border transition-all ${
+                        enableManualSchedule
+                          ? "bg-indigo-600 text-white border-indigo-700"
+                          : "bg-white text-indigo-700 border-indigo-200 hover:bg-indigo-50"
+                      }`}
+                    >
+                      {enableManualSchedule ? "Manuel Tabloyu Gizle" : "✍️ Taksitleri Manuel Düzenle"}
+                    </button>
+                  </div>
+
+                  {enableManualSchedule && (
+                    <div className="space-y-2 pt-2 border-t border-slate-200">
+                      <div className="flex flex-wrap items-center justify-between gap-2 bg-indigo-50/50 p-2 rounded-xl border border-indigo-100">
+                        <span className="text-[11px] font-bold text-indigo-950">
+                          ⚡ Hızlı Tarih Dağıtıcı:
+                        </span>
+                        <div className="flex items-center gap-1 flex-wrap">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setGroupForm((prev) => ({
+                                ...prev,
+                                meetingFrequency: "THRICE_MONTHLY",
+                                daysList: "1, 10, 20",
+                                dayOfMonth: 1,
+                              }));
+                              const initial = buildInitialManualRounds(
+                                groupForm.totalMembers,
+                                groupForm.startYear,
+                                groupForm.startMonth,
+                                "1, 10, 20",
+                                groupForm.defaultAmount,
+                                groupForm.membersText,
+                                groupForm.goldType
+                              );
+                              setManualScheduleRounds(initial);
+                            }}
+                            className={`px-2 py-1 rounded-lg text-[10px] font-bold border transition-colors ${
+                              groupForm.meetingFrequency === "THRICE_MONTHLY"
+                                ? "bg-indigo-600 text-white border-indigo-700"
+                                : "bg-white hover:bg-indigo-100 border-indigo-200 text-indigo-900"
+                            }`}
+                          >
+                            Ayda 3 Kez (1, 10, 20)
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setGroupForm((prev) => ({
+                                ...prev,
+                                meetingFrequency: "TWICE_MONTHLY",
+                                daysList: "1, 15",
+                                dayOfMonth: 1,
+                              }));
+                              const initial = buildInitialManualRounds(
+                                groupForm.totalMembers,
+                                groupForm.startYear,
+                                groupForm.startMonth,
+                                "1, 15",
+                                groupForm.defaultAmount,
+                                groupForm.membersText,
+                                groupForm.goldType
+                              );
+                              setManualScheduleRounds(initial);
+                            }}
+                            className={`px-2 py-1 rounded-lg text-[10px] font-bold border transition-colors ${
+                              groupForm.meetingFrequency === "TWICE_MONTHLY"
+                                ? "bg-indigo-600 text-white border-indigo-700"
+                                : "bg-white hover:bg-indigo-100 border-indigo-200 text-indigo-900"
+                            }`}
+                          >
+                            Ayda 2 Kez (1, 15)
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setGroupForm((prev) => ({
+                                ...prev,
+                                meetingFrequency: "ONCE_MONTHLY",
+                                daysList: "10",
+                                dayOfMonth: 10,
+                              }));
+                              const initial = buildInitialManualRounds(
+                                groupForm.totalMembers,
+                                groupForm.startYear,
+                                groupForm.startMonth,
+                                "10",
+                                groupForm.defaultAmount,
+                                groupForm.membersText,
+                                groupForm.goldType
+                              );
+                              setManualScheduleRounds(initial);
+                            }}
                           className={`px-2 py-1 rounded-lg text-[10px] font-bold border transition-colors ${
                             groupForm.meetingFrequency === "ONCE_MONTHLY"
                               ? "bg-indigo-600 text-white border-indigo-700"
@@ -2446,11 +2508,13 @@ export default function GoldDaysPanel({
                     </thead>
                     <tbody className="divide-y divide-slate-100">
                       {bulkRounds.map((r, idx) => {
-                        const isCeyrek = selectedGroup.goldType === "CEYREK_ALTIN";
+                        const isAjda = selectedGroup.goldType === "AJDA_BILEZIK";
                         const payingMembers = selectedGroup.totalMembers - 1;
-                        const perMem = isCeyrek
-                          ? (selectedGroup.defaultAmount || 11250)
-                          : (payingMembers > 0 ? r.goldAmount / payingMembers : 0);
+                        const perMem = isAjda
+                          ? (payingMembers > 0 ? r.goldAmount / payingMembers : 0)
+                          : (payingMembers > 0 && r.goldAmount > selectedGroup.defaultAmount
+                              ? r.goldAmount / payingMembers
+                              : selectedGroup.defaultAmount);
                         const effShares = r.isUserTurn
                           ? Math.max(0, selectedGroup.userShareCount - 1)
                           : selectedGroup.userShareCount;

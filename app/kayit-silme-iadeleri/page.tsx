@@ -106,6 +106,14 @@ export default function KayitSilmeIadeleriPage() {
     installmentCount: 5,
     notes: "",
   });
+  const [newInstallmentRows, setNewInstallmentRows] = useState<
+    Array<{
+      no: number;
+      dueDate: string;
+      amount: number;
+      notes: string;
+    }>
+  >([]);
   const [newSubmitting, setNewSubmitting] = useState(false);
 
   // Ödeme Yap Formu
@@ -126,8 +134,11 @@ export default function KayitSilmeIadeleriPage() {
       dueDate: string;
       amount: number;
       notes: string;
+      paidAmount: number;
+      isPaid: boolean;
     }>
   >([]);
+  const [bulkInstallmentCount, setBulkInstallmentCount] = useState<number>(1);
   const [bulkSubmitting, setBulkSubmitting] = useState(false);
 
   // Dosya Bilgileri Düzenleme
@@ -213,11 +224,166 @@ export default function KayitSilmeIadeleriPage() {
     });
   }, [refunds, searchQuery, statusFilter]);
 
+  // Tarihe Ay Ekleme Yardımcısı
+  const addMonthsToDate = (baseDateStr: string, monthsToAdd: number): string => {
+    try {
+      const parts = baseDateStr ? baseDateStr.split("-") : [];
+      let d: Date;
+      if (parts.length === 3) {
+        d = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+      } else {
+        d = new Date();
+      }
+      const currentMonth = d.getMonth();
+      const currentDay = d.getDate();
+      const targetDate = new Date(d.getFullYear(), currentMonth + monthsToAdd, 1);
+      const lastDayInTargetMonth = new Date(targetDate.getFullYear(), targetDate.getMonth() + 1, 0).getDate();
+      const safeDay = Math.min(currentDay, lastDayInTargetMonth);
+      targetDate.setDate(safeDay);
+      const y = targetDate.getFullYear();
+      const m = String(targetDate.getMonth() + 1).padStart(2, "0");
+      const day = String(targetDate.getDate()).padStart(2, "0");
+      return `${y}-${m}-${day}`;
+    } catch {
+      return new Date().toISOString().split("T")[0];
+    }
+  };
+
+  // Yeni İade Dosyası İçin Taksit Listesi Oluşturucu
+  const generateInstallmentRows = (tot: number, count: number, sDateStr: string) => {
+    const safeTot = Math.max(0, tot || 0);
+    const safeCount = Math.max(1, count || 1);
+    const basePerInst = Number((safeTot / safeCount).toFixed(2));
+    let curRem = safeTot;
+    const list: Array<{ no: number; dueDate: string; amount: number; notes: string }> = [];
+
+    for (let i = 0; i < safeCount; i++) {
+      const isLast = i === safeCount - 1;
+      const instAmt = isLast ? Number(curRem.toFixed(2)) : basePerInst;
+      curRem = Number((curRem - instAmt).toFixed(2));
+      const instDate = addMonthsToDate(sDateStr || new Date().toISOString().split("T")[0], i);
+      list.push({
+        no: i + 1,
+        dueDate: instDate,
+        amount: instAmt,
+        notes: "",
+      });
+    }
+    return list;
+  };
+
+  // Yeni Dosya Modalı Aç
+  const openNewModal = () => {
+    const today = new Date().toISOString().split("T")[0];
+    const initialTot = 122500;
+    const initialCount = 5;
+    setNewForm({
+      studentName: "",
+      parentName: "",
+      phone: "",
+      iban: "",
+      reason: "Kayıt Silme / Nakil İadesi",
+      cancellationDate: today,
+      startDate: today,
+      totalAmount: initialTot,
+      installmentCount: initialCount,
+      notes: "",
+    });
+    setNewInstallmentRows(generateInstallmentRows(initialTot, initialCount, today));
+    setNewRefundModalOpen(true);
+  };
+
+  // Yeni Dosya: Taksit Sayısını Değiştirip Yeniden Dağıt
+  const handleNewInstallmentCountChange = (count: number) => {
+    const safeCount = Math.max(1, count || 1);
+    setNewForm((prev) => ({ ...prev, installmentCount: safeCount }));
+    setNewInstallmentRows(generateInstallmentRows(newForm.totalAmount, safeCount, newForm.startDate));
+  };
+
+  // Yeni Dosya: Manuel Yeni Taksit Ekle
+  const handleAddNewRow = () => {
+    const last = newInstallmentRows[newInstallmentRows.length - 1];
+    let nextDate = new Date().toISOString().split("T")[0];
+    if (last && last.dueDate) {
+      nextDate = addMonthsToDate(last.dueDate, 1);
+    }
+    const updated = [
+      ...newInstallmentRows,
+      {
+        no: newInstallmentRows.length + 1,
+        dueDate: nextDate,
+        amount: 0,
+        notes: "",
+      },
+    ];
+    setNewInstallmentRows(updated);
+    setNewForm((prev) => ({ ...prev, installmentCount: updated.length }));
+  };
+
+  // Yeni Dosya: Taksit Satırını Sil
+  const handleDeleteNewRow = (idx: number) => {
+    if (newInstallmentRows.length <= 1) {
+      alert("En az bir taksit bulunmalıdır.");
+      return;
+    }
+    const filtered = newInstallmentRows.filter((_, i) => i !== idx);
+    const renumbered = filtered.map((r, i) => ({ ...r, no: i + 1 }));
+    setNewInstallmentRows(renumbered);
+    setNewForm((prev) => ({ ...prev, installmentCount: renumbered.length }));
+  };
+
+  // Yeni Dosya: Tutarları Eşit Yeniden Dağıt
+  const handleResetNewRowsToEqual = () => {
+    setNewInstallmentRows(
+      generateInstallmentRows(newForm.totalAmount, newInstallmentRows.length, newForm.startDate)
+    );
+  };
+
+  // Yeni Dosya: Farkı Son Taksite Eşitle
+  const handleBalanceNewToLast = () => {
+    if (newInstallmentRows.length === 0) return;
+    const lastIdx = newInstallmentRows.length - 1;
+    const otherSum = newInstallmentRows.reduce(
+      (sum, r, i) => (i !== lastIdx ? sum + (Number(r.amount) || 0) : sum),
+      0
+    );
+    const diff = Number((newForm.totalAmount - otherSum).toFixed(2));
+    if (diff < 0) {
+      alert("Diğer taksitlerin toplamı zaten hedef tutarı aşıyor.");
+      return;
+    }
+    setNewInstallmentRows((prev) =>
+      prev.map((r, i) => (i === lastIdx ? { ...r, amount: diff } : r))
+    );
+  };
+
+  // Yeni Dosya: Hedef Tutarı Taksitler Toplamına Eşitle
+  const handleSyncTargetToNewRows = () => {
+    const sum = Number(
+      newInstallmentRows.reduce((s, r) => s + (Number(r.amount) || 0), 0).toFixed(2)
+    );
+    setNewForm((prev) => ({ ...prev, totalAmount: sum }));
+  };
+
   // Yeni Dosya Kaydet
   const handleCreateRefund = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newForm.studentName.trim() || newForm.totalAmount <= 0) {
-      alert("Lütfen öğrenci adı ve geçerli bir iade tutarı giriniz.");
+    if (!newForm.studentName.trim()) {
+      alert("Lütfen öğrenci adı giriniz.");
+      return;
+    }
+
+    if (newInstallmentRows.length === 0) {
+      alert("En az bir taksit bulunmalıdır.");
+      return;
+    }
+
+    const calculatedTotal = Number(
+      newInstallmentRows.reduce((sum, item) => sum + (Number(item.amount) || 0), 0).toFixed(2)
+    );
+
+    if (calculatedTotal <= 0) {
+      alert("Taksitlerin toplam tutarı 0 TL'den büyük olmalıdır.");
       return;
     }
 
@@ -226,7 +392,17 @@ export default function KayitSilmeIadeleriPage() {
       const res = await fetch("/api/kayit-silme-iadeleri", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(newForm),
+        body: JSON.stringify({
+          ...newForm,
+          totalAmount: calculatedTotal,
+          installmentCount: newInstallmentRows.length,
+          customInstallments: newInstallmentRows.map((row, idx) => ({
+            installmentNo: idx + 1,
+            dueDate: row.dueDate,
+            amount: Number(row.amount) || 0,
+            notes: row.notes || null,
+          })),
+        }),
       });
 
       if (!res.ok) {
@@ -239,19 +415,22 @@ export default function KayitSilmeIadeleriPage() {
       setNewRefundModalOpen(false);
       await fetchRefunds();
       setSelectedRefundId(created.id);
+      
       // Formu sıfırla
+      const today = new Date().toISOString().split("T")[0];
       setNewForm({
         studentName: "",
         parentName: "",
         phone: "",
         iban: "",
         reason: "Kayıt Silme / Nakil İadesi",
-        cancellationDate: new Date().toISOString().split("T")[0],
-        startDate: new Date().toISOString().split("T")[0],
+        cancellationDate: today,
+        startDate: today,
         totalAmount: 122500,
         installmentCount: 5,
         notes: "",
       });
+      setNewInstallmentRows([]);
     } catch {
       alert("Hata oluştu");
     } finally {
@@ -339,14 +518,150 @@ export default function KayitSilmeIadeleriPage() {
       dueDate: inst.dueDate ? new Date(inst.dueDate).toISOString().split("T")[0] : "",
       amount: inst.amount,
       notes: inst.notes || "",
+      paidAmount: inst.paidAmount || 0,
+      isPaid: inst.status === "PAID" || inst.paidAmount > 0,
     }));
     setBulkRounds(items);
+    setBulkInstallmentCount(items.length || 1);
     setBulkEditModalOpen(true);
+  };
+
+  // Taksitleri Eşit Olarak Yeniden Dağıt
+  const handleReDistribute = (targetCount: number) => {
+    const count = Math.max(1, targetCount);
+    if (!selectedRefund) return;
+
+    // Ödenmiş taksitleri koru
+    const paidItems = bulkRounds.filter((r) => r.isPaid);
+    if (paidItems.length > count) {
+      alert(
+        `Bu dosyada zaten ${paidItems.length} adet ödenmiş taksit bulunmaktadır. Taksit sayısı en az ${paidItems.length} olmalıdır.`
+      );
+      return;
+    }
+
+    const totalTarget = selectedRefund.totalAmount;
+    const paidTotal = paidItems.reduce((s, r) => s + (r.paidAmount || r.amount), 0);
+    const remainingTotal = Math.max(0, Number((totalTarget - paidTotal).toFixed(2)));
+    const remainingCount = count - paidItems.length;
+
+    if (remainingCount === 0) {
+      const renumbered = paidItems.map((item, idx) => ({ ...item, installmentNo: idx + 1 }));
+      setBulkRounds(renumbered);
+      setBulkInstallmentCount(renumbered.length);
+      return;
+    }
+
+    // Başlangıç tarihi
+    let baseDateStr = new Date().toISOString().split("T")[0];
+    if (paidItems.length > 0) {
+      baseDateStr = paidItems[paidItems.length - 1].dueDate || baseDateStr;
+    } else if (bulkRounds.length > 0 && bulkRounds[0].dueDate) {
+      baseDateStr = bulkRounds[0].dueDate;
+    }
+
+    const basePerInst = Number((remainingTotal / remainingCount).toFixed(2));
+    let curRemainder = remainingTotal;
+
+    const existingUnpaid = bulkRounds.filter((r) => !r.isPaid);
+    const newUnpaidItems = [];
+
+    for (let i = 0; i < remainingCount; i++) {
+      const isLast = i === remainingCount - 1;
+      const instAmt = isLast ? Number(curRemainder.toFixed(2)) : basePerInst;
+      curRemainder = Number((curRemainder - instAmt).toFixed(2));
+
+      const monthOffset = paidItems.length > 0 ? i + 1 : i;
+      const instDate = addMonthsToDate(baseDateStr, monthOffset);
+
+      const prev = existingUnpaid[i];
+      newUnpaidItems.push({
+        id: prev ? prev.id : `new_${Date.now()}_${i}`,
+        installmentNo: paidItems.length + i + 1,
+        dueDate: instDate,
+        amount: instAmt,
+        notes: prev ? prev.notes : "",
+        paidAmount: 0,
+        isPaid: false,
+      });
+    }
+
+    const finalRounds = [...paidItems, ...newUnpaidItems].map((item, idx) => ({
+      ...item,
+      installmentNo: idx + 1,
+    }));
+
+    setBulkRounds(finalRounds);
+    setBulkInstallmentCount(finalRounds.length);
+  };
+
+  // Manuel Yeni Taksit Ekle
+  const handleAddRow = () => {
+    const last = bulkRounds[bulkRounds.length - 1];
+    let nextDateStr = new Date().toISOString().split("T")[0];
+    if (last && last.dueDate) {
+      nextDateStr = addMonthsToDate(last.dueDate, 1);
+    }
+    const newRow = {
+      id: `new_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      installmentNo: bulkRounds.length + 1,
+      dueDate: nextDateStr,
+      amount: 0,
+      notes: "",
+      paidAmount: 0,
+      isPaid: false,
+    };
+    const updated = [...bulkRounds, newRow];
+    setBulkRounds(updated);
+    setBulkInstallmentCount(updated.length);
+  };
+
+  // Taksit Satırını Sil
+  const handleDeleteRow = (index: number) => {
+    const item = bulkRounds[index];
+    if (item && item.isPaid) {
+      alert("Ödenmiş taksit silinemez. Önce ödemeyi geri alınız.");
+      return;
+    }
+    const filtered = bulkRounds.filter((_, idx) => idx !== index);
+    const renumbered = filtered.map((r, idx) => ({
+      ...r,
+      installmentNo: idx + 1,
+    }));
+    setBulkRounds(renumbered);
+    setBulkInstallmentCount(renumbered.length);
+  };
+
+  // Farkı Son Ödenmemiş Taksite Eşitle
+  const handleBalanceToLastInstallment = () => {
+    if (!selectedRefund || bulkRounds.length === 0) return;
+    const unpaidIndices = bulkRounds
+      .map((r, idx) => (!r.isPaid ? idx : -1))
+      .filter((idx) => idx !== -1);
+    if (unpaidIndices.length === 0) {
+      alert("Düzenlenebilir (ödenmemiş) taksit bulunmuyor.");
+      return;
+    }
+    const lastUnpaidIdx = unpaidIndices[unpaidIndices.length - 1];
+    const otherSum = bulkRounds.reduce((sum, r, idx) => (idx !== lastUnpaidIdx ? sum + r.amount : sum), 0);
+    const diff = Number((selectedRefund.totalAmount - otherSum).toFixed(2));
+    if (diff < 0) {
+      alert("Diğer taksitlerin toplamı zaten ana dosya tutarını aşıyor.");
+      return;
+    }
+    setBulkRounds((prev) =>
+      prev.map((r, idx) => (idx === lastUnpaidIdx ? { ...r, amount: diff } : r))
+    );
   };
 
   const handleSaveBulkEdit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedRefund) return;
+
+    if (bulkRounds.length === 0) {
+      alert("En az bir taksit bulunmalıdır.");
+      return;
+    }
 
     try {
       setBulkSubmitting(true);
@@ -361,7 +676,8 @@ export default function KayitSilmeIadeleriPage() {
       });
 
       if (!res.ok) {
-        alert("Taksitler güncellenemedi");
+        const errData = await res.json().catch(() => null);
+        alert(errData?.error || "Taksitler güncellenemedi");
         return;
       }
 
@@ -438,36 +754,7 @@ export default function KayitSilmeIadeleriPage() {
     }
   };
 
-  // Yeni simülasyon taksitleri (modal içi canlı önizleme)
-  const simulationInstallments = useMemo(() => {
-    const tot = Math.max(0, Number(newForm.totalAmount) || 0);
-    const count = Math.max(1, parseInt(String(newForm.installmentCount), 10) || 1);
-    const sDate = newForm.startDate ? new Date(newForm.startDate) : new Date();
 
-    const basePerInst = Number((tot / count).toFixed(2));
-    let currentRemainder = tot;
-
-    const list: Array<{ no: number; dateStr: string; amount: number }> = [];
-    const sYear = sDate.getFullYear();
-    const sMonth = sDate.getMonth() + 1;
-    const targetDay = sDate.getDate();
-
-    for (let i = 0; i < count; i++) {
-      const isLast = i === count - 1;
-      const instAmt = isLast ? Number(currentRemainder.toFixed(2)) : basePerInst;
-      currentRemainder -= instAmt;
-
-      const targetMonthOffset = sMonth - 1 + i;
-      const rYear = sYear + Math.floor(targetMonthOffset / 12);
-      const rMonth = (targetMonthOffset % 12) + 1;
-      const lastDayOfMonth = new Date(rYear, rMonth, 0).getDate();
-      const safeDay = Math.min(targetDay, lastDayOfMonth);
-
-      const dStr = `${String(safeDay).padStart(2, "0")}.${String(rMonth).padStart(2, "0")}.${rYear}`;
-      list.push({ no: i + 1, dateStr: dStr, amount: instAmt });
-    }
-    return list;
-  }, [newForm.totalAmount, newForm.installmentCount, newForm.startDate]);
 
   return (
     <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto w-full space-y-6">
@@ -499,9 +786,17 @@ export default function KayitSilmeIadeleriPage() {
             <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin text-teal-600" : ""}`} />
           </button>
 
+          <Link
+            href="/giderler?category=STUDENT_REFUND"
+            className="px-3.5 py-2.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 font-bold text-xs shadow-2xs transition-all flex items-center gap-1.5"
+          >
+            <Coins className="w-4 h-4 text-amber-600" />
+            <span>Okul Borç Takviminde Gör →</span>
+          </Link>
+
           <button
             type="button"
-            onClick={() => setNewRefundModalOpen(true)}
+            onClick={openNewModal}
             className="px-4 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-extrabold text-xs shadow-md transition-all flex items-center gap-2"
           >
             <Plus className="w-4 h-4" />
@@ -856,6 +1151,25 @@ export default function KayitSilmeIadeleriPage() {
 
               {/* Taksitler Tablosu */}
               <div className="overflow-x-auto">
+                <div className="p-3.5 px-5 bg-slate-50 border-b border-slate-200 flex items-center justify-between flex-wrap gap-2">
+                  <div className="flex items-center gap-2">
+                    <span className="font-extrabold text-slate-800 text-xs sm:text-sm">
+                      Taksit Ödeme Takvimi
+                    </span>
+                    <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-slate-200 text-slate-700">
+                      {selectedRefund.installments.length} Taksit
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => openBulkEditModal(selectedRefund)}
+                    className="px-3 py-1.5 rounded-xl border border-indigo-200 bg-indigo-50 hover:bg-indigo-100 text-indigo-900 text-xs font-bold transition-colors flex items-center gap-1.5 shadow-2xs"
+                    title="Taksit sayısını artır/azalt, eşit dağıt veya vadeleri düzenle"
+                  >
+                    <FileSpreadsheet className="w-3.5 h-3.5 text-indigo-600" />
+                    <span>Taksit Sayısını ve Planını Düzenle</span>
+                  </button>
+                </div>
                 <table className="w-full text-left border-collapse text-xs">
                   <thead>
                     <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 font-bold uppercase tracking-wider">
@@ -1000,15 +1314,20 @@ export default function KayitSilmeIadeleriPage() {
       {/* 5. YENİ İADE DOSYASI OLUŞTURMA MODALI */}
       {newRefundModalOpen && (
         <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/60 backdrop-blur-xs p-3 sm:p-6 overflow-y-auto">
-          <div className="bg-white rounded-3xl max-w-2xl w-full my-auto shadow-2xl overflow-hidden flex flex-col max-h-[92vh]">
+          <div className="bg-white rounded-3xl max-w-4xl w-full my-auto shadow-2xl overflow-hidden flex flex-col max-h-[92vh]">
             <div className="p-5 sm:p-6 pb-4 border-b border-slate-100 flex items-center justify-between bg-white shrink-0">
               <div className="flex items-center gap-2">
                 <div className="w-8 h-8 rounded-xl bg-rose-100 text-rose-800 flex items-center justify-center font-bold">
                   <UserMinus className="w-4 h-4" />
                 </div>
-                <h3 className="text-base font-extrabold text-slate-900">
-                  Yeni Kayıt Silme İadesi Tanımla
-                </h3>
+                <div>
+                  <h3 className="text-base font-extrabold text-slate-900">
+                    Yeni Kayıt Silme İadesi Tanımla
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Öğrenci bilgilerini girip taksit tutarlarını ve vadelerini satır satır manuel olarak düzenleyebilirsiniz.
+                  </p>
+                </div>
               </div>
               <button
                 type="button"
@@ -1072,7 +1391,7 @@ export default function KayitSilmeIadeleriPage() {
                     </label>
                     <input
                       type="text"
-                      placeholder="TR00 0000 0000 0000 0000 0000 00"
+                      placeholder="TR00 0000 0000 0000 0000 00"
                       value={newForm.iban}
                       onChange={(e) => setNewForm({ ...newForm, iban: e.target.value })}
                       className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl font-mono text-xs text-slate-800 focus:outline-none"
@@ -1091,9 +1410,10 @@ export default function KayitSilmeIadeleriPage() {
                       step="any"
                       required
                       value={newForm.totalAmount}
-                      onChange={(e) =>
-                        setNewForm({ ...newForm, totalAmount: parseFloat(e.target.value) || 0 })
-                      }
+                      onChange={(e) => {
+                        const val = parseFloat(e.target.value) || 0;
+                        setNewForm((prev) => ({ ...prev, totalAmount: val }));
+                      }}
                       className="w-full p-2.5 bg-white border border-rose-300 rounded-xl font-black text-rose-950 text-sm focus:outline-none"
                     />
                   </div>
@@ -1108,12 +1428,10 @@ export default function KayitSilmeIadeleriPage() {
                       max={36}
                       required
                       value={newForm.installmentCount}
-                      onChange={(e) =>
-                        setNewForm({
-                          ...newForm,
-                          installmentCount: parseInt(e.target.value) || 1,
-                        })
-                      }
+                      onChange={(e) => {
+                        const val = parseInt(e.target.value) || 1;
+                        handleNewInstallmentCountChange(val);
+                      }}
                       className="w-full p-2.5 bg-white border border-rose-300 rounded-xl font-bold text-slate-900 focus:outline-none"
                     />
                   </div>
@@ -1126,7 +1444,13 @@ export default function KayitSilmeIadeleriPage() {
                       type="date"
                       required
                       value={newForm.startDate}
-                      onChange={(e) => setNewForm({ ...newForm, startDate: e.target.value })}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setNewForm((prev) => ({ ...prev, startDate: val }));
+                        setNewInstallmentRows((prev) =>
+                          prev.map((r, i) => ({ ...r, dueDate: addMonthsToDate(val, i) }))
+                        );
+                      }}
                       className="w-full p-2.5 bg-white border border-rose-300 rounded-xl font-bold text-slate-900 focus:outline-none"
                     />
                   </div>
@@ -1159,27 +1483,191 @@ export default function KayitSilmeIadeleriPage() {
                   </div>
                 </div>
 
-                {/* Canlı Taksit Simülasyonu */}
-                <div className="pt-2">
-                  <span className="text-xs font-extrabold text-slate-800 block mb-2">
-                    📋 Oluşturulacak Taksit Planı Önizlemesi:
-                  </span>
-                  <div className="border border-slate-200 rounded-xl overflow-hidden divide-y divide-slate-100 max-h-48 overflow-y-auto">
-                    {simulationInstallments.map((item) => (
-                      <div
-                        key={item.no}
-                        className="flex items-center justify-between p-2.5 text-xs hover:bg-slate-50"
-                      >
-                        <span className="font-extrabold text-slate-700">
-                          {item.no}. Taksit
+                {/* Manuel Taksit Rakamlarını Düzenleme Bölümü */}
+                <div className="pt-2 space-y-3">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-200 pb-2">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-rose-100 text-rose-900 border border-rose-200">
+                          Taksit Planı
                         </span>
-                        <span className="text-slate-500 font-semibold">{item.dateStr}</span>
-                        <span className="font-black text-rose-700">
-                          {formatCurrency(item.amount)}
+                        <span className="text-xs font-black text-slate-800">
+                          Taksit Rakamlarını ve Vadelerini Manuel Düzenle:
                         </span>
                       </div>
-                    ))}
+                      <span className="text-[11px] text-slate-500">
+                        Her taksitin tutarını ve vadesini satır bazında dilediğiniz gibi değiştirebilirsiniz.
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={handleResetNewRowsToEqual}
+                        className="px-2.5 py-1.5 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold text-[11px] border border-indigo-200 transition-colors flex items-center gap-1 shadow-2xs"
+                        title="Hedef tutarı tüm taksitlere eşit dağıt"
+                      >
+                        <span>⚡ Eşit Dağıt</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleAddNewRow}
+                        className="px-2.5 py-1.5 rounded-lg bg-white hover:bg-slate-50 text-slate-800 font-bold text-[11px] border border-slate-300 transition-colors flex items-center gap-1 shadow-2xs"
+                      >
+                        <Plus className="w-3.5 h-3.5 text-emerald-600" />
+                        <span>+ Taksit Ekle</span>
+                      </button>
+                    </div>
                   </div>
+
+                  {/* Taksit Tablosu */}
+                  <div className="border border-slate-200 rounded-2xl overflow-hidden shadow-2xs max-h-60 overflow-y-auto">
+                    <table className="w-full text-left border-collapse text-xs">
+                      <thead className="bg-slate-100 sticky top-0 z-10 border-b border-slate-200 text-slate-700 font-bold">
+                        <tr>
+                          <th className="py-2 px-3 w-16 text-center">Taksit</th>
+                          <th className="py-2 px-3 w-36">Vade Tarihi</th>
+                          <th className="py-2 px-3 w-40 text-right">Taksit Tutarı (TL)</th>
+                          <th className="py-2 px-3">Açıklama / Not</th>
+                          <th className="py-2 px-2 w-12 text-center">Sil</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {newInstallmentRows.map((row, idx) => (
+                          <tr key={idx} className="hover:bg-slate-50/80 transition-colors">
+                            <td className="py-2 px-3 text-center font-extrabold text-slate-800">
+                              {row.no}. Taksit
+                            </td>
+                            <td className="py-2 px-3">
+                              <input
+                                type="date"
+                                required
+                                value={row.dueDate}
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  setNewInstallmentRows((prev) =>
+                                    prev.map((r, i) => (i === idx ? { ...r, dueDate: val } : r))
+                                  );
+                                }}
+                                className="w-full p-1.5 bg-white border border-slate-300 rounded-lg text-xs font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-rose-500/20"
+                              />
+                            </td>
+                            <td className="py-2 px-3">
+                              <input
+                                type="number"
+                                step="any"
+                                required
+                                value={row.amount}
+                                onChange={(e) => {
+                                  const val = parseFloat(e.target.value) || 0;
+                                  setNewInstallmentRows((prev) =>
+                                    prev.map((r, i) => (i === idx ? { ...r, amount: val } : r))
+                                  );
+                                }}
+                                className="w-full p-1.5 bg-white border border-slate-300 rounded-lg text-xs font-bold text-right text-rose-900 focus:outline-none focus:ring-2 focus:ring-rose-500/20"
+                              />
+                            </td>
+                            <td className="py-2 px-3">
+                              <input
+                                type="text"
+                                placeholder="İsteğe bağlı not..."
+                                value={row.notes}
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  setNewInstallmentRows((prev) =>
+                                    prev.map((r, i) => (i === idx ? { ...r, notes: val } : r))
+                                  );
+                                }}
+                                className="w-full p-1.5 bg-white border border-slate-300 rounded-lg text-xs text-slate-800 focus:outline-none"
+                              />
+                            </td>
+                            <td className="py-2 px-2 text-center">
+                              {newInstallmentRows.length > 1 ? (
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteNewRow(idx)}
+                                  className="p-1 rounded-lg text-rose-500 hover:bg-rose-50 hover:text-rose-700 transition-colors"
+                                  title="Bu taksiti kaldır"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              ) : (
+                                <span className="text-slate-300 inline-block p-1">-</span>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* Özet ve Fark Eşitleme Çubuğu */}
+                  {(() => {
+                    const rowSum = Number(
+                      newInstallmentRows.reduce((sum, r) => sum + (Number(r.amount) || 0), 0).toFixed(2)
+                    );
+                    const targetTotal = Number(newForm.totalAmount || 0);
+                    const diff = Number((rowSum - targetTotal).toFixed(2));
+                    const isDiff = Math.abs(diff) > 0.01;
+
+                    return (
+                      <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs">
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-3">
+                            <span className="text-slate-600">
+                              Taksit Sayısı: <strong className="text-slate-900">{newInstallmentRows.length} adet</strong>
+                            </span>
+                            <span className="text-slate-300">•</span>
+                            <span className="text-slate-600">
+                              Hedef Tutar: <strong className="text-slate-900">{formatCurrency(targetTotal)}</strong>
+                            </span>
+                          </div>
+                          {isDiff && (
+                            <div className="text-[11px] text-amber-700 flex items-center gap-1.5">
+                              <AlertTriangle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                              <span>
+                                {diff > 0
+                                  ? `Taksit toplamı hedef tutardan ${formatCurrency(diff)} fazla.`
+                                  : `Taksit toplamı hedef tutardan ${formatCurrency(Math.abs(diff))} eksik.`}
+                                {" "}Dosya oluşturulduğunda girdiğiniz taksitlerin toplamı ({formatCurrency(rowSum)}) esas alınacaktır.
+                              </span>
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="flex items-center gap-2 self-end sm:self-auto flex-wrap">
+                          {isDiff && (
+                            <>
+                              <button
+                                type="button"
+                                onClick={handleBalanceNewToLast}
+                                className="px-2 py-1 rounded-lg bg-amber-100 hover:bg-amber-200 text-amber-900 font-bold text-[11px] transition-colors"
+                                title="Farkı son taksite ekleyerek hedef tutara eşitle"
+                              >
+                                ⚡ Farkı Son Taksite Eşitle
+                              </button>
+                              <button
+                                type="button"
+                                onClick={handleSyncTargetToNewRows}
+                                className="px-2 py-1 rounded-lg bg-rose-100 hover:bg-rose-200 text-rose-900 font-bold text-[11px] transition-colors"
+                                title="Hedef tutarı bu taksitlerin toplamına eşitle"
+                              >
+                                ⚡ Hedef Tutarı Güncelle
+                              </button>
+                            </>
+                          )}
+                          <div className="text-right pl-2">
+                            <span className="text-[10px] uppercase font-bold text-slate-400 block">
+                              Taksitler Toplamı
+                            </span>
+                            <span className="font-black text-rose-700 text-sm sm:text-base">
+                              {formatCurrency(rowSum)}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </div>
               </div>
 
@@ -1317,14 +1805,19 @@ export default function KayitSilmeIadeleriPage() {
       {/* 7. TAKSİTLERİ TOPLU DÜZENLE MODALI */}
       {bulkEditModalOpen && selectedRefund && (
         <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/60 backdrop-blur-xs p-3 sm:p-6 overflow-y-auto">
-          <div className="bg-white rounded-3xl max-w-3xl w-full my-auto shadow-2xl overflow-hidden flex flex-col max-h-[92vh]">
+          <div className="bg-white rounded-3xl max-w-4xl w-full my-auto shadow-2xl overflow-hidden flex flex-col max-h-[92vh]">
             <div className="p-5 sm:p-6 pb-4 border-b border-slate-100 flex items-center justify-between bg-white shrink-0">
               <div>
-                <h3 className="text-base font-extrabold text-slate-900">
-                  Taksit Planını Manuel Düzenle
-                </h3>
-                <p className="text-xs text-slate-500">
-                  {selectedRefund.studentName} için vade tarihlerini ve tutarları satır satır ayarlayabilirsiniz.
+                <div className="flex items-center gap-2">
+                  <span className="px-2.5 py-0.5 rounded-full text-[11px] font-black bg-indigo-50 text-indigo-700 border border-indigo-200">
+                    Plan ve Taksit Sayısı Düzenleme
+                  </span>
+                  <h3 className="text-base font-extrabold text-slate-900">
+                    Taksit Planını ve Sayısını Düzenle
+                  </h3>
+                </div>
+                <p className="text-xs text-slate-500 mt-1">
+                  <strong className="text-slate-700">{selectedRefund.studentName}</strong> • Taksit sayısını artırıp azaltabilir, tutarları eşit dağıtabilir, tek tek ekleyip silebilir ve vadeleri güncelleyebilirsiniz.
                 </p>
               </div>
               <button
@@ -1337,95 +1830,276 @@ export default function KayitSilmeIadeleriPage() {
             </div>
 
             <form onSubmit={handleSaveBulkEdit} className="flex flex-col flex-1 min-h-0">
-              <div className="flex-1 overflow-y-auto p-5 sm:p-6">
-                <table className="w-full text-left border-collapse text-xs">
-                  <thead className="bg-slate-100 sticky top-0 z-10 border-b border-slate-200 text-slate-700 font-bold">
-                    <tr>
-                      <th className="py-2.5 px-3 w-16 text-center">Taksit</th>
-                      <th className="py-2.5 px-3 w-44">Vade Tarihi</th>
-                      <th className="py-2.5 px-3 w-40 text-right">Tutar (TL)</th>
-                      <th className="py-2.5 px-3">Not</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {bulkRounds.map((r, idx) => (
-                      <tr key={r.id || idx} className="hover:bg-slate-50/80">
-                        <td className="py-2 px-3 text-center font-extrabold text-slate-800">
-                          {r.installmentNo}. Taksit
-                        </td>
-                        <td className="py-2 px-3">
-                          <input
-                            type="date"
-                            required
-                            value={r.dueDate}
-                            onChange={(e) => {
-                              const val = e.target.value;
-                              setBulkRounds((prev) =>
-                                prev.map((item, i) => (i === idx ? { ...item, dueDate: val } : item))
-                              );
-                            }}
-                            className="w-full p-1.5 bg-white border border-slate-300 rounded-lg text-xs font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-rose-500/20"
-                          />
-                        </td>
-                        <td className="py-2 px-3">
-                          <input
-                            type="number"
-                            step="any"
-                            required
-                            value={r.amount}
-                            onChange={(e) => {
-                              const val = parseFloat(e.target.value) || 0;
-                              setBulkRounds((prev) =>
-                                prev.map((item, i) => (i === idx ? { ...item, amount: val } : item))
-                              );
-                            }}
-                            className="w-full p-1.5 bg-white border border-slate-300 rounded-lg text-xs font-bold text-right text-rose-900 focus:outline-none focus:ring-2 focus:ring-rose-500/20"
-                          />
-                        </td>
-                        <td className="py-2 px-3">
-                          <input
-                            type="text"
-                            placeholder="İsteğe bağlı not..."
-                            value={r.notes}
-                            onChange={(e) => {
-                              const val = e.target.value;
-                              setBulkRounds((prev) =>
-                                prev.map((item, i) => (i === idx ? { ...item, notes: val } : item))
-                              );
-                            }}
-                            className="w-full p-1.5 bg-white border border-slate-300 rounded-lg text-xs text-slate-800 focus:outline-none"
-                          />
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+              <div className="flex-1 overflow-y-auto p-5 sm:p-6 space-y-4">
+                {/* 1. Taksit Sayısı ve Hızlı Yeniden Dağıtım Araç Çubuğu */}
+                <div className="p-4 bg-gradient-to-r from-indigo-50/70 via-slate-50 to-rose-50/40 rounded-2xl border border-indigo-100/80 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+                  <div className="flex items-center gap-2.5 flex-wrap">
+                    <label className="text-xs font-bold text-slate-700 whitespace-nowrap">
+                      Taksit Sayısı:
+                    </label>
+                    <div className="flex items-center gap-1 bg-white border border-slate-300 rounded-xl p-1 shadow-2xs">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const nextVal = Math.max(1, bulkInstallmentCount - 1);
+                          setBulkInstallmentCount(nextVal);
+                        }}
+                        className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-slate-100 text-slate-600 font-bold text-sm"
+                        title="1 Azalt"
+                      >
+                        -
+                      </button>
+                      <input
+                        type="number"
+                        min="1"
+                        max="60"
+                        value={bulkInstallmentCount}
+                        onChange={(e) => {
+                          const val = parseInt(e.target.value, 10);
+                          setBulkInstallmentCount(isNaN(val) ? 1 : Math.max(1, val));
+                        }}
+                        className="w-12 text-center font-black text-slate-900 text-sm focus:outline-none"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const nextVal = bulkInstallmentCount + 1;
+                          setBulkInstallmentCount(nextVal);
+                        }}
+                        className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-slate-100 text-slate-600 font-bold text-sm"
+                        title="1 Arttır"
+                      >
+                        +
+                      </button>
+                    </div>
 
-                {/* Toplam Karşılaştırması */}
-                <div className="mt-4 p-3 bg-slate-50 rounded-xl border border-slate-200 flex items-center justify-between text-xs">
-                  <span className="font-bold text-slate-600">Yeni Taksitlerin Toplamı:</span>
-                  <span className="font-black text-rose-700 text-sm">
-                    {formatCurrency(bulkRounds.reduce((sum, item) => sum + item.amount, 0))}
-                  </span>
+                    <button
+                      type="button"
+                      onClick={() => handleReDistribute(bulkInstallmentCount)}
+                      className="px-3.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs shadow-2xs transition-colors flex items-center gap-1.5"
+                      title="Kalan tutarı bu taksit sayısına göre aylık eşit olarak yeniden dağıt"
+                    >
+                      <span>⚡ {bulkInstallmentCount} Taksite Eşit Dağıt</span>
+                    </button>
+                  </div>
+
+                  <div className="flex items-center justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={handleAddRow}
+                      className="px-3 py-1.5 rounded-xl bg-white border border-slate-300 hover:bg-slate-50 text-slate-800 font-bold text-xs shadow-2xs transition-colors flex items-center gap-1"
+                    >
+                      <Plus className="w-3.5 h-3.5 text-emerald-600" />
+                      <span>+ Manuel Taksit Ekle</span>
+                    </button>
+                  </div>
                 </div>
+
+                {/* 2. Taksitler Tablosu */}
+                <div className="border border-slate-200 rounded-2xl overflow-hidden shadow-2xs">
+                  <table className="w-full text-left border-collapse text-xs">
+                    <thead className="bg-slate-100 sticky top-0 z-10 border-b border-slate-200 text-slate-700 font-bold">
+                      <tr>
+                        <th className="py-2.5 px-3 w-16 text-center">Taksit</th>
+                        <th className="py-2.5 px-3 w-36">Vade Tarihi</th>
+                        <th className="py-2.5 px-3 w-36 text-right">Tutar (TL)</th>
+                        <th className="py-2.5 px-3 w-28 text-center">Durum</th>
+                        <th className="py-2.5 px-3">Not</th>
+                        <th className="py-2.5 px-2 w-12 text-center">Sil</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {bulkRounds.map((r, idx) => {
+                        const isPaid = r.isPaid;
+                        return (
+                          <tr
+                            key={r.id || idx}
+                            className={`hover:bg-slate-50/80 transition-colors ${
+                              isPaid ? "bg-emerald-50/40" : ""
+                            }`}
+                          >
+                            <td className="py-2 px-3 text-center font-extrabold text-slate-800">
+                              {r.installmentNo}. Taksit
+                            </td>
+                            <td className="py-2 px-3">
+                              <input
+                                type="date"
+                                required
+                                disabled={isPaid}
+                                value={r.dueDate}
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  setBulkRounds((prev) =>
+                                    prev.map((item, i) =>
+                                      i === idx ? { ...item, dueDate: val } : item
+                                    )
+                                  );
+                                }}
+                                className={`w-full p-1.5 bg-white border border-slate-300 rounded-lg text-xs font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-rose-500/20 ${
+                                  isPaid ? "bg-slate-100 cursor-not-allowed text-slate-500" : ""
+                                }`}
+                              />
+                            </td>
+                            <td className="py-2 px-3">
+                              <input
+                                type="number"
+                                step="any"
+                                required
+                                disabled={isPaid}
+                                value={r.amount}
+                                onChange={(e) => {
+                                  const val = parseFloat(e.target.value) || 0;
+                                  setBulkRounds((prev) =>
+                                    prev.map((item, i) =>
+                                      i === idx ? { ...item, amount: val } : item
+                                    )
+                                  );
+                                }}
+                                className={`w-full p-1.5 bg-white border border-slate-300 rounded-lg text-xs font-bold text-right text-rose-900 focus:outline-none focus:ring-2 focus:ring-rose-500/20 ${
+                                  isPaid ? "bg-slate-100 cursor-not-allowed text-emerald-800" : ""
+                                }`}
+                              />
+                            </td>
+                            <td className="py-2 px-3 text-center whitespace-nowrap">
+                              {isPaid ? (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                                  <Check className="w-3 h-3 text-emerald-600" />
+                                  Ödendi
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-600 border border-slate-200">
+                                  <Clock className="w-3 h-3 text-slate-400" />
+                                  Bekliyor
+                                </span>
+                              )}
+                            </td>
+                            <td className="py-2 px-3">
+                              <input
+                                type="text"
+                                placeholder="İsteğe bağlı not..."
+                                value={r.notes}
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  setBulkRounds((prev) =>
+                                    prev.map((item, i) =>
+                                      i === idx ? { ...item, notes: val } : item
+                                    )
+                                  );
+                                }}
+                                className="w-full p-1.5 bg-white border border-slate-300 rounded-lg text-xs text-slate-800 focus:outline-none"
+                              />
+                            </td>
+                            <td className="py-2 px-2 text-center">
+                              {isPaid ? (
+                                <span
+                                  className="text-slate-300 cursor-not-allowed inline-block p-1"
+                                  title="Ödenmiş taksit silinemez"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </span>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteRow(idx)}
+                                  className="p-1 rounded-lg text-rose-500 hover:bg-rose-50 hover:text-rose-700 transition-colors"
+                                  title="Bu taksiti kaldır"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* 3. Özet & Fark Bilgisi */}
+                {(() => {
+                  const currentTotal = bulkRounds.reduce((sum, item) => sum + item.amount, 0);
+                  const originalTotal = selectedRefund.totalAmount;
+                  const diff = Number((currentTotal - originalTotal).toFixed(2));
+                  const isDiff = Math.abs(diff) > 0.01;
+
+                  return (
+                    <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs">
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-3">
+                          <span className="text-slate-600">
+                            Taksit Sayısı: <strong className="text-slate-900">{bulkRounds.length} adet</strong>
+                          </span>
+                          <span className="text-slate-300">•</span>
+                          <span className="text-slate-600">
+                            Dosya Hedefi: <strong className="text-slate-900">{formatCurrency(originalTotal)}</strong>
+                          </span>
+                        </div>
+                        {isDiff && (
+                          <div className="text-[11px] text-amber-700 flex items-center gap-1.5">
+                            <AlertTriangle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                            <span>
+                              {diff > 0
+                                ? `Taksit toplamı dosya hedefinden ${formatCurrency(diff)} fazla.`
+                                : `Taksit toplamı dosya hedefinden ${formatCurrency(Math.abs(diff))} eksik.`}
+                              {" "}Kaydettiğinizde dosya toplam tutarı otomatik olarak yeni toplama eşitlenecektir.
+                            </span>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="flex items-center gap-3 self-end sm:self-auto">
+                        {isDiff && (
+                          <button
+                            type="button"
+                            onClick={handleBalanceToLastInstallment}
+                            className="px-2.5 py-1 rounded-lg bg-amber-100 hover:bg-amber-200 text-amber-900 font-bold text-[11px] transition-colors"
+                            title="Farkı son ödenmemiş taksite yansıtarak dosya hedefine eşitle"
+                          >
+                            ⚡ Farkı Son Taksite Eşitle
+                          </button>
+                        )}
+                        <div className="text-right">
+                          <span className="text-[10px] uppercase font-bold text-slate-400 block">
+                            Yeni Taksitler Toplamı
+                          </span>
+                          <span className="font-black text-rose-700 text-base">
+                            {formatCurrency(currentTotal)}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
 
-              <div className="p-4 border-t border-slate-100 bg-slate-50 flex items-center justify-end gap-2 shrink-0">
+              {/* Modal Butonları */}
+              <div className="p-4 border-t border-slate-100 bg-slate-50 flex items-center justify-between gap-2 shrink-0">
                 <button
                   type="button"
-                  onClick={() => setBulkEditModalOpen(false)}
-                  className="px-4 py-2 bg-white border border-slate-200 hover:bg-slate-100 text-slate-700 font-bold rounded-xl text-xs"
+                  onClick={handleAddRow}
+                  className="px-3.5 py-2 bg-white border border-slate-300 hover:bg-slate-100 text-slate-800 font-bold rounded-xl text-xs flex items-center gap-1.5 shadow-2xs"
                 >
-                  Vazgeç
+                  <Plus className="w-4 h-4 text-emerald-600" />
+                  <span>Yeni Taksit Ekle</span>
                 </button>
-                <button
-                  type="submit"
-                  disabled={bulkSubmitting}
-                  className="px-5 py-2 bg-rose-600 hover:bg-rose-700 text-white font-extrabold rounded-xl text-xs shadow-md transition-all flex items-center gap-1.5"
-                >
-                  <Check className="w-4 h-4" />
-                  <span>{bulkSubmitting ? "Kaydediliyor..." : "Taksit Planını Güncelle"}</span>
-                </button>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setBulkEditModalOpen(false)}
+                    className="px-4 py-2 bg-white border border-slate-200 hover:bg-slate-100 text-slate-700 font-bold rounded-xl text-xs"
+                  >
+                    Vazgeç
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={bulkSubmitting}
+                    className="px-5 py-2 bg-rose-600 hover:bg-rose-700 text-white font-extrabold rounded-xl text-xs shadow-md transition-all flex items-center gap-1.5"
+                  >
+                    <Check className="w-4 h-4" />
+                    <span>{bulkSubmitting ? "Kaydediliyor..." : "Taksit Planını Güncelle"}</span>
+                  </button>
+                </div>
               </div>
             </form>
           </div>

@@ -217,12 +217,12 @@ export async function POST(request: Request) {
     });
 
     // 2. Turları (Rounds) ve Okul Giderleri Taksit Kayıtlarını Oluştur
-    const isCeyrek = goldType === "CEYREK_ALTIN";
+    const isAjda = goldType === "AJDA_BILEZIK";
     const payingMembersCount = tMembers - 1; // Gün sahibi ödeme yapmaz!
-    const perMemberAmount = isCeyrek
+    const perMemberAmount = !isAjda
       ? defAmt
       : (payingMembersCount > 0 ? Number((defAmt / payingMembersCount).toFixed(2)) : 0);
-    const poolGoldAmount = isCeyrek ? defAmt * payingMembersCount : defAmt;
+    const poolGoldAmount = !isAjda ? defAmt * payingMembersCount : defAmt;
 
     const roundsToCreate: any[] = [];
 
@@ -236,10 +236,10 @@ export async function POST(request: Request) {
           Boolean(cr.isUserTurn) || checkIsUserTurn(recipientName);
 
         const roundPayingCount = tMembers - 1;
-        const goldAmount = isCeyrek
+        const goldAmount = !isAjda
           ? (Number(cr.goldAmount) > defAmt ? Number(cr.goldAmount) : defAmt * roundPayingCount)
           : (Number(cr.goldAmount) || defAmt);
-        const roundPerMember = isCeyrek
+        const roundPerMember = !isAjda
           ? defAmt
           : (roundPayingCount > 0 ? Number((goldAmount / roundPayingCount).toFixed(2)) : 0);
 
@@ -308,8 +308,8 @@ export async function POST(request: Request) {
           userAmountToPay,
           isPaid: false,
           notes: isUserTurn
-            ? (isCeyrek
-                ? `🎉 Gün Sırası Muhammed Ali'de — Toplam ${payingMembersCount} Çeyrek (₺${roundGoldAmount.toLocaleString("tr-TR")}) teslim alınacak (${effectiveUserShares} hisse ödenecek)`
+            ? (!isAjda
+                ? `🎉 Gün Sırası Muhammed Ali'de — Toplam ${payingMembersCount} ${goldTypeLabel || "Altın"} (₺${roundGoldAmount.toLocaleString("tr-TR")}) teslim alınacak (${effectiveUserShares} hisse ödenecek)`
                 : `🎉 Gün Sırası Muhammed Ali'de — Toplam ₺${defAmt.toLocaleString("tr-TR")} teslim alınacak (${effectiveUserShares} hisse ödenecek)`)
             : "",
         });
@@ -326,8 +326,9 @@ export async function POST(request: Request) {
           : ` (${rData.userShareCount} Hisse)`;
 
         const dayNum = rData.dueDate.getDate();
-        const expenseDesc = isCeyrek
-          ? `Altın Günü | Grup: ${group.title} | Sıra: ${rData.recipientName}${userTurnNote} | Kişi Başı: 1 Çeyrek (₺${rData.perMemberAmount.toLocaleString("tr-TR")}) | Toplam Altın: ${rData.payingMembersCount} Çeyrek (₺${rData.goldAmount.toLocaleString("tr-TR")})`
+        const goldUnit = group.goldTypeLabel || group.goldType;
+        const expenseDesc = !isAjda
+          ? `Altın Günü | Grup: ${group.title} | Sıra: ${rData.recipientName}${userTurnNote} | Kişi Başı: 1 ${goldUnit} (₺${rData.perMemberAmount.toLocaleString("tr-TR")}) | Toplam Altın: ${rData.payingMembersCount} Adet (₺${rData.goldAmount.toLocaleString("tr-TR")})`
           : `Altın Günü | Grup: ${group.title} | Sıra: ${rData.recipientName}${userTurnNote} | Toplam Altın: ₺${rData.goldAmount.toLocaleString("tr-TR")} (${rData.payingMembersCount} kişi) | Kişi Başı: ₺${rData.perMemberAmount.toLocaleString("tr-TR")}`;
 
         const expense = await prisma.schoolExpense.create({
@@ -436,13 +437,13 @@ export async function PUT(request: Request) {
           ? Boolean(body.isUserTurn)
           : checkIsUserTurn(newRecipient);
 
-      const isCeyrek = round.group.goldType === "CEYREK_ALTIN";
+      const isAjda = round.group.goldType === "AJDA_BILEZIK";
       const payingCount = round.group.totalMembers - 1;
       const defAmt = round.group.defaultAmount;
-      const newGoldAmount = isCeyrek
+      const newGoldAmount = !isAjda
         ? (goldAmount !== undefined && Number(goldAmount) > defAmt ? Number(goldAmount) : defAmt * payingCount)
         : (goldAmount !== undefined ? Math.max(0, Number(goldAmount)) : round.goldAmount);
-      const perMember = isCeyrek
+      const perMember = !isAjda
         ? defAmt
         : (payingCount > 0 ? Number((newGoldAmount / payingCount).toFixed(2)) : 0);
       const effectiveUserShares = isUserTurn
@@ -487,8 +488,9 @@ export async function PUT(request: Request) {
       // SchoolExpense senkronizasyonu
       if (round.expenseId) {
         try {
-          const roundExpDesc = isCeyrek
-            ? `Altın Günü | Grup: ${round.group.title} | Sıra: ${newRecipient} | Kişi Başı: 1 Çeyrek (₺${perMember.toLocaleString("tr-TR")}) | Toplam Altın: ${payingCount} Çeyrek (₺${newGoldAmount.toLocaleString("tr-TR")}) | Muhammed Ali (${effectiveUserShares} Hisse)`
+          const goldUnit = round.group.goldTypeLabel || round.group.goldType;
+          const roundExpDesc = !isAjda
+            ? `Altın Günü | Grup: ${round.group.title} | Sıra: ${newRecipient} | Kişi Başı: 1 ${goldUnit} (₺${perMember.toLocaleString("tr-TR")}) | Toplam Altın: ${payingCount} Adet (₺${newGoldAmount.toLocaleString("tr-TR")}) | Muhammed Ali (${effectiveUserShares} Hisse)`
             : `Altın Günü | Grup: ${round.group.title} | Sıra: ${newRecipient} | Toplam Altın: ₺${newGoldAmount.toLocaleString("tr-TR")} / ${payingCount} kişi | Muhammed Ali (${effectiveUserShares} Hisse)`;
 
           await prisma.schoolExpense.update({
@@ -515,26 +517,86 @@ export async function PUT(request: Request) {
     if (action === "UPDATE_GROUP" && groupId) {
       const {
         title,
+        goldType,
+        goldTypeLabel,
         notes: groupNotes,
         defaultAmount,
         daysList: newDaysList,
         meetingFrequency: newFreq,
         startYear: newStartYear,
         startMonth: newStartMonth,
+        recalculateRounds,
       } = body;
+
+      const group = await prisma.goldDayGroup.findUnique({
+        where: { id: groupId },
+        include: { rounds: true },
+      });
+      if (!group) return NextResponse.json({ error: "Grup bulunamadı" }, { status: 404 });
+
+      const newDefAmt = defaultAmount !== undefined ? Number(defaultAmount) || 0 : group.defaultAmount;
+      const newGoldType = goldType || group.goldType;
+      const newGoldLabel = goldTypeLabel || group.goldTypeLabel;
 
       const updatedGroup = await prisma.goldDayGroup.update({
         where: { id: groupId },
         data: {
           ...(title ? { title: title.trim() } : {}),
+          ...(goldType ? { goldType } : {}),
+          ...(goldTypeLabel ? { goldTypeLabel } : {}),
           ...(groupNotes !== undefined ? { notes: groupNotes } : {}),
-          ...(defaultAmount !== undefined ? { defaultAmount: Number(defaultAmount) || 0 } : {}),
+          ...(defaultAmount !== undefined ? { defaultAmount: newDefAmt } : {}),
           ...(newDaysList !== undefined ? { daysList: newDaysList } : {}),
           ...(newFreq !== undefined ? { meetingFrequency: newFreq } : {}),
           ...(newStartYear !== undefined ? { startYear: Number(newStartYear) } : {}),
           ...(newStartMonth !== undefined ? { startMonth: Number(newStartMonth) } : {}),
         },
       });
+
+      if (recalculateRounds && (defaultAmount !== undefined || goldType !== undefined)) {
+        const isAjda = newGoldType === "AJDA_BILEZIK";
+        const payingCount = group.totalMembers - 1;
+        const perMember = !isAjda
+          ? newDefAmt
+          : (payingCount > 0 ? Number((newDefAmt / payingCount).toFixed(2)) : 0);
+        const roundGoldPool = !isAjda ? newDefAmt * payingCount : newDefAmt;
+
+        for (const round of group.rounds) {
+          const effectiveShares = round.userShareCount;
+          const userAmount = Number((perMember * effectiveShares).toFixed(2));
+
+          await prisma.goldDayRound.update({
+            where: { id: round.id },
+            data: {
+              goldAmount: roundGoldPool,
+              perMemberAmount: perMember,
+              userAmountToPay: userAmount,
+              paidAmount: round.isPaid ? userAmount : round.paidAmount,
+            },
+          });
+
+          if (round.expenseId) {
+            try {
+              const expDesc = !isAjda
+                ? `Altın Günü | Grup: ${updatedGroup.title} | Sıra: ${round.recipientName} | Kişi Başı: 1 ${newGoldLabel || "Altın"} (₺${perMember.toLocaleString("tr-TR")}) | Toplam Altın: ${payingCount} Adet (₺${roundGoldPool.toLocaleString("tr-TR")}) | Muhammed Ali (${effectiveShares} Hisse)`
+                : `Altın Günü | Grup: ${updatedGroup.title} | Sıra: ${round.recipientName} | Toplam Altın: ₺${roundGoldPool.toLocaleString("tr-TR")} / ${payingCount} kişi | Muhammed Ali (${effectiveShares} Hisse)`;
+
+              await prisma.schoolExpense.update({
+                where: { id: round.expenseId },
+                data: {
+                  title: `🪙 Altın Günü: ${updatedGroup.title} (Sıra: ${round.recipientName})`,
+                  subCategory: newGoldLabel || newGoldType,
+                  amountDue: userAmount,
+                  amountPaid: round.isPaid ? userAmount : 0,
+                  amountRemaining: round.isPaid ? 0 : userAmount,
+                  description: expDesc,
+                },
+              });
+            } catch {}
+          }
+        }
+      }
+
       return NextResponse.json(updatedGroup);
     }
 
@@ -662,7 +724,7 @@ export async function PUT(request: Request) {
         });
       }
 
-      const isCeyrek = group.goldType === "CEYREK_ALTIN";
+      const isAjda = group.goldType === "AJDA_BILEZIK";
       const payingCount = group.totalMembers - 1;
       const defAmt = group.defaultAmount;
 
@@ -674,10 +736,10 @@ export async function PUT(request: Request) {
             ? Boolean(item.isUserTurn)
             : checkIsUserTurn(recipientName);
 
-        const goldAmount = isCeyrek
+        const goldAmount = !isAjda
           ? (Number(item.goldAmount) > defAmt ? Number(item.goldAmount) : defAmt * payingCount)
           : Math.max(0, Number(item.goldAmount) || defAmt);
-        const perMember = isCeyrek
+        const perMember = !isAjda
           ? defAmt
           : (payingCount > 0 ? Number((goldAmount / payingCount).toFixed(2)) : 0);
         const effectiveUserShares = isUserTurn
@@ -711,8 +773,9 @@ export async function PUT(request: Request) {
 
         if (updatedRound.expenseId) {
           try {
-            const bulkExpDesc = isCeyrek
-              ? `Altın Günü | Grup: ${group.title} | Sıra: ${recipientName} | Kişi Başı: 1 Çeyrek (₺${perMember.toLocaleString("tr-TR")}) | Toplam Altın: ${payingCount} Çeyrek (₺${goldAmount.toLocaleString("tr-TR")}) | Muhammed Ali (${effectiveUserShares} Hisse)`
+            const goldUnit = group.goldTypeLabel || group.goldType;
+            const bulkExpDesc = !isAjda
+              ? `Altın Günü | Grup: ${group.title} | Sıra: ${recipientName} | Kişi Başı: 1 ${goldUnit} (₺${perMember.toLocaleString("tr-TR")}) | Toplam Altın: ${payingCount} Adet (₺${goldAmount.toLocaleString("tr-TR")}) | Muhammed Ali (${effectiveUserShares} Hisse)`
               : `Altın Günü | Grup: ${group.title} | Sıra: ${recipientName} | Toplam Altın: ₺${goldAmount.toLocaleString("tr-TR")} / ${payingCount} kişi | Muhammed Ali (${effectiveUserShares} Hisse)`;
 
             await prisma.schoolExpense.update({

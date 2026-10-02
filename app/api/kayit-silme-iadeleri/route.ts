@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { syncRefundToSchoolExpenses } from "@/lib/student-refund-sync";
 
 export const dynamic = "force-dynamic";
 
@@ -137,9 +138,18 @@ export async function POST(request: Request) {
 
     const totAmt = Math.max(0, Number(totalAmount) || 0);
     const instCount = Math.max(1, parseInt(String(installmentCount), 10) || 1);
-
     const sDate = startDate ? new Date(startDate) : new Date();
     const cDate = cancellationDate ? new Date(cancellationDate) : new Date();
+
+    const hasCustom = Array.isArray(customInstallments) && customInstallments.length > 0;
+    const finalInstCount = hasCustom ? customInstallments.length : instCount;
+    const finalTotalAmount = hasCustom
+      ? Number(
+          customInstallments
+            .reduce((sum: number, ci: any) => sum + (Math.max(0, Number(ci.amount)) || 0), 0)
+            .toFixed(2)
+        )
+      : totAmt;
 
     // 1. İade Dosyasını Oluştur
     const refund = await prisma.studentRefund.create({
@@ -151,8 +161,8 @@ export async function POST(request: Request) {
         reason: reason ? reason.trim() : null,
         cancellationDate: cDate,
         startDate: sDate,
-        totalAmount: totAmt,
-        installmentCount: instCount,
+        totalAmount: finalTotalAmount,
+        installmentCount: finalInstCount,
         notes: notes ? notes.trim() : null,
         status: "ACTIVE",
       },
@@ -231,6 +241,8 @@ export async function POST(request: Request) {
       },
     });
 
+    await syncRefundToSchoolExpenses(refund.id);
+
     return NextResponse.json(created, { status: 201 });
   } catch (error: any) {
     console.error("Kayıt silme iadesi oluşturma hatası:", error);
@@ -288,6 +300,8 @@ export async function PUT(request: Request) {
         });
       }
 
+      await syncRefundToSchoolExpenses(inst.refundId);
+
       return NextResponse.json(updated);
     }
 
@@ -314,6 +328,8 @@ export async function PUT(request: Request) {
         where: { id: inst.refundId },
         data: { status: "ACTIVE" },
       });
+
+      await syncRefundToSchoolExpenses(inst.refundId);
 
       return NextResponse.json(updated);
     }
@@ -377,6 +393,8 @@ export async function PUT(request: Request) {
         },
       });
 
+      await syncRefundToSchoolExpenses(inst.refundId);
+
       return NextResponse.json(updated);
     }
 
@@ -386,8 +404,38 @@ export async function PUT(request: Request) {
       refundId &&
       Array.isArray(body.installments)
     ) {
-      for (const item of body.installments) {
-        if (!item.id) continue;
+      const incomingList = body.installments;
+      const existingList = await prisma.refundInstallment.findMany({
+        where: { refundId },
+        orderBy: { installmentNo: "asc" },
+      });
+
+      const incomingIds = new Set(
+        incomingList
+          .map((x: any) => x.id)
+          .filter((id: any) => id && !String(id).startsWith("new_"))
+      );
+
+      // 1. Silinen taksitleri kontrol et ve kaldır
+      for (const existing of existingList) {
+        if (!incomingIds.has(existing.id)) {
+          if (existing.paidAmount > 0) {
+            return NextResponse.json(
+              {
+                error: `Taksit ${existing.installmentNo} üzerinde ödeme (${existing.paidAmount} TL) bulunduğu için silinemez. Önce ödemeyi geri alınız.`,
+              },
+              { status: 400 }
+            );
+          }
+          await prisma.refundInstallment.delete({
+            where: { id: existing.id },
+          });
+        }
+      }
+
+      // 2. Mevcutları güncelle veya yenileri ekle
+      let index = 1;
+      for (const item of incomingList) {
         let d = item.dueDate ? new Date(item.dueDate) : new Date();
         const dStr = formatDateStr(
           d.getDate(),
@@ -395,30 +443,53 @@ export async function PUT(request: Request) {
           d.getFullYear()
         );
         const amt = Math.max(0, Number(item.amount) || 0);
+        const notes = item.notes !== undefined ? item.notes : null;
 
-        const current = await prisma.refundInstallment.findUnique({
-          where: { id: item.id },
-        });
-        const paid = current ? current.paidAmount : 0;
-        const rem = Math.max(0, Number((amt - paid).toFixed(2)));
-        const st = paid === 0 ? "PENDING" : rem === 0 ? "PAID" : "PARTIAL";
+        const isRealExisting = item.id && !String(item.id).startsWith("new_");
+        if (isRealExisting) {
+          const current = await prisma.refundInstallment.findUnique({
+            where: { id: item.id },
+          });
+          const paid = current ? current.paidAmount : 0;
+          const rem = Math.max(0, Number((amt - paid).toFixed(2)));
+          const st = paid === 0 ? "PENDING" : rem === 0 ? "PAID" : "PARTIAL";
 
-        await prisma.refundInstallment.update({
-          where: { id: item.id },
-          data: {
-            dueDate: d,
-            dueDateStr: dStr,
-            amount: amt,
-            remainingAmount: rem,
-            status: st,
-            notes: item.notes !== undefined ? item.notes : undefined,
-          },
-        });
+          await prisma.refundInstallment.update({
+            where: { id: item.id },
+            data: {
+              installmentNo: index,
+              dueDate: d,
+              dueDateStr: dStr,
+              amount: amt,
+              remainingAmount: rem,
+              status: st,
+              notes,
+            },
+          });
+        } else {
+          // Yeni taksit oluştur
+          await prisma.refundInstallment.create({
+            data: {
+              refundId,
+              installmentNo: index,
+              dueDate: d,
+              dueDateStr: dStr,
+              amount: amt,
+              paidAmount: 0,
+              remainingAmount: amt,
+              status: "PENDING",
+              paymentMethod: item.paymentMethod || "BANK_TRANSFER",
+              notes,
+            },
+          });
+        }
+        index++;
       }
 
-      // Ana dosya toplamını güncelle
+      // 3. Ana dosya toplamını ve taksit sayısını güncelle
       const allInst = await prisma.refundInstallment.findMany({
         where: { refundId },
+        orderBy: { installmentNo: "asc" },
       });
       const newTotal = allInst.reduce((sum, item) => sum + item.amount, 0);
       await prisma.studentRefund.update({
@@ -435,6 +506,8 @@ export async function PUT(request: Request) {
           installments: { orderBy: { installmentNo: "asc" } },
         },
       });
+
+      await syncRefundToSchoolExpenses(refundId);
 
       return NextResponse.json(refreshed);
     }
@@ -478,6 +551,9 @@ export async function PUT(request: Request) {
         where: { id: refundId },
         include: { installments: { orderBy: { installmentNo: "asc" } } },
       });
+
+      await syncRefundToSchoolExpenses(refundId);
+
       return NextResponse.json(refreshed);
     }
 
@@ -509,6 +585,8 @@ export async function PUT(request: Request) {
         },
       });
 
+      await syncRefundToSchoolExpenses(refundId);
+
       return NextResponse.json(updated);
     }
 
@@ -533,6 +611,12 @@ export async function DELETE(request: Request) {
         where: { id: installmentId },
       });
       if (inst) {
+        if (inst.paidAmount > 0) {
+          return NextResponse.json(
+            { error: `Taksit üzerinde ödeme (${inst.paidAmount} TL) bulunduğu için silinemez. Önce ödemeyi geri alınız.` },
+            { status: 400 }
+          );
+        }
         await prisma.refundInstallment.delete({ where: { id: installmentId } });
         const remainingInsts = await prisma.refundInstallment.findMany({
           where: { refundId: inst.refundId },
@@ -557,6 +641,7 @@ export async function DELETE(request: Request) {
             installmentCount: remainingInsts.length,
           },
         });
+        await syncRefundToSchoolExpenses(inst.refundId);
       }
       return NextResponse.json({ success: true, message: "Taksit silindi" });
     }
@@ -565,6 +650,7 @@ export async function DELETE(request: Request) {
       await prisma.studentRefund.delete({
         where: { id: refundId },
       });
+      await syncRefundToSchoolExpenses(refundId);
       return NextResponse.json({
         success: true,
         message: "İade dosyası ve tüm taksitleri silindi",

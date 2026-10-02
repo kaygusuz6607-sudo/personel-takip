@@ -21,6 +21,9 @@ export async function PUT(
     const supMatch = (existing.description || "").match(
       /\[SUPPLIER_CARI:([^:\]]+):(\d{4}-\d{1,2})\]/
     );
+    const refundMatch = (existing.description || "").match(
+      /\[STUDENT_REFUND:([^:\]]+):([^:\]]+)\]/
+    );
 
     // Parçalı ödeme ekleme isteği gelmişse
     if (body.action === "ADD_PAYMENT") {
@@ -94,6 +97,32 @@ export async function PUT(
         } catch {}
       }
 
+      if (refundMatch) {
+        try {
+          const refId = refundMatch[1];
+          const instId = refundMatch[2];
+          await prisma.refundInstallment.update({
+            where: { id: instId },
+            data: {
+              paidAmount: newAmountPaid,
+              remainingAmount: newAmountRemaining,
+              status: newStatus,
+              paymentDate: new Date(payDateStr),
+            },
+          });
+          const allInst = await prisma.refundInstallment.findMany({
+            where: { refundId: refId },
+          });
+          const allDone = allInst.every((i) => (i.id === instId ? newAmountRemaining === 0 : i.remainingAmount === 0));
+          await prisma.studentRefund.update({
+            where: { id: refId },
+            data: { status: allDone ? "COMPLETED" : "ACTIVE" },
+          });
+        } catch (e) {
+          console.error("Giderden iade parçalı ödeme senkronizasyonu hatası:", e);
+        }
+      }
+
       return NextResponse.json(updated);
     }
 
@@ -140,6 +169,32 @@ export async function PUT(
         } catch {}
       }
 
+      if (refundMatch) {
+        try {
+          const refId = refundMatch[1];
+          const instId = refundMatch[2];
+          await prisma.refundInstallment.update({
+            where: { id: instId },
+            data: {
+              paidAmount: existing.amountDue,
+              remainingAmount: 0,
+              status: "PAID",
+              paymentDate: new Date(),
+            },
+          });
+          const allInst = await prisma.refundInstallment.findMany({
+            where: { refundId: refId },
+          });
+          const allDone = allInst.every((i) => (i.id === instId ? true : i.remainingAmount === 0));
+          await prisma.studentRefund.update({
+            where: { id: refId },
+            data: { status: allDone ? "COMPLETED" : "ACTIVE" },
+          });
+        } catch (e) {
+          console.error("Giderden iade tamamlandı senkronizasyonu hatası:", e);
+        }
+      }
+
       return NextResponse.json(updated);
     }
 
@@ -154,6 +209,29 @@ export async function PUT(
           paymentHistory: null,
         },
       });
+
+      if (refundMatch) {
+        try {
+          const refId = refundMatch[1];
+          const instId = refundMatch[2];
+          await prisma.refundInstallment.update({
+            where: { id: instId },
+            data: {
+              paidAmount: 0,
+              remainingAmount: existing.amountDue,
+              status: "PENDING",
+              paymentDate: null,
+            },
+          });
+          await prisma.studentRefund.update({
+            where: { id: refId },
+            data: { status: "ACTIVE" },
+          });
+        } catch (e) {
+          console.error("Giderden iade sıfırlama senkronizasyonu hatası:", e);
+        }
+      }
+
       return NextResponse.json(updated);
     }
 
@@ -341,15 +419,96 @@ export async function DELETE(
 ) {
   try {
     const { id } = await params;
+    const { searchParams } = new URL(request.url);
+    const deleteAllSeries = searchParams.get("deleteAllSeries") === "true";
+
+    const existing = await prisma.schoolExpense.findUnique({
+      where: { id },
+    });
+
+    if (!existing) {
+      return NextResponse.json({ success: true, message: "Kayıt zaten mevcut değil" });
+    }
+
+    const refundMatch = (existing.description || "").match(
+      /\[STUDENT_REFUND:([^:\]]+):([^:\]]+)\]/
+    );
+
+    // Eğer tüm seriyi silme isteği gelmişse
+    if (deleteAllSeries) {
+      if (refundMatch) {
+        const refId = refundMatch[1];
+        try {
+          await prisma.studentRefund.delete({ where: { id: refId } });
+        } catch {}
+        await prisma.schoolExpense.deleteMany({
+          where: { description: { contains: `[STUDENT_REFUND:${refId}:` } },
+        });
+      } else {
+        await prisma.schoolExpense.deleteMany({
+          where: {
+            title: existing.title,
+            category: existing.category,
+          },
+        });
+      }
+      return NextResponse.json({ success: true, deletedAll: true });
+    }
+
+    // Tek bir kaydı silme işlemi
+    if (refundMatch) {
+      const refId = refundMatch[1];
+      const instId = refundMatch[2];
+      try {
+        await prisma.refundInstallment.delete({
+          where: { id: instId },
+        });
+        const remainingInsts = await prisma.refundInstallment.findMany({
+          where: { refundId: refId },
+          orderBy: { installmentNo: "asc" },
+        });
+        for (let i = 0; i < remainingInsts.length; i++) {
+          if (remainingInsts[i].installmentNo !== i + 1) {
+            await prisma.refundInstallment.update({
+              where: { id: remainingInsts[i].id },
+              data: { installmentNo: i + 1 },
+            });
+          }
+        }
+        const newTotal = remainingInsts.reduce((sum, item) => sum + item.amount, 0);
+        await prisma.studentRefund.update({
+          where: { id: refId },
+          data: {
+            totalAmount: Number(newTotal.toFixed(2)),
+            installmentCount: remainingInsts.length,
+            status: remainingInsts.length === 0 ? "COMPLETED" : "ACTIVE",
+          },
+        });
+      } catch (err) {
+        console.error("Giderden iade taksiti silme hatası:", err);
+      }
+    }
+
+    if (existing.category === "GOLD_DAY") {
+      try {
+        await prisma.$executeRawUnsafe(
+          `UPDATE GoldDayRound SET expenseId = NULL, isPaid = 0, paidAmount = 0 WHERE expenseId = ?`,
+          id
+        );
+      } catch {}
+    }
+
     await prisma.schoolExpense.delete({
       where: { id },
     });
+
     try {
       await prisma.$executeRawUnsafe(`DELETE FROM ChequePhotoStore WHERE id = ?`, id);
     } catch {}
+
     return NextResponse.json({ success: true });
   } catch (error: any) {
     console.error("Gider silme hatası:", error);
-    return NextResponse.json({ error: "Silinemedi" }, { status: 500 });
+    return NextResponse.json({ error: error?.message || "Silinemedi" }, { status: 500 });
   }
 }
