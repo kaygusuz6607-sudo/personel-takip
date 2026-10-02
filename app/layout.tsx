@@ -44,7 +44,10 @@ export default function RootLayout({
           }}
         />
       </head>
-      <body className="bg-slate-50 dark:bg-slate-950 min-h-screen text-slate-800 dark:text-slate-100 flex flex-col lg:flex-row antialiased">
+      <body
+        suppressHydrationWarning
+        className="bg-slate-50 dark:bg-slate-950 min-h-screen text-slate-800 dark:text-slate-100 flex flex-col lg:flex-row antialiased"
+      >
         <Sidebar />
         <main className="flex-1 min-w-0 flex flex-col min-h-screen overflow-x-hidden">
           <NotificationBanner />

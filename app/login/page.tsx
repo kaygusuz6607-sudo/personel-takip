@@ -106,7 +106,7 @@ function LoginForm() {
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
                   placeholder="örn: admin, muhasebe"
-                  autoFocus
+                  autoComplete="username"
                   required
                   className="w-full pl-10 pr-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-teal-600 focus:bg-white text-slate-800 transition-all font-medium"
                 />
@@ -126,6 +126,7 @@ function LoginForm() {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••••••"
+                  autoComplete="current-password"
                   required
                   className="w-full pl-10 pr-10 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-teal-600 focus:bg-white text-slate-800 transition-all font-medium"
                 />
