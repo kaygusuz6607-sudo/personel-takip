@@ -8,22 +8,15 @@ echo "=========================================================="
 # 1. Sistem Güncellemesi ve Araçların Kurulumu
 echo "-> 1/5: Sistem paketleri güncelleniyor ve gerekli araçlar kuruluyor..."
 sudo apt-get update -y
-sudo apt-get install -y curl git ufw nginx iptables-persistent netfilter-persistent
+sudo apt-get install -y curl git nginx netfilter-persistent
 
 # 2. Oracle Cloud Güvenlik Duvarı (iptables) Kuralı
 # ÖNEMLİ: Oracle Cloud Ubuntu imajlarında varsayılan iptables kuralları port 80 ve 443'ü engeller.
 echo "-> 2/5: Güvenlik duvarı (Port 80, 443 ve 3000) açılıyor..."
-sudo iptables -I INPUT 6 -m state --state NEW -p tcp --dport 80 -j ACCEPT
-sudo iptables -I INPUT 6 -m state --state NEW -p tcp --dport 443 -j ACCEPT
-sudo iptables -I INPUT 6 -m state --state NEW -p tcp --dport 3000 -j ACCEPT
+sudo iptables -I INPUT 5 -p tcp --dport 80 -j ACCEPT || true
+sudo iptables -I INPUT 5 -p tcp --dport 443 -j ACCEPT || true
+sudo iptables -I INPUT 5 -p tcp --dport 3000 -j ACCEPT || true
 sudo netfilter-persistent save
-
-# UFW yapılandırması
-sudo ufw allow 22/tcp
-sudo ufw allow 80/tcp
-sudo ufw allow 443/tcp
-sudo ufw allow 3000/tcp
-sudo ufw --force enable
 
 # 3. Docker Kurulumu
 echo "-> 3/5: Docker ve Docker Compose kontrol ediliyor..."
