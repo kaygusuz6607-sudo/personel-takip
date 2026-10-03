@@ -35,6 +35,7 @@ import {
   ArrowRight,
   ExternalLink,
   HelpCircle,
+  Loader2,
 } from "lucide-react";
 
 export interface QuoteItem {
@@ -174,19 +175,20 @@ const DEFAULT_POLICY_NOTES = [
 ];
 
 const DEFAULT_BANK_CAMPAIGNS: BankCampaign[] = [
-  { id: "b1", bankName: "ZİRAAT BANKASI", installmentCount: 10, campaignText: "2 taksitli okul ödemelerinizde +8 taksit fırsatından faydalanabilirsiniz." },
-  { id: "b2", bankName: "İŞBANKASI", installmentCount: 6, campaignText: "2 taksitli okul ödemelerinizde +4 taksit fırsatından faydalanabilirsiniz." },
-  { id: "b3", bankName: "HALKBANK PARAF TROY", installmentCount: 6, campaignText: "K.K PEŞİN FİYATINA 6 TAKSİT (10 BİN VE ÜZERİ)" },
-  { id: "b4", bankName: "HALK BANK VISA/MASTER", installmentCount: 5, campaignText: "K.K PEŞİN FİYATINA 5 TAKSİT (10 BİN VE ÜZERİ)" },
-  { id: "b5", bankName: "VAKIFBANK TROY", installmentCount: 6, campaignText: "K.K PEŞİN FİYATINA 6 TAKSİT (10 BİN VE ÜZERİ) takip" },
-  { id: "b6", bankName: "VAKIFBANK VISA/MASTER", installmentCount: 5, campaignText: "K.K PEŞİN FİYATINA 5 TAKSİT (10 BİN VE ÜZERİ) takip" },
-  { id: "b7", bankName: "AKBANK TROY", installmentCount: 6, campaignText: "K.K PEŞİN FİYATINA 6 TAKSİT" },
-  { id: "b8", bankName: "AKBANK VISA/MASTER", installmentCount: 3, campaignText: "K.K PEŞİN FİYATINA 3 TAKSİT" },
-  { id: "b9", bankName: "DENİZ BANK", installmentCount: 6, campaignText: "K.K PEŞİN FİYATINA 6 TAKSİT (100.000 TL VE ÜZERİ)" },
-  { id: "b10", bankName: "TEB BANK TROY", installmentCount: 6, campaignText: "K.K PEŞİN FİYATINA 6 TAKSİT" },
-  { id: "b11", bankName: "TEB BANK VISA/MASTER", installmentCount: 5, campaignText: "K.K PEŞİN FİYATINA 5 TAKSİT" },
-  { id: "b12", bankName: "ALBARAKA WORLD KART", installmentCount: 5, campaignText: "K.K PEŞİN FİYATINA 5 TAKSİT (30.000 TL İLE 500.000 TL ARASI)" },
+  { id: "b1", bankName: "ZİRAAT BANKASI", installmentCount: 7, campaignText: "2 taksitli okul ödemelerinizde +5 taksit fırsatından faydalanabilirsiniz.(25 BİN VE ÜZERİ) 7 TAKSİT" },
+  { id: "b2", bankName: "ZİRAAT BANKASI", installmentCount: 3, campaignText: "K.K PEŞİN FİYATINA 3 TAKSİT (25 BİN VE ÜZERİ) 3 TAKSİT" },
+  { id: "b3", bankName: "İŞBANKASI", installmentCount: 5, campaignText: "2 taksitli okul ödemelerinizde +3 taksit fırsatından faydalanabilirsiniz. 5 TAKSİT" },
+  { id: "b4", bankName: "HALK BANK VISA/MASTER", installmentCount: 7, campaignText: "2 taksitli okul ödemelerinizde +5 taksit fırsatından faydalanabilirsiniz. 7 TAKSİT / TEK ÇEKİMDE 5 TAKSİT" },
+  { id: "b5", bankName: "HALKBANK PARAF TROY", installmentCount: 6, campaignText: "K.K PEŞİN FİYATINA 6 TAKSİT (10 BİN VE ÜZERİ) 6 TAKSİT" },
+  { id: "b6", bankName: "VAKIFBANK VISA/MASTER", installmentCount: 4, campaignText: "K.K PEŞİN FİYATINA 4 TAKSİT (10 BİN VE ÜZERİ) 4 TAKSİT" },
+  { id: "b7", bankName: "VAKIFBANK TROY", installmentCount: 6, campaignText: "K.K PEŞİN FİYATINA 6 TAKSİT (10 BİN VE ÜZERİ) 6 TAKSİT" },
+  { id: "b8", bankName: "AKBANK VISA/MASTER", installmentCount: 4, campaignText: "K.K PEŞİN FİYATINA 4 TAKSİT Jüzdan uygulamasından kontrol edilmelidir. 4 TAKSİT" },
+  { id: "b9", bankName: "AKBANK TROY", installmentCount: 4, campaignText: "K.K PEŞİN FİYATINA 4 TAKSİT Jüzdan uygulamasından kontrol edilmelidir." },
+  { id: "b10", bankName: "TEB BANK TROY", installmentCount: 6, campaignText: "K.K PEŞİN FİYATINA 6 TAKSİT (10 BİN VE ÜZERİ)" },
+  { id: "b11", bankName: "TEB BANK VISA/MASTER", installmentCount: 3, campaignText: "K.K PEŞİN FİYATINA 3 TAKSİT (10 BİN VE ÜZERİ)" },
+  { id: "b12", bankName: "ALBARAKA WORLD KART", installmentCount: 6, campaignText: "K.K PEŞİN FİYATINA 6 TAKSİT (30.000 TL İLE 500.000 TL ARASI)" },
   { id: "b13", bankName: "KUVEYT TÜRK SAĞLAM KART", installmentCount: 5, campaignText: "K.K PEŞİN FİYATINA 5 TAKSİT (1 BİN VE ÜZERİ)" },
+  { id: "b_1791008388005", bankName: "DENİZ BANK", installmentCount: 6, campaignText: "K.K PEŞİN FİYATINA 6 TAKSİT (100 BİN VE ÜZERİ)" },
 ];
 
 export default function TekliflerPage() {
@@ -255,6 +257,9 @@ export default function TekliflerPage() {
     "VAKIFBANK - HESAP ADI: SİMCÜ ÖZEL EĞİTİM HİZMETLERİ A.Ş.  IBAN: TR40 0001 5001 5800 7349 4889 17"
   );
   const [bankCampaigns, setBankCampaigns] = useState<BankCampaign[]>(DEFAULT_BANK_CAMPAIGNS);
+  const [masterBankCampaigns, setMasterBankCampaigns] = useState<BankCampaign[]>(DEFAULT_BANK_CAMPAIGNS);
+  const [savingBanks, setSavingBanks] = useState(false);
+  const [savedBanksSuccess, setSavedBanksSuccess] = useState(false);
   const [includeStamp, setIncludeStamp] = useState(true);
 
   // Kayıt ve Durum
@@ -301,11 +306,12 @@ export default function TekliflerPage() {
   // Başlangıç: Standart fiyatları, aylık tabloyu, banka kampanyalarını ve teklif listesini çek
   useEffect(() => {
     try {
-      const savedLocal = localStorage.getItem("cosmos_teklif_bank_campaigns_v1");
-      if (savedLocal) {
-        const parsed = JSON.parse(savedLocal);
+      const savedMaster = localStorage.getItem("cosmos_master_bank_campaigns_v1") || localStorage.getItem("cosmos_teklif_bank_campaigns_v1");
+      if (savedMaster) {
+        const parsed = JSON.parse(savedMaster);
         if (Array.isArray(parsed) && parsed.length > 0) {
           setBankCampaigns(parsed);
+          setMasterBankCampaigns(parsed);
         }
       }
       const savedSchedule = localStorage.getItem("cosmos_monthly_price_schedule_v1");
@@ -386,6 +392,8 @@ export default function TekliflerPage() {
                 : data.bankCampaigns;
             if (Array.isArray(parsedBanks) && parsedBanks.length > 0) {
               setBankCampaigns(parsedBanks);
+              setMasterBankCampaigns(parsedBanks);
+              localStorage.setItem("cosmos_master_bank_campaigns_v1", JSON.stringify(parsedBanks));
               localStorage.setItem("cosmos_teklif_bank_campaigns_v1", JSON.stringify(parsedBanks));
             }
           } catch {}
@@ -807,6 +815,9 @@ export default function TekliflerPage() {
     });
 
     setItems(newItems);
+    if (masterBankCampaigns && masterBankCampaigns.length > 0) {
+      setBankCampaigns(JSON.parse(JSON.stringify(masterBankCampaigns)));
+    }
     setNewQuoteModalOpen(false);
     setActiveTab("EDITOR");
     setEditorView("EDIT");
@@ -917,8 +928,9 @@ export default function TekliflerPage() {
 
   const saveBankCampaignsToSettings = async () => {
     try {
+      setSavingBanks(true);
       persistBanksLocal(bankCampaigns);
-      await fetch("/api/teklifler/settings", {
+      const res = await fetch("/api/teklifler/settings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -926,9 +938,38 @@ export default function TekliflerPage() {
           bankCampaigns,
         }),
       });
-      setSaveSuccessMsg("Bu ayın eğitime özel banka taksit kampanyaları kaydedildi!");
-      setTimeout(() => setSaveSuccessMsg(null), 3000);
-    } catch {}
+
+      if (!res.ok) {
+        throw new Error("Sunucu yanıt vermedi (Durum: " + res.status + ")");
+      }
+
+      setMasterBankCampaigns(JSON.parse(JSON.stringify(bankCampaigns)));
+      try {
+        localStorage.setItem("cosmos_master_bank_campaigns_v1", JSON.stringify(bankCampaigns));
+      } catch {}
+
+      setSavedBanksSuccess(true);
+      setSaveSuccessMsg("Bu ayın eğitime özel banka taksit kampanyaları başarıyla sabitlendi!");
+      setTimeout(() => {
+        setSavedBanksSuccess(false);
+        setSaveSuccessMsg(null);
+      }, 4000);
+    } catch (err: any) {
+      console.error("Kampanya sabitleme hatası:", err);
+      alert("Banka kampanyaları sabitlenirken hata oluştu: " + (err?.message || "Bilinmeyen hata"));
+    } finally {
+      setSavingBanks(false);
+    }
+  };
+
+  const handleResetToPinnedCampaigns = () => {
+    if (masterBankCampaigns && masterBankCampaigns.length > 0) {
+      const cloned = JSON.parse(JSON.stringify(masterBankCampaigns));
+      setBankCampaigns(cloned);
+      persistBanksLocal(cloned);
+      setSavedBanksSuccess(true);
+      setTimeout(() => setSavedBanksSuccess(false), 2000);
+    }
   };
 
   // Teklifi Kaydet (API)
@@ -1047,8 +1088,16 @@ export default function TekliflerPage() {
 
     try {
       const parsedCampaigns = typeof q.bankCampaigns === "string" ? JSON.parse(q.bankCampaigns) : q.bankCampaigns;
-      if (Array.isArray(parsedCampaigns)) setBankCampaigns(parsedCampaigns);
-    } catch {}
+      if (Array.isArray(parsedCampaigns) && parsedCampaigns.length > 0) {
+        setBankCampaigns(parsedCampaigns);
+      } else if (masterBankCampaigns && masterBankCampaigns.length > 0) {
+        setBankCampaigns(JSON.parse(JSON.stringify(masterBankCampaigns)));
+      }
+    } catch {
+      if (masterBankCampaigns && masterBankCampaigns.length > 0) {
+        setBankCampaigns(JSON.parse(JSON.stringify(masterBankCampaigns)));
+      }
+    }
 
     setActiveTab("EDITOR");
     if (autoPrint) {
@@ -1781,23 +1830,69 @@ export default function TekliflerPage() {
                   <div className="flex items-center gap-1.5">
                     <button
                       type="button"
+                      disabled={savingBanks}
                       onClick={saveBankCampaignsToSettings}
-                      className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 text-[11px] font-bold"
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-[11px] font-bold transition shadow-sm ${
+                        savedBanksSuccess
+                          ? "bg-emerald-600 text-white border-emerald-600 shadow"
+                          : "bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border-emerald-300 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800"
+                      } ${savingBanks ? "opacity-70 cursor-wait" : ""}`}
                       title="Yaptığınız banka kampanya düzenlemelerini bu ayın tüm yeni teklifleri için kalıcı kaydet"
                     >
-                      <Save className="w-3 h-3" />
-                      <span>Bu Ayın Kampanyalarını Sabitle</span>
+                      {savingBanks ? (
+                        <>
+                          <Loader2 className="w-3 h-3 animate-spin" />
+                          <span>Sabitleniyor...</span>
+                        </>
+                      ) : savedBanksSuccess ? (
+                        <>
+                          <CheckCircle2 className="w-3 h-3 text-white" />
+                          <span>✓ Kampanyalar Sabitlendi!</span>
+                        </>
+                      ) : (
+                        <>
+                          <Save className="w-3 h-3" />
+                          <span>Bu Ayın Kampanyalarını Sabitle</span>
+                        </>
+                      )}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleResetToPinnedCampaigns}
+                      className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 text-[11px] font-semibold transition"
+                      title="Bu ay için sabitlediğiniz orijinal kampanya listesini bu teklife geri yükle"
+                    >
+                      <RotateCcw className="w-3 h-3 text-slate-500" />
+                      <span>Sabit Listeyi Yükle</span>
                     </button>
                     <button
                       type="button"
                       onClick={addBankCampaign}
-                      className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-teal-50 text-teal-700 hover:bg-teal-100 text-[11px] font-bold"
+                      className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-teal-50 text-teal-700 hover:bg-teal-100 dark:bg-teal-950/40 dark:text-teal-300 border border-teal-200 dark:border-teal-800 text-[11px] font-bold"
                     >
                       <Plus className="w-3 h-3" />
                       <span>+ Banka Ekle</span>
                     </button>
                   </div>
                 </div>
+
+                {savedBanksSuccess && (
+                  <div className="bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-300 dark:border-emerald-700 text-emerald-800 dark:text-emerald-200 p-2.5 rounded-xl text-xs font-semibold flex items-center justify-between gap-2 shadow-sm animate-fade-in">
+                    <div className="flex items-center gap-2">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                      <span>
+                        <strong>Başarılı!</strong> Bu ayın eğitime özel banka kampanyaları kalıcı olarak sabitlendi. Artık oluşturulacak tüm yeni tekliflerde bu liste varsayılan olarak gelecektir.
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setSavedBanksSuccess(false)}
+                      className="text-emerald-600 hover:text-emerald-800 font-bold px-1"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                )}
 
                 <div className="divide-y divide-slate-100 dark:divide-slate-800 text-xs">
                   {bankCampaigns.map((bank) => (
