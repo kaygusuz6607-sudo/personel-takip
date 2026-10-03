@@ -899,9 +899,14 @@ function GiderlerPageContent() {
       if (chequesOnly) params.set("chequesOnly", "true");
       if (selectedMonth && selectedMonth !== "ALL") params.set("month", selectedMonth);
       if (selectedPaymentMethod && selectedPaymentMethod !== "ALL") params.set("paymentMethod", selectedPaymentMethod);
-      if (selectedCardHolder && selectedCardHolder !== "ALL") params.set("cardHolder", selectedCardHolder);
-
-      const res = await fetch(`/api/giderler?${params.toString()}`);
+      params.set("_t", Date.now().toString());
+      const res = await fetch(`/api/giderler?${params.toString()}`, {
+        cache: "no-store",
+        headers: {
+          "Cache-Control": "no-cache, no-store, must-revalidate",
+          Pragma: "no-cache",
+        },
+      });
       const data = await res.json();
       if (data.expenses && Array.isArray(data.expenses)) {
         setExpenses(data.expenses);
@@ -1837,10 +1842,33 @@ function GiderlerPageContent() {
     setEditingExpense(null);
     const todayStr = new Date().toISOString().split("T")[0];
     const parsedSel = parseSelectedPeriod(selectedMonth);
-    setPhoneLinesList(createDefault5PhoneLines());
+    let parsedLines: any[] = [];
+    const otherWithLines = [...allPhoneExpenses, ...expenses].find(
+      (e) => e.phoneLines && e.phoneLines !== "null" && e.phoneLines !== "[]"
+    );
+    if (otherWithLines?.phoneLines) {
+      try {
+        parsedLines =
+          typeof otherWithLines.phoneLines === "string"
+            ? JSON.parse(otherWithLines.phoneLines)
+            : otherWithLines.phoneLines;
+      } catch {}
+    }
+    const normalized = Array.isArray(parsedLines) && parsedLines.length > 0
+      ? parsedLines.map((p: any) => ({
+          number: p.number || "",
+          title: p.title || "",
+          amount: p.amount !== undefined && p.amount !== null ? String(p.amount) : "",
+          commitmentEnd: p.commitmentEnd || "",
+        }))
+      : createDefault5PhoneLines();
+    while (normalized.length < 5) {
+      normalized.push({ number: "", title: "", amount: "", commitmentEnd: "" });
+    }
+    setPhoneLinesList(normalized);
     setShowPhoneLinesInModal(true);
     setForm({
-      title: "Vodafone Kurumsal Fatura (5 Hat)",
+      title: "Vodafone Kurumsal Hatlar (Tek Fatura - 5 Numara)",
       category: "INVOICE",
       subCategory: "F-Haberleşme & Telefon",
       dueDateStr: "",
@@ -1896,11 +1924,21 @@ function GiderlerPageContent() {
     setFormQrDataUrl("");
     let parsedLines: any[] = [];
     try {
-      if (expense.phoneLines) {
+      if (expense.phoneLines && expense.phoneLines !== "null" && expense.phoneLines !== "[]") {
         parsedLines =
           typeof expense.phoneLines === "string"
             ? JSON.parse(expense.phoneLines)
             : expense.phoneLines;
+      } else if (isTelecomOrPhoneExpense(expense)) {
+        const otherWithLines = [...allPhoneExpenses, ...expenses].find(
+          (e) => e.phoneLines && e.phoneLines !== "null" && e.phoneLines !== "[]"
+        );
+        if (otherWithLines?.phoneLines) {
+          parsedLines =
+            typeof otherWithLines.phoneLines === "string"
+              ? JSON.parse(otherWithLines.phoneLines)
+              : otherWithLines.phoneLines;
+        }
       }
     } catch (e) {}
 
@@ -1959,11 +1997,21 @@ function GiderlerPageContent() {
     setActivePhoneExpense(expense);
     let parsedLines: any[] = [];
     try {
-      if (expense.phoneLines) {
+      if (expense.phoneLines && expense.phoneLines !== "null" && expense.phoneLines !== "[]") {
         parsedLines =
           typeof expense.phoneLines === "string"
             ? JSON.parse(expense.phoneLines)
             : expense.phoneLines;
+      } else {
+        const otherWithLines = [...allPhoneExpenses, ...expenses].find(
+          (e) => e.phoneLines && e.phoneLines !== "null" && e.phoneLines !== "[]"
+        );
+        if (otherWithLines?.phoneLines) {
+          parsedLines =
+            typeof otherWithLines.phoneLines === "string"
+              ? JSON.parse(otherWithLines.phoneLines)
+              : otherWithLines.phoneLines;
+        }
       }
     } catch (e) {}
 
@@ -2024,8 +2072,45 @@ function GiderlerPageContent() {
         return;
       }
 
+      const updatedExpense: SchoolExpense = await res.json();
+      const serialized = validLines.length > 0 ? JSON.stringify(validLines) : null;
+
+      // Anında arayüze yansıt (Optimistic Update)
+      const updateListWithPhoneLines = (list: SchoolExpense[]) =>
+        list.map((exp) => {
+          if (
+            exp.id === activePhoneExpense.id ||
+            exp.title === activePhoneExpense.title ||
+            (exp.title || "").toLowerCase().includes("vodafone") ||
+            Boolean(exp.phoneLines)
+          ) {
+            return {
+              ...exp,
+              phoneLines: serialized,
+              isCommitment: serialized ? true : exp.isCommitment,
+              ...(syncPhoneAmountToInvoice && linesTotalAmount > 0
+                ? {
+                    amountDue: linesTotalAmount,
+                    amountRemaining: Math.max(0, Number((linesTotalAmount - exp.amountPaid).toFixed(2))),
+                    status: (exp.amountPaid >= linesTotalAmount
+                      ? "PAID"
+                      : exp.amountPaid > 0
+                      ? "PARTIAL"
+                      : "PENDING") as any,
+                  }
+                : {}),
+            };
+          }
+          return exp;
+        });
+
+      setExpenses((prev) => updateListWithPhoneLines(prev));
+      setAllPhoneExpenses((prev) => updateListWithPhoneLines(prev));
+      setMonthBaseExpenses((prev) => updateListWithPhoneLines(prev));
+      setActivePhoneExpense(updatedExpense);
+
       setPhoneModalOpen(false);
-      fetchExpenses();
+      await fetchExpenses();
     } catch (err) {
       alert("Hata oluştu");
     } finally {
@@ -2152,6 +2237,29 @@ function GiderlerPageContent() {
         return;
       }
 
+      if (filteredLines.length > 0) {
+        const serialized = JSON.stringify(filteredLines);
+        const updatePhoneLinesEverywhere = (list: SchoolExpense[]) =>
+          list.map((exp) => {
+            if (
+              (editingExpense && exp.id === editingExpense.id) ||
+              exp.title === form.title ||
+              (exp.title || "").toLowerCase().includes("vodafone") ||
+              Boolean(exp.phoneLines)
+            ) {
+              return {
+                ...exp,
+                phoneLines: serialized,
+                isCommitment: true,
+              };
+            }
+            return exp;
+          });
+        setExpenses((prev) => updatePhoneLinesEverywhere(prev));
+        setAllPhoneExpenses((prev) => updatePhoneLinesEverywhere(prev));
+        setMonthBaseExpenses((prev) => updatePhoneLinesEverywhere(prev));
+      }
+
       setModalOpen(false);
       if (targetSavedYM && selectedMonth !== "ALL") {
         const curParsed = parseSelectedPeriod(selectedMonth);
@@ -2160,7 +2268,7 @@ function GiderlerPageContent() {
           return;
         }
       }
-      fetchExpenses();
+      await fetchExpenses();
     } catch (err) {
       alert("Hata oluştu");
     } finally {
@@ -6294,6 +6402,145 @@ function GiderlerPageContent() {
                       </select>
                     </div>
                   </div>
+                </div>
+              )}
+
+              {/* TAAHHÜTLÜ ABONELİK & ÇOKLU TELEFON HATTI GİRİŞ / DÜZENLEME ALANI */}
+              {(form.entryType === "COMMITMENT" ||
+                showPhoneLinesInModal ||
+                (form.title || "").toLowerCase().includes("vodafone") ||
+                (form.subCategory || "").toLowerCase().includes("telefon") ||
+                (editingExpense && isTelecomOrPhoneExpense(editingExpense)) ||
+                (phoneLinesList && phoneLinesList.some((p) => (p.number || "").trim() !== "" || (p.title || "").trim() !== ""))) && (
+                <div className="p-3.5 bg-blue-50/90 border border-blue-200 rounded-2xl space-y-3 animate-in fade-in duration-200">
+                  <div className="flex items-center justify-between gap-2 flex-wrap pb-1 border-b border-blue-200/70">
+                    <div className="flex items-center gap-2 text-blue-950 font-bold text-xs">
+                      <PhoneCall className="w-4 h-4 text-blue-700" />
+                      <span>📱 Fatura İçi Telefon Hatları & Taahhütler ({phoneLinesList.length} Hat)</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setPhoneLinesList([
+                          ...phoneLinesList,
+                          { number: "", title: "", amount: "", commitmentEnd: "" },
+                        ])
+                      }
+                      className="px-2.5 py-1 rounded-lg bg-white hover:bg-blue-100 text-blue-800 border border-blue-300 font-extrabold text-[11px] shadow-2xs"
+                    >
+                      + Yeni Hat Ekle
+                    </button>
+                  </div>
+
+                  <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
+                    <div className="hidden sm:grid sm:grid-cols-12 gap-2 px-1 text-[10px] font-extrabold text-slate-500 uppercase">
+                      <div className="col-span-1">#</div>
+                      <div className="col-span-4">Telefon Numarası</div>
+                      <div className="col-span-3">Kullanan Kişi</div>
+                      <div className="col-span-2">Ücret (₺)</div>
+                      <div className="col-span-2">Taahhüt Bitiş</div>
+                    </div>
+                    {phoneLinesList.map((pl, idx) => (
+                      <div
+                        key={idx}
+                        className="p-2 bg-white rounded-xl border border-blue-100 grid grid-cols-1 sm:grid-cols-12 gap-1.5 items-center"
+                      >
+                        <div className="sm:col-span-1">
+                          <span className="px-1.5 py-0.5 rounded bg-blue-100 text-blue-900 text-[10px] font-extrabold">
+                            {idx + 1}
+                          </span>
+                        </div>
+                        <div className="sm:col-span-4">
+                          <input
+                            type="text"
+                            value={pl.number}
+                            onChange={(e) => {
+                              const copy = [...phoneLinesList];
+                              copy[idx] = { ...copy[idx], number: e.target.value };
+                              setPhoneLinesList(copy);
+                            }}
+                            placeholder="0542 123 45 67"
+                            className="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold text-slate-900 focus:bg-white focus:outline-none focus:border-blue-600"
+                          />
+                        </div>
+                        <div className="sm:col-span-3">
+                          <input
+                            type="text"
+                            value={pl.title}
+                            onChange={(e) => {
+                              const copy = [...phoneLinesList];
+                              copy[idx] = { ...copy[idx], title: e.target.value };
+                              setPhoneLinesList(copy);
+                            }}
+                            placeholder="Kullanan Kişi"
+                            className="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-900 focus:bg-white focus:outline-none focus:border-blue-600"
+                          />
+                        </div>
+                        <div className="sm:col-span-2">
+                          <input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            value={pl.amount ?? ""}
+                            onChange={(e) => {
+                              const copy = [...phoneLinesList];
+                              copy[idx] = { ...copy[idx], amount: e.target.value };
+                              setPhoneLinesList(copy);
+                            }}
+                            placeholder="Ücret"
+                            className="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold text-emerald-900 focus:bg-white focus:outline-none focus:border-blue-600"
+                          />
+                        </div>
+                        <div className="sm:col-span-2 flex items-center gap-1">
+                          <input
+                            type="date"
+                            value={pl.commitmentEnd}
+                            onChange={(e) => {
+                              const copy = [...phoneLinesList];
+                              copy[idx] = { ...copy[idx], commitmentEnd: e.target.value };
+                              setPhoneLinesList(copy);
+                            }}
+                            className="w-full px-1.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-[11px] text-slate-900 focus:bg-white focus:outline-none focus:border-blue-600"
+                          />
+                          {phoneLinesList.length > 1 && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const copy = [...phoneLinesList];
+                                copy[idx] = { number: "", title: "", amount: "", commitmentEnd: "" };
+                                setPhoneLinesList(copy);
+                              }}
+                              className="text-slate-400 hover:text-rose-600 p-1"
+                              title="Temizle"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {(() => {
+                    const totalLinesFee = Number(
+                      phoneLinesList.reduce((s, p) => s + (Number(p.amount) || 0), 0).toFixed(2)
+                    );
+                    if (totalLinesFee <= 0) return null;
+                    return (
+                      <div className="pt-2 flex items-center justify-between text-xs border-t border-blue-200/70">
+                        <span className="text-slate-600">
+                          Hat Ücretleri Toplamı: <strong className="text-emerald-700">{formatCurrency(totalLinesFee)}</strong>
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setForm({ ...form, amountDue: String(totalLinesFee) })}
+                          className="px-2 py-0.5 rounded bg-blue-100 hover:bg-blue-200 text-blue-900 text-[10px] font-extrabold"
+                        >
+                          Fatura Tutarına Aktar ({formatCurrency(totalLinesFee)})
+                        </button>
+                      </div>
+                    );
+                  })()}
                 </div>
               )}
 

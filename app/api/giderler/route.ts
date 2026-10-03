@@ -3,6 +3,9 @@ import { prisma } from "@/lib/prisma";
 import { INITIAL_EXPENSES_DATA } from "@/lib/seed-expenses";
 import { syncAllRefundsToSchoolExpenses } from "@/lib/student-refund-sync";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
@@ -408,18 +411,27 @@ export async function GET(request: Request) {
       }
     } catch {}
 
-    return NextResponse.json({
-      expenses,
-      monthExpenses,
-      availablePeriods,
-      rolloverExpenses,
-      stats,
-      cardHoldersSummary: cardHoldersMap,
-      allCardExpenses: creditCardExpenses,
-      allPhoneExpenses,
-      allChequeExpenses,
-      chequePhotosMap,
-    });
+    return NextResponse.json(
+      {
+        expenses,
+        monthExpenses,
+        availablePeriods,
+        rolloverExpenses,
+        stats,
+        cardHoldersSummary: cardHoldersMap,
+        allCardExpenses: creditCardExpenses,
+        allPhoneExpenses,
+        allChequeExpenses,
+        chequePhotosMap,
+      },
+      {
+        headers: {
+          "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+          Pragma: "no-cache",
+          Expires: "0",
+        },
+      }
+    );
   } catch (error: any) {
     console.error("Giderler listesi hatası:", error);
     return NextResponse.json({ error: "Gider kayıtları alınamadı" }, { status: 500 });
@@ -728,6 +740,30 @@ export async function POST(request: Request) {
         }
       } catch (e) {
         console.error("Çek fotoğrafı kaydetme hatası:", e);
+      }
+    }
+
+    if (phoneLines !== null && phoneLines !== undefined) {
+      try {
+        const sLines = typeof phoneLines === "object" ? JSON.stringify(phoneLines) : phoneLines;
+        if (sLines && sLines !== "null" && sLines !== "[]") {
+          await prisma.schoolExpense.updateMany({
+            where: {
+              id: { not: newExpense.id },
+              OR: [
+                { title: { contains: "Vodafone" } },
+                { title: { contains: "vodafone" } },
+                { phoneLines: { not: null } },
+              ],
+            },
+            data: {
+              phoneLines: sLines,
+              isCommitment: true,
+            },
+          });
+        }
+      } catch (err) {
+        console.error("POST phoneLines sync hatası:", err);
       }
     }
 

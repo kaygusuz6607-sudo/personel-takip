@@ -3,6 +3,9 @@ import { prisma } from "@/lib/prisma";
 import { ensureSupplierCariTables } from "@/lib/supplier-cari-sync";
 import { syncSchoolExpenseToRefund } from "@/lib/student-refund-sync";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 export async function PUT(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
@@ -208,11 +211,16 @@ export async function PUT(
         },
       });
 
-      // Aynı fatura başlığına sahip diğer ay/dönem kayıtlarında da telefon numaralarını ve taahhüt tarihlerini eşitle
+      // Aynı fatura başlığına sahip veya Vodafone/telefon faturası olan diğer ay/dönem kayıtlarında da telefon numaralarını ve taahhüt tarihlerini eşitle
       await prisma.schoolExpense.updateMany({
         where: {
-          title: existing.title,
           id: { not: id },
+          OR: [
+            { title: existing.title },
+            { title: { contains: "Vodafone" } },
+            { title: { contains: "vodafone" } },
+            { phoneLines: { not: null } },
+          ],
         },
         data: {
           phoneLines: serializedLines,
@@ -220,7 +228,13 @@ export async function PUT(
         },
       });
 
-      return NextResponse.json(updated);
+      return NextResponse.json(updated, {
+        headers: {
+          "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+          Pragma: "no-cache",
+          Expires: "0",
+        },
+      });
     }
 
     // Genel güncelleme
@@ -340,11 +354,17 @@ export async function PUT(
     if (phoneLines !== undefined) {
       await prisma.schoolExpense.updateMany({
         where: {
-          title: updated.title,
           id: { not: id },
+          OR: [
+            { title: updated.title },
+            { title: { contains: "Vodafone" } },
+            { title: { contains: "vodafone" } },
+            { phoneLines: { not: null } },
+          ],
         },
         data: {
           phoneLines: serializedPhoneLines,
+          isCommitment: serializedPhoneLines ? true : updated.isCommitment,
         },
       });
     }
@@ -356,7 +376,13 @@ export async function PUT(
       paymentMethod: updated.paymentMethod,
     });
 
-    return NextResponse.json(updated);
+    return NextResponse.json(updated, {
+      headers: {
+        "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+        Pragma: "no-cache",
+        Expires: "0",
+      },
+    });
   } catch (error: any) {
     console.error("Gider güncelleme hatası:", error);
     return NextResponse.json({ error: error?.message || "Güncellenemedi" }, { status: 500 });
