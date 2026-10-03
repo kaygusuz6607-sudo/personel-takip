@@ -1098,16 +1098,18 @@ function GiderlerPageContent() {
         const parsed = typeof e.phoneLines === "string" ? JSON.parse(e.phoneLines) : e.phoneLines;
         if (!Array.isArray(parsed)) return;
         parsed.forEach((pl: any, idx: number) => {
-          if (!pl || !pl.commitmentEnd) return;
+          if (!pl || !pl.commitmentEnd || !pl.number) return;
+          const numStr = String(pl.number).trim();
+          if (numStr.length < 7 || numStr.includes("100 00 0") || numStr.includes("100 00 05")) return;
           const daysLeft = getDaysUntilCommitmentEnd(pl.commitmentEnd);
-          if (daysLeft !== null && daysLeft <= 10) {
-            const key = `${e.title}__${pl.number || idx}__${pl.commitmentEnd}`;
+          if (daysLeft !== null && daysLeft >= 0 && daysLeft <= 10) {
+            const key = `${pl.number}__${pl.commitmentEnd}`;
             if (!seen.has(key)) {
               seen.add(key);
               list.push({
                 exp: e,
                 lineIndex: idx + 1,
-                number: pl.number || `${idx + 1}. Hat`,
+                number: pl.number,
                 userTitle: pl.title || "Belirtilmedi",
                 amount: Number(pl.amount) || 0,
                 commitmentEnd: pl.commitmentEnd,

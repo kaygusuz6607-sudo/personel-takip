@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { ensureSupplierCariTables } from "@/lib/supplier-cari-sync";
+import { syncSchoolExpenseToRefund } from "@/lib/student-refund-sync";
 
 export async function PUT(
   request: Request,
@@ -68,6 +69,7 @@ export async function PUT(
           amountPaid: newAmountPaid,
           amountRemaining: newAmountRemaining,
           status: newStatus,
+          periodStatus: newStatus === "PAID" ? "Ödendi" : "Kısmi",
           paymentHistory: JSON.stringify(history),
           ...(newDescription !== existing.description ? { description: newDescription } : {}),
         },
@@ -97,31 +99,12 @@ export async function PUT(
         } catch {}
       }
 
-      if (refundMatch) {
-        try {
-          const refId = refundMatch[1];
-          const instId = refundMatch[2];
-          await prisma.refundInstallment.update({
-            where: { id: instId },
-            data: {
-              paidAmount: newAmountPaid,
-              remainingAmount: newAmountRemaining,
-              status: newStatus,
-              paymentDate: new Date(payDateStr),
-            },
-          });
-          const allInst = await prisma.refundInstallment.findMany({
-            where: { refundId: refId },
-          });
-          const allDone = allInst.every((i) => (i.id === instId ? newAmountRemaining === 0 : i.remainingAmount === 0));
-          await prisma.studentRefund.update({
-            where: { id: refId },
-            data: { status: allDone ? "COMPLETED" : "ACTIVE" },
-          });
-        } catch (e) {
-          console.error("Giderden iade parçalı ödeme senkronizasyonu hatası:", e);
-        }
-      }
+      await syncSchoolExpenseToRefund(id, "ADD_PAYMENT", {
+        newAmountPaid,
+        newAmountRemaining,
+        newStatus,
+        date: payDateStr,
+      });
 
       return NextResponse.json(updated);
     }
@@ -140,6 +123,7 @@ export async function PUT(
           amountPaid: existing.amountDue,
           amountRemaining: 0,
           status: "PAID",
+          periodStatus: "Ödendi",
           ...(newDescription !== existing.description ? { description: newDescription } : {}),
         },
       });
@@ -169,31 +153,9 @@ export async function PUT(
         } catch {}
       }
 
-      if (refundMatch) {
-        try {
-          const refId = refundMatch[1];
-          const instId = refundMatch[2];
-          await prisma.refundInstallment.update({
-            where: { id: instId },
-            data: {
-              paidAmount: existing.amountDue,
-              remainingAmount: 0,
-              status: "PAID",
-              paymentDate: new Date(),
-            },
-          });
-          const allInst = await prisma.refundInstallment.findMany({
-            where: { refundId: refId },
-          });
-          const allDone = allInst.every((i) => (i.id === instId ? true : i.remainingAmount === 0));
-          await prisma.studentRefund.update({
-            where: { id: refId },
-            data: { status: allDone ? "COMPLETED" : "ACTIVE" },
-          });
-        } catch (e) {
-          console.error("Giderden iade tamamlandı senkronizasyonu hatası:", e);
-        }
-      }
+      await syncSchoolExpenseToRefund(id, "MARK_PAID", {
+        date: new Date().toISOString().split("T")[0],
+      });
 
       return NextResponse.json(updated);
     }
@@ -206,31 +168,12 @@ export async function PUT(
           amountPaid: 0,
           amountRemaining: existing.amountDue,
           status: "PENDING",
+          periodStatus: "Cari Dönem",
           paymentHistory: null,
         },
       });
 
-      if (refundMatch) {
-        try {
-          const refId = refundMatch[1];
-          const instId = refundMatch[2];
-          await prisma.refundInstallment.update({
-            where: { id: instId },
-            data: {
-              paidAmount: 0,
-              remainingAmount: existing.amountDue,
-              status: "PENDING",
-              paymentDate: null,
-            },
-          });
-          await prisma.studentRefund.update({
-            where: { id: refId },
-            data: { status: "ACTIVE" },
-          });
-        } catch (e) {
-          console.error("Giderden iade sıfırlama senkronizasyonu hatası:", e);
-        }
-      }
+      await syncSchoolExpenseToRefund(id, "RESET_PAYMENT");
 
       return NextResponse.json(updated);
     }
@@ -406,6 +349,13 @@ export async function PUT(
       });
     }
 
+    await syncSchoolExpenseToRefund(id, "GENERAL_UPDATE", {
+      amountDue: updated.amountDue,
+      dueDate: updated.dueDate,
+      status: updated.status,
+      paymentMethod: updated.paymentMethod,
+    });
+
     return NextResponse.json(updated);
   } catch (error: any) {
     console.error("Gider güncelleme hatası:", error);
@@ -456,38 +406,7 @@ export async function DELETE(
     }
 
     // Tek bir kaydı silme işlemi
-    if (refundMatch) {
-      const refId = refundMatch[1];
-      const instId = refundMatch[2];
-      try {
-        await prisma.refundInstallment.delete({
-          where: { id: instId },
-        });
-        const remainingInsts = await prisma.refundInstallment.findMany({
-          where: { refundId: refId },
-          orderBy: { installmentNo: "asc" },
-        });
-        for (let i = 0; i < remainingInsts.length; i++) {
-          if (remainingInsts[i].installmentNo !== i + 1) {
-            await prisma.refundInstallment.update({
-              where: { id: remainingInsts[i].id },
-              data: { installmentNo: i + 1 },
-            });
-          }
-        }
-        const newTotal = remainingInsts.reduce((sum, item) => sum + item.amount, 0);
-        await prisma.studentRefund.update({
-          where: { id: refId },
-          data: {
-            totalAmount: Number(newTotal.toFixed(2)),
-            installmentCount: remainingInsts.length,
-            status: remainingInsts.length === 0 ? "COMPLETED" : "ACTIVE",
-          },
-        });
-      } catch (err) {
-        console.error("Giderden iade taksiti silme hatası:", err);
-      }
-    }
+    await syncSchoolExpenseToRefund(id, "DELETE");
 
     if (existing.category === "GOLD_DAY") {
       try {

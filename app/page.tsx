@@ -273,19 +273,22 @@ export default async function DashboardPage() {
       const parsed = JSON.parse(exp.phoneLines);
       if (!Array.isArray(parsed)) continue;
       parsed.forEach((pl: any, idx: number) => {
-        if (!pl || !pl.commitmentEnd) return;
+        if (!pl || !pl.commitmentEnd || !pl.number) return;
+        const numStr = String(pl.number).trim();
+        // Şablon/sahte numaraları ve boş kayıtları atla
+        if (numStr.length < 7 || numStr.includes("100 00 0") || numStr.includes("100 00 05")) return;
         const end = new Date(pl.commitmentEnd);
         if (isNaN(end.getTime())) return;
         end.setHours(0, 0, 0, 0);
         const daysLeft = Math.ceil((end.getTime() - todayMidnight.getTime()) / (1000 * 60 * 60 * 24));
-        if (daysLeft <= 10) {
-          const key = `${exp.title}__${pl.number || idx}__${pl.commitmentEnd}`;
+        if (daysLeft >= 0 && daysLeft <= 10) {
+          const key = `${pl.number}__${pl.commitmentEnd}`;
           if (!seenPhoneKeys.has(key)) {
             seenPhoneKeys.add(key);
             warningPhoneLines.push({
               expenseId: exp.id,
               invoiceTitle: exp.title,
-              number: pl.number || `${idx + 1}. Hat`,
+              number: pl.number,
               userTitle: pl.title || "Belirtilmedi",
               amount: Number(pl.amount) || 0,
               commitmentEnd: pl.commitmentEnd,
