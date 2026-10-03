@@ -40,7 +40,11 @@ function LoginForm() {
       }
 
       // Başarılı giriş -> Yönlendir
-      router.push(redirectUrl);
+      if (data.user?.role === "TEKLIF_ONLY") {
+        router.push("/teklifler");
+      } else {
+        router.push(redirectUrl);
+      }
       router.refresh();
     } catch (err) {
       console.error(err);

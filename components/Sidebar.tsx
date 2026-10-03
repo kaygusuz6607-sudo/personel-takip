@@ -155,26 +155,32 @@ export function Sidebar() {
     return null;
   }
 
-  const menuItems = [
-    { href: "/", label: "Gösterge Paneli", icon: LayoutDashboard },
-    { href: "/crm", label: "CRM & Aday Öğrenci", icon: Target },
-    { href: "/teklifler", label: "Fiyat Teklif Formu", icon: FileText },
-    { href: "/ogrenciler", label: "Öğrenci Kütüğü", icon: GraduationCap },
-    { href: "/siniflar", label: "Sınıflar & Şubeler", icon: School },
-    { href: "/personeller", label: "Personeller", icon: Users },
-    { href: "/departmanlar", label: "Departmanlar", icon: Building2 },
-    { href: "/maas", label: "Maaş / Tahakkuk", icon: Calculator },
-    { href: "/odeme", label: "Personel Ödeme", icon: CreditCard },
-    { href: "/giderler", label: "Okul Gider & Taksit", icon: Coins },
-    { href: "/tedarikci-cariler", label: "Tedarikçi & Ürün Carileri", icon: Building2 },
-    { href: "/kayit-silme-iadeleri", label: "Kayıt Silme İadeleri", icon: UserMinus },
-    { href: "/giderler?tab=GOLD_DAYS", label: "Altın Günleri Takibi", icon: Coins },
-    { href: "/cari", label: "Muhasebe & Cari", icon: ReceiptText },
-    { href: "/izin", label: "İzin Girişi & Takip", icon: CalendarCheck },
-    { href: "/raporlar", label: "Raporlar & Excel", icon: FileSpreadsheet },
-    { href: "/kullanicilar", label: "Yetkili Kullanıcılar", icon: ShieldCheck },
-    { href: "/yedekleme", label: "Yedek & Senkronizasyon", icon: HardDrive },
-  ];
+  const isTeklifOnly = currentUser?.role === "TEKLIF_ONLY";
+
+  const menuItems = isTeklifOnly
+    ? [
+        { href: "/teklifler", label: "Fiyat Teklif Formu", icon: FileText },
+      ]
+    : [
+        { href: "/", label: "Gösterge Paneli", icon: LayoutDashboard },
+        { href: "/crm", label: "CRM & Aday Öğrenci", icon: Target },
+        { href: "/teklifler", label: "Fiyat Teklif Formu", icon: FileText },
+        { href: "/ogrenciler", label: "Öğrenci Kütüğü", icon: GraduationCap },
+        { href: "/siniflar", label: "Sınıflar & Şubeler", icon: School },
+        { href: "/personeller", label: "Personeller", icon: Users },
+        { href: "/departmanlar", label: "Departmanlar", icon: Building2 },
+        { href: "/maas", label: "Maaş / Tahakkuk", icon: Calculator },
+        { href: "/odeme", label: "Personel Ödeme", icon: CreditCard },
+        { href: "/giderler", label: "Okul Gider & Taksit", icon: Coins },
+        { href: "/tedarikci-cariler", label: "Tedarikçi & Ürün Carileri", icon: Building2 },
+        { href: "/kayit-silme-iadeleri", label: "Kayıt Silme İadeleri", icon: UserMinus },
+        { href: "/giderler?tab=GOLD_DAYS", label: "Altın Günleri Takibi", icon: Coins },
+        { href: "/cari", label: "Muhasebe & Cari", icon: ReceiptText },
+        { href: "/izin", label: "İzin Girişi & Takip", icon: CalendarCheck },
+        { href: "/raporlar", label: "Raporlar & Excel", icon: FileSpreadsheet },
+        { href: "/kullanicilar", label: "Yetkili Kullanıcılar", icon: ShieldCheck },
+        { href: "/yedekleme", label: "Yedek & Senkronizasyon", icon: HardDrive },
+      ];
 
   const getInitials = (name?: string) => {
     if (!name) return "US";

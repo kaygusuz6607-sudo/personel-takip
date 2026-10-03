@@ -160,6 +160,8 @@ export default function KullanicilarPage() {
         return <span className="px-2.5 py-1 text-xs font-semibold rounded-full bg-teal-100 text-teal-800">Kurum Yöneticisi</span>;
       case "ACCOUNTANT":
         return <span className="px-2.5 py-1 text-xs font-semibold rounded-full bg-blue-100 text-blue-800">Muhasebe / Bordro</span>;
+      case "TEKLIF_ONLY":
+        return <span className="px-2.5 py-1 text-xs font-semibold rounded-full bg-amber-100 text-amber-800">Teklif Yetkilisi (Sadece Teklif)</span>;
       default:
         return <span className="px-2.5 py-1 text-xs font-semibold rounded-full bg-slate-100 text-slate-700">{role}</span>;
     }
@@ -387,6 +389,7 @@ export default function KullanicilarPage() {
                   <option value="SUPER_ADMIN">Süper Yönetici (Tam Yetki)</option>
                   <option value="ADMIN">Kurum Yöneticisi</option>
                   <option value="ACCOUNTANT">Muhasebe / Bordro Sorumlusu</option>
+                  <option value="TEKLIF_ONLY">Teklif Yetkilisi (Sadece Fiyat Teklifi)</option>
                 </select>
               </div>
 

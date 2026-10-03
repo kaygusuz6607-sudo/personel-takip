@@ -35,9 +35,10 @@ export async function middleware(request: NextRequest) {
 
   // Eğer kullanıcı giriş sayfasındaysa
   if (pathname === "/login") {
-    // Zaten oturum açmışsa ana sayfaya yönlendir
+    // Zaten oturum açmışsa uygun sayfaya yönlendir
     if (sessionUser) {
-      const redirectTo = request.nextUrl.searchParams.get("redirect") || "/maas";
+      const defaultRedirect = sessionUser.role === "TEKLIF_ONLY" ? "/teklifler" : "/maas";
+      const redirectTo = request.nextUrl.searchParams.get("redirect") || defaultRedirect;
       return NextResponse.redirect(new URL(redirectTo, request.url));
     }
     return NextResponse.next();
@@ -58,6 +59,29 @@ export async function middleware(request: NextRequest) {
       loginUrl.searchParams.set("redirect", pathname);
     }
     return NextResponse.redirect(loginUrl);
+  }
+
+  // Sadece Teklif Yetkilisi (TEKLIF_ONLY) için kısıtlama
+  if (sessionUser.role === "TEKLIF_ONLY") {
+    const isAllowedPage = pathname.startsWith("/teklifler");
+    const isAllowedApi =
+      pathname.startsWith("/api/teklifler") ||
+      pathname.startsWith("/api/auth") ||
+      pathname.startsWith("/api/health") ||
+      pathname.startsWith("/api/users");
+
+    if (pathname.startsWith("/api/")) {
+      if (!isAllowedApi) {
+        return NextResponse.json(
+          { error: "Bu işlem için yetkiniz bulunmamaktadır." },
+          { status: 403 }
+        );
+      }
+    } else {
+      if (!isAllowedPage) {
+        return NextResponse.redirect(new URL("/teklifler", request.url));
+      }
+    }
   }
 
   // Yetkilendirilmiş istek
