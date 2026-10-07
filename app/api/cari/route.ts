@@ -51,6 +51,7 @@ export async function GET(request: Request) {
         title: s.title || s.departments[0]?.department?.name || "Personel",
         status: s.status,
         hireDate: s.hireDate,
+        terminationDate: s.terminationDate,
         totalNet,
         totalPaid,
         totalPending,
@@ -60,8 +61,11 @@ export async function GET(request: Request) {
       };
     });
 
-    // Eğer staffId belirtilmemişse ilk personeli seç veya sadece özet listeyi dön
-    const targetStaffId = staffId || (staffSummaries.length > 0 ? staffSummaries[0].id : null);
+    // Eğer staffId belirtilmemişse ilk aktif personeli seç (yoksa ilk personeli)
+    const activeFirst = staffSummaries.find(
+      (s) => s.status !== "PASSIVE" && s.status !== "TERMINATED" && !s.terminationDate
+    );
+    const targetStaffId = staffId || activeFirst?.id || (staffSummaries.length > 0 ? staffSummaries[0].id : null);
 
     if (!targetStaffId) {
       return NextResponse.json({
@@ -141,6 +145,7 @@ export async function GET(request: Request) {
         title: staff.title,
         status: staff.status,
         hireDate: staff.hireDate,
+        terminationDate: staff.terminationDate,
         mebAssignmentDate: staff.mebAssignmentDate,
         mebAssignmentEndDate: staff.mebAssignmentEndDate,
         isMebPermanent: staff.isMebPermanent,

@@ -44,6 +44,7 @@ import {
   RefreshCw,
   Upload,
   UserMinus,
+  RotateCcw,
 } from "lucide-react";
 import QRCode from "qrcode";
 import SupplierCariPanel from "./components/SupplierCariPanel";
@@ -335,6 +336,16 @@ function GiderlerPageContent() {
   const [commitmentsOnly, setCommitmentsOnly] = useState(false);
   const [chequesOnly, setChequesOnly] = useState(false);
   const [dueTodayOnly, setDueTodayOnly] = useState(false);
+  // Sıralama Seçeneği: DUE_DATE_ASC (Önce En Yakın Vade) | DUE_DATE_DESC (Önce En Uzak Vade) | CREATED_DESC | AMOUNT_DESC | AMOUNT_ASC
+  const [sortBy, setSortBy] = useState<"DUE_DATE_ASC" | "DUE_DATE_DESC" | "CREATED_DESC" | "AMOUNT_DESC" | "AMOUNT_ASC">("DUE_DATE_ASC");
+
+  const toggleDueDateSort = () => {
+    setSortBy((prev) => (prev === "DUE_DATE_ASC" ? "DUE_DATE_DESC" : "DUE_DATE_ASC"));
+  };
+
+  const toggleAmountSort = () => {
+    setSortBy((prev) => (prev === "AMOUNT_DESC" ? "AMOUNT_ASC" : "AMOUNT_DESC"));
+  };
 
   const todayStr = useMemo(() => new Date().toISOString().slice(0, 10), []);
   const todayGoldDayExpenses = useMemo(() => {
@@ -1074,7 +1085,20 @@ function GiderlerPageContent() {
     );
   };
 
+  const formatDisplayPhone = (raw: string | undefined | null): string => {
+    if (!raw) return "";
+    let digits = String(raw).replace(/\D/g, "");
+    if (digits.length === 10 && digits.startsWith("5")) {
+      digits = "0" + digits;
+    }
+    if (digits.length === 11 && digits.startsWith("0")) {
+      return `${digits.slice(0, 4)} ${digits.slice(4, 7)} ${digits.slice(7, 9)} ${digits.slice(9, 11)}`;
+    }
+    return String(raw);
+  };
+
   const createDefault5PhoneLines = () => [
+    { number: "", title: "", amount: "", commitmentEnd: "" },
     { number: "", title: "", amount: "", commitmentEnd: "" },
     { number: "", title: "", amount: "", commitmentEnd: "" },
     { number: "", title: "", amount: "", commitmentEnd: "" },
@@ -1180,16 +1204,7 @@ function GiderlerPageContent() {
       const isAhmet =
         holder.includes("ahmet") ||
         combinedText.includes("ahmet taymaz") ||
-        combinedText.includes("(at kart") ||
-        (!holder &&
-          !combinedText.includes("mac") &&
-          !combinedText.includes("simcu") &&
-          !combinedText.includes("sır yapı") &&
-          !combinedText.includes("sir yapı") &&
-          !combinedText.includes("kaski") &&
-          !combinedText.includes("duygu") &&
-          !combinedText.includes("emre") &&
-          (combinedText.includes("vakıf") || combinedText.includes("vakif") || exp.category === "CREDIT_CARD" || exp.paymentMethod === "CREDIT_CARD"));
+        combinedText.includes("(at kart");
       return isAhmet;
     }
 
@@ -1212,8 +1227,7 @@ function GiderlerPageContent() {
         holder.includes("şirket") ||
         combinedText.includes("simcu") ||
         combinedText.includes("sır yapı") ||
-        combinedText.includes("sir yapı") ||
-        (!holder && (combinedText.includes("kaski") || combinedText.includes("kurumsal")));
+        combinedText.includes("sir yapı");
       if (!isSimcu) return false;
 
       const labelLower = (card.cardLabel || "").toLowerCase();
@@ -1232,24 +1246,22 @@ function GiderlerPageContent() {
   };
 
   const findMatchingCardForExpense = (e: SchoolExpense) => {
-    for (const card of ahmetCards) {
-      if (doesExpenseMatchAhmetCard(e, card)) {
-        return card;
-      }
+    // 1. Doğrudan açıklamadaki kart etiketine bak ([card-1], [card-2] vb.)
+    const explicitTag = (e.description || "").match(/\[(card-[^\]]+)\]/i);
+    if (explicitTag) {
+      const found = ahmetCards.find((c) => c.id.toLowerCase() === explicitTag[1].toLowerCase());
+      if (found) return found;
     }
-    // Eğer doğrudan kişi eşleşmediyse ama giderde kredi kartı/banka adı geçiyorsa aynı bankalı kartı bul
-    if (e.category !== "LOAN" && e.category !== "CHEQUE") {
-      const bank = (e.cardBank || "").toLowerCase();
-      const title = (e.title || "").toLowerCase();
-      if (e.category === "CREDIT_CARD" || e.paymentMethod === "CREDIT_CARD" || bank) {
-        for (const card of ahmetCards) {
-          const bk = (card.bankName || "").toLowerCase().split(" ")[0];
-          if (bk && (bank.includes(bk) || title.includes(bk))) {
-            return card;
-          }
+
+    // 2. Kart sahibi veya banka tanımlıysa eşleştir
+    if (e.cardHolder || e.cardBank) {
+      for (const card of ahmetCards) {
+        if (doesExpenseMatchAhmetCard(e, card)) {
+          return card;
         }
       }
     }
+
     return null;
   };
 
@@ -1499,15 +1511,17 @@ function GiderlerPageContent() {
     }
     const mergedExpenses = Array.from(baseListMap.values());
 
+    let baseList = mergedExpenses;
+
     if (selectedDueDateFilter) {
-      return mergedExpenses.filter((e) => {
+      baseList = baseList.filter((e) => {
         const effISO = getExpenseEffectiveDateISO(e);
         return effISO === selectedDueDateFilter;
       });
     }
 
     if (dueTodayOnly) {
-      return mergedExpenses.filter((e) => {
+      baseList = baseList.filter((e) => {
         if (e.status === "PAID") return false;
         const effISO = getExpenseEffectiveDateISO(e);
         if (!effISO) return false;
@@ -1515,31 +1529,76 @@ function GiderlerPageContent() {
       });
     }
 
-    // Normal görünümde: 3 gün veya daha az kalan çek ödemelerini ve son ödeme tarihi bugün gelenleri listenin en üstüne çıkar
-    return [...mergedExpenses].sort((a, b) => {
+    return [...baseList].sort((a, b) => {
       const aISO = getExpenseEffectiveDateISO(a);
       const bISO = getExpenseEffectiveDateISO(b);
-      const aDays = getDaysUntilDateISO(aISO);
-      const bDays = getDaysUntilDateISO(bISO);
-      const aIsUrgentCheque =
-        a.status !== "PAID" &&
-        (a.category === "CHEQUE" || a.paymentMethod === "CHEQUE") &&
-        aDays !== null &&
-        aDays <= 3
-          ? 1
-          : 0;
-      const bIsUrgentCheque =
-        b.status !== "PAID" &&
-        (b.category === "CHEQUE" || b.paymentMethod === "CHEQUE") &&
-        bDays !== null &&
-        bDays <= 3
-          ? 1
-          : 0;
-      if (aIsUrgentCheque !== bIsUrgentCheque) return bIsUrgentCheque - aIsUrgentCheque;
 
-      const aDueToday = a.status !== "PAID" && aISO === todayISO ? 1 : 0;
-      const bDueToday = b.status !== "PAID" && bISO === todayISO ? 1 : 0;
-      if (aDueToday !== bDueToday) return bDueToday - aDueToday;
+      if (sortBy === "DUE_DATE_ASC") {
+        // En Yakın Vade (Önce Vadesi Gelenler / Artan)
+        if (aISO && bISO) {
+          const cmp = aISO.localeCompare(bISO);
+          if (cmp !== 0) return cmp;
+        } else if (aISO) {
+          return -1;
+        } else if (bISO) {
+          return 1;
+        }
+
+        // Aynı tarihte ise: Ödenmemişler (PENDING / PARTIAL) önce, ödenenler sonra
+        if (a.status !== b.status) {
+          if (a.status === "PAID") return 1;
+          if (b.status === "PAID") return -1;
+        }
+
+        // Sonra kalan tutara göre (yüksekten düşüğe)
+        if (b.amountRemaining !== a.amountRemaining) {
+          return b.amountRemaining - a.amountRemaining;
+        }
+        return a.title.localeCompare(b.title, "tr");
+      }
+
+      if (sortBy === "DUE_DATE_DESC") {
+        // En Uzak Vade (İleri Vadeli Olanlar / Azalan)
+        if (aISO && bISO) {
+          const cmp = bISO.localeCompare(aISO);
+          if (cmp !== 0) return cmp;
+        } else if (aISO) {
+          return -1;
+        } else if (bISO) {
+          return 1;
+        }
+
+        if (a.status !== b.status) {
+          if (a.status === "PAID") return 1;
+          if (b.status === "PAID") return -1;
+        }
+
+        if (b.amountRemaining !== a.amountRemaining) {
+          return b.amountRemaining - a.amountRemaining;
+        }
+        return a.title.localeCompare(b.title, "tr");
+      }
+
+      if (sortBy === "CREATED_DESC") {
+        const aT = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+        const bT = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+        return bT - aT;
+      }
+
+      if (sortBy === "AMOUNT_DESC") {
+        if (b.amountRemaining !== a.amountRemaining) {
+          return b.amountRemaining - a.amountRemaining;
+        }
+        return b.amountDue - a.amountDue;
+      }
+
+      if (sortBy === "AMOUNT_ASC") {
+        if (a.amountRemaining !== b.amountRemaining) {
+          return a.amountRemaining - b.amountRemaining;
+        }
+        return a.amountDue - b.amountDue;
+      }
+
       return 0;
     });
   }, [
@@ -1557,6 +1616,7 @@ function GiderlerPageContent() {
     selectedDueDateFilter,
     ahmetCards,
     isMounted,
+    sortBy,
   ]);
 
   // Çek görselini sıkıştıran yardımcı fonksiyon
@@ -1719,7 +1779,7 @@ function GiderlerPageContent() {
     setFormQrDataUrl("");
     const todayStr = new Date().toISOString().split("T")[0];
     const parsedSel = parseSelectedPeriod(selectedMonth);
-    setPhoneLinesList(createDefault5PhoneLines());
+    setPhoneLinesList([]);
     setShowPhoneLinesInModal(false);
     setForm({
       title: "",
@@ -1756,7 +1816,7 @@ function GiderlerPageContent() {
     setFormQrDataUrl("");
     const todayStr = new Date().toISOString().split("T")[0];
     const parsedSel = parseSelectedPeriod(selectedMonth);
-    setPhoneLinesList(createDefault5PhoneLines());
+    setPhoneLinesList([]);
     setShowPhoneLinesInModal(false);
     setForm({
       title: "Çek Ödemesi",
@@ -1789,7 +1849,7 @@ function GiderlerPageContent() {
     setEditingExpense(null);
     const todayStr = new Date().toISOString().split("T")[0];
     const parsedSel = parseSelectedPeriod(selectedMonth);
-    setPhoneLinesList(createDefault5PhoneLines());
+    setPhoneLinesList([]);
     setShowPhoneLinesInModal(false);
     const defaultTitle =
       presetType === "DOGALGAZ"
@@ -1862,20 +1922,21 @@ function GiderlerPageContent() {
           commitmentEnd: p.commitmentEnd || "",
         }))
       : createDefault5PhoneLines();
-    while (normalized.length < 5) {
+    while (normalized.length < 6) {
       normalized.push({ number: "", title: "", amount: "", commitmentEnd: "" });
     }
+    const lineCount = normalized.filter((p) => p.number || p.title).length || normalized.length;
     setPhoneLinesList(normalized);
     setShowPhoneLinesInModal(true);
     setForm({
-      title: "Vodafone Kurumsal Hatlar (Tek Fatura - 5 Numara)",
+      title: `Vodafone Kurumsal Hatlar (Tek Fatura - ${lineCount} Hat)`,
       category: "INVOICE",
       subCategory: "F-Haberleşme & Telefon",
       dueDateStr: "",
       dueDate: todayStr,
       monthIndex: parsedSel.month,
       amountDue: "",
-      description: "Tek fatura içerisinde 5 farklı numara kullanım ücreti",
+      description: `Tek fatura içerisinde ${lineCount} kurumsal hat kullanım ücreti ve taahhüt takibi`,
       entryType: "COMMITMENT",
       invoiceRepeatMonths: 12,
       invoiceFutureAmountMode: "SAME_AMOUNT",
@@ -1922,42 +1983,9 @@ function GiderlerPageContent() {
     setDraftChequeId(expense.id);
     setShowFormQr(false);
     setFormQrDataUrl("");
-    let parsedLines: any[] = [];
-    try {
-      if (expense.phoneLines && expense.phoneLines !== "null" && expense.phoneLines !== "[]") {
-        parsedLines =
-          typeof expense.phoneLines === "string"
-            ? JSON.parse(expense.phoneLines)
-            : expense.phoneLines;
-      } else if (isTelecomOrPhoneExpense(expense)) {
-        const otherWithLines = [...allPhoneExpenses, ...expenses].find(
-          (e) => e.phoneLines && e.phoneLines !== "null" && e.phoneLines !== "[]"
-        );
-        if (otherWithLines?.phoneLines) {
-          parsedLines =
-            typeof otherWithLines.phoneLines === "string"
-              ? JSON.parse(otherWithLines.phoneLines)
-              : otherWithLines.phoneLines;
-        }
-      }
-    } catch (e) {}
-
+    setPhoneLinesList([]);
+    setShowPhoneLinesInModal(false);
     const effectiveISO = getExpenseEffectiveDateISO(expense) || new Date().toISOString().split("T")[0];
-    const normalizedLines = Array.isArray(parsedLines)
-      ? parsedLines.map((p: any) => ({
-          number: p.number || "",
-          title: p.title || "",
-          amount: p.amount !== undefined && p.amount !== null ? String(p.amount) : "",
-          commitmentEnd: p.commitmentEnd || "",
-        }))
-      : [];
-    while (normalizedLines.length < 5) {
-      normalizedLines.push({ number: "", title: "", amount: "", commitmentEnd: "" });
-    }
-    setPhoneLinesList(normalizedLines);
-    setShowPhoneLinesInModal(
-      Array.isArray(parsedLines) && parsedLines.length > 0 ? true : isTelecomOrPhoneExpense(expense)
-    );
     const expYM = getExpenseDueYM(expense);
     setForm({
       title: expense.title,
@@ -2023,7 +2051,7 @@ function GiderlerPageContent() {
           commitmentEnd: p.commitmentEnd || "",
         }))
       : [];
-    while (normalized.length < 5) {
+    while (normalized.length < 6) {
       normalized.push({ number: "", title: "", amount: "", commitmentEnd: "" });
     }
     setPhoneModalLines(normalized);
@@ -2044,12 +2072,18 @@ function GiderlerPageContent() {
             Number(p.amount) > 0 ||
             (p.commitmentEnd || "").trim() !== ""
         )
-        .map((p) => ({
-          number: (p.number || "").trim(),
-          title: (p.title || "").trim(),
-          amount: Number(p.amount) || 0,
-          commitmentEnd: (p.commitmentEnd || "").trim(),
-        }));
+        .map((p) => {
+          let num = (p.number || "").trim().replace(/\s+/g, "");
+          if (num.length === 10 && num.startsWith("5")) {
+            num = "0" + num;
+          }
+          return {
+            number: num || (p.number || "").trim(),
+            title: (p.title || "").trim(),
+            amount: Number(p.amount) || 0,
+            commitmentEnd: (p.commitmentEnd || "").trim(),
+          };
+        });
 
       const linesTotalAmount = Number(
         validLines.reduce((s, p) => s + (Number(p.amount) || 0), 0).toFixed(2)
@@ -2074,6 +2108,7 @@ function GiderlerPageContent() {
 
       const updatedExpense: SchoolExpense = await res.json();
       const serialized = validLines.length > 0 ? JSON.stringify(validLines) : null;
+      const lineCount = validLines.length;
 
       // Anında arayüze yansıt (Optimistic Update)
       const updateListWithPhoneLines = (list: SchoolExpense[]) =>
@@ -2084,8 +2119,13 @@ function GiderlerPageContent() {
             (exp.title || "").toLowerCase().includes("vodafone") ||
             Boolean(exp.phoneLines)
           ) {
+            let nextTitle = exp.title;
+            if (lineCount > 0 && nextTitle && /Tek Fatura\s*-\s*\d+\s*(Numara|Hat)/i.test(nextTitle)) {
+              nextTitle = nextTitle.replace(/Tek Fatura\s*-\s*\d+\s*(Numara|Hat)/i, `Tek Fatura - ${lineCount} Hat`);
+            }
             return {
               ...exp,
+              ...(nextTitle !== exp.title ? { title: nextTitle } : {}),
               phoneLines: serialized,
               isCommitment: serialized ? true : exp.isCommitment,
               ...(syncPhoneAmountToInvoice && linesTotalAmount > 0
@@ -2125,22 +2165,24 @@ function GiderlerPageContent() {
       const url = editingExpense ? `/api/giderler/${editingExpense.id}` : "/api/giderler";
       const method = editingExpense ? "PUT" : "POST";
 
-      const filteredLines = phoneLinesList
-        .filter(
-          (p) =>
-            (p.number || "").trim() !== "" ||
-            (p.title || "").trim() !== "" ||
-            Number(p.amount) > 0 ||
-            (p.commitmentEnd || "").trim() !== ""
-        )
-        .map((p) => ({
-          number: (p.number || "").trim(),
-          title: (p.title || "").trim(),
-          amount: Number(p.amount) || 0,
-          commitmentEnd: (p.commitmentEnd || "").trim(),
-        }));
+      const filteredLines = form.entryType === "COMMITMENT"
+        ? phoneLinesList
+            .filter(
+              (p) =>
+                (p.number || "").trim() !== "" ||
+                (p.title || "").trim() !== "" ||
+                Number(p.amount) > 0 ||
+                (p.commitmentEnd || "").trim() !== ""
+            )
+            .map((p) => ({
+              number: (p.number || "").trim(),
+              title: (p.title || "").trim(),
+              amount: Number(p.amount) || 0,
+              commitmentEnd: (p.commitmentEnd || "").trim(),
+            }))
+        : [];
 
-      const isCommitment = form.entryType === "COMMITMENT" || filteredLines.length > 0;
+      const isCommitment = form.entryType === "COMMITMENT";
       const isInstallment = form.entryType === "INSTALLMENT";
       const isRecurringInvoice = form.entryType === "UTILITY_INVOICE";
 
@@ -2149,27 +2191,19 @@ function GiderlerPageContent() {
       let finalDescription = form.description || "";
 
       if (form.category === "CREDIT_CARD" || form.paymentMethod === "CREDIT_CARD") {
-        const matchedCard =
-          ahmetCards.find(
+        // Yalnızca kullanıcı modal içinde açıkça bir kart seçtiyse veya kart sahibi & banka girdiyse karta bağla
+        const explicitTag = (finalDescription.match(/\[(card-[^\]]+)\]/i) || [])[1];
+        let matchedCard = explicitTag
+          ? ahmetCards.find((c) => c.id.toLowerCase() === explicitTag.toLowerCase())
+          : null;
+
+        if (!matchedCard && form.cardHolder && form.cardBank) {
+          matchedCard = ahmetCards.find(
             (c) =>
-              finalDescription.includes(`[${c.id}]`) ||
-              (c.holder === form.cardHolder && c.bankName === form.cardBank)
-          ) ||
-          ahmetCards.find((c) =>
-            doesExpenseMatchAhmetCard(
-              {
-                ...form,
-                id: "temp",
-                amountDue: Number(form.amountDue) || 0,
-                amountPaid: 0,
-                amountRemaining: Number(form.amountDue) || 0,
-                status: "PENDING",
-              } as any,
-              c
-            )
-          ) ||
-          ahmetCards.find((c) => c.id === selectedVisualCardId) ||
-          ahmetCards[0];
+              c.holder.toLowerCase() === form.cardHolder.toLowerCase() &&
+              c.bankName.toLowerCase() === form.cardBank.toLowerCase()
+          );
+        }
 
         if (matchedCard) {
           if (!finalCardHolder) finalCardHolder = matchedCard.holder;
@@ -2318,6 +2352,55 @@ function GiderlerPageContent() {
         body: JSON.stringify({ action: "MARK_PAID" }),
       });
       if (res.ok) fetchExpenses();
+    } catch (e) {
+      alert("İşlem yapılamadı");
+    }
+  };
+
+  const handleResetPayment = async (expense: SchoolExpense) => {
+    if (
+      !confirm(
+        `"${expense.title}" için yapılan ödemeyi iptal etmek ve kaydı "Bekliyor" durumuna geri almak istiyor musunuz?\n\n(Ödenen tutar sıfırlanacak ve borç tekrar bekliyor olacaktır.)`
+      )
+    ) {
+      return;
+    }
+    try {
+      const res = await fetch(`/api/giderler/${expense.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "RESET_PAYMENT" }),
+      });
+      if (res.ok) {
+        fetchExpenses();
+      } else {
+        const err = await res.json();
+        alert(err.error || "Ödeme iptal edilemedi");
+      }
+    } catch (e) {
+      alert("Ödeme iptal edilemedi (Bağlantı hatası)");
+    }
+  };
+
+  const handleDeletePaymentItem = async (expense: SchoolExpense, index: number) => {
+    if (!confirm("Bu ödeme parçası kaydını silmek istediğinize emin misiniz?")) return;
+    try {
+      const res = await fetch(`/api/giderler/${expense.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "DELETE_PAYMENT", index }),
+      });
+      if (res.ok) {
+        fetchExpenses();
+        if (activePaymentExpense && activePaymentExpense.id === expense.id) {
+          const updated = await res.json();
+          setActivePaymentExpense(updated);
+          setPaymentAmount(String(updated.amountRemaining));
+        }
+      } else {
+        const err = await res.json();
+        alert(err.error || "Ödeme silinemedi");
+      }
     } catch (e) {
       alert("İşlem yapılamadı");
     }
@@ -4255,7 +4338,7 @@ function GiderlerPageContent() {
                       ? ahmetCardsComputed
                       : ahmetCardsComputed.filter((c) => (c.holder || "Diğer") === cardOwnerFilter);
 
-                  const monthTxList = isAll5
+                  const monthTxListRaw = isAll5
                     ? filteredCardsForStatement.flatMap((c) =>
                         c.monthTx.map((tx) => ({ ...tx, _cardBank: c.bankName, _cardHolder: c.holder, _cardId: c.id }))
                       )
@@ -4265,6 +4348,12 @@ function GiderlerPageContent() {
                         _cardHolder: activeCard.holder,
                         _cardId: activeCard.id,
                       }));
+
+                  const monthTxList = [...monthTxListRaw].sort((a, b) => {
+                    const aISO = getExpenseEffectiveDateISO(a) || "";
+                    const bISO = getExpenseEffectiveDateISO(b) || "";
+                    return aISO.localeCompare(bISO);
+                  });
 
                   const allTimeTxList = isAll5
                     ? filteredCardsForStatement.flatMap((c) =>
@@ -4501,7 +4590,7 @@ function GiderlerPageContent() {
                                                         : "bg-white text-slate-800 border-blue-200 font-semibold"
                                                     }`}
                                                   >
-                                                    <span>📞 {pl.number || `${pIdx + 1}. Hat`}</span>
+                                                    <span>📞 {formatDisplayPhone(pl.number) || `${pIdx + 1}. Hat`}</span>
                                                     {pl.title && (
                                                       <span className="text-blue-800 font-bold">• 👤 {pl.title}</span>
                                                     )}
@@ -4534,7 +4623,7 @@ function GiderlerPageContent() {
                                             className="mt-1 inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-extrabold bg-blue-50 hover:bg-blue-100 text-blue-800 border border-blue-300 transition-colors"
                                           >
                                             <PhoneCall className="w-3 h-3 text-blue-700" />
-                                            <span>+ 5 Numara / Kullanan Kişi / Taahhüt Tarihi Gir</span>
+                                            <span>+ Hat / Kullanan Kişi / Taahhüt Tarihi Gir</span>
                                           </button>
                                         )
                                       )}
@@ -4593,7 +4682,17 @@ function GiderlerPageContent() {
                                     </td>
                                     <td className="py-2.5 px-3 text-right">
                                       <div className="flex items-center justify-end gap-1">
-                                        {tx.status !== "PAID" && (
+                                        {tx.status === "PAID" ? (
+                                          <button
+                                            type="button"
+                                            onClick={() => handleResetPayment(tx)}
+                                            className="inline-flex items-center gap-1 px-1.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-lg text-[10px] font-bold transition-colors"
+                                            title="Ödemeyi İptal Et (Bekliyor Durumuna Al)"
+                                          >
+                                            <RotateCcw className="w-3 h-3 text-rose-600" />
+                                            <span>İptal Et</span>
+                                          </button>
+                                        ) : (
                                           <>
                                             <button
                                               type="button"
@@ -4611,6 +4710,16 @@ function GiderlerPageContent() {
                                             >
                                               <Check className="w-3.5 h-3.5" />
                                             </button>
+                                            {tx.status === "PARTIAL" && (
+                                              <button
+                                                type="button"
+                                                onClick={() => handleResetPayment(tx)}
+                                                className="p-1 text-amber-700 hover:bg-amber-50 rounded-lg transition-colors"
+                                                title="Kısmi Ödemeleri İptal Et / Sıfırla"
+                                              >
+                                                <RotateCcw className="w-3.5 h-3.5" />
+                                              </button>
+                                            )}
                                           </>
                                         )}
                                         <button
@@ -4653,7 +4762,7 @@ function GiderlerPageContent() {
               <div className="flex items-center gap-2">
                 <PhoneCall className="w-4 h-4 text-blue-600 shrink-0" />
                 <h2 className="text-xs sm:text-sm font-bold text-slate-800">
-                  Telefon Faturaları & 5 Hat Taahhüt Takibi
+                  Telefon Faturaları & Kurumsal Hat Taahhüt Takibi
                 </h2>
                 <span className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-blue-50 text-blue-700 border border-blue-200/70">
                   {phoneInvoicesForPanel.length} Fatura
@@ -4741,7 +4850,7 @@ function GiderlerPageContent() {
                                 Tek Fatura Tutarı: {formatCurrency(inv.amountDue)}
                               </span>
                               <span className="text-[11px] font-bold text-slate-500">
-                                ({invLines.length > 0 ? `${invLines.length} Numara Tanımlı` : "Henüz Numara Girilmedi"})
+                                ({invLines.length > 0 ? `${invLines.length} Hat Tanımlı` : "Henüz Numara Girilmedi"})
                               </span>
                             </div>
 
@@ -4754,8 +4863,8 @@ function GiderlerPageContent() {
                                 <PhoneCall className="w-3.5 h-3.5" />
                                 <span>
                                   {invLines.length > 0
-                                    ? "✏️ 5 Numarayı / Kullanan Kişiyi / Taahhüdü Düzenle"
-                                    : "+ 5 Telefon Numarası / Kullanan Kişi / Taahhüt Gir"}
+                                    ? `✏️ ${invLines.length} Numarayı / Kullanan Kişiyi Düzenle`
+                                    : "+ Telefon Numarası / Taahhüt Gir"}
                                 </span>
                               </button>
                               <button
@@ -4770,7 +4879,7 @@ function GiderlerPageContent() {
                           </div>
 
                           {invLines.length > 0 ? (
-                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-2">
                               {invLines.map((pl, idx) => {
                                 const dLeft = isMounted ? getDaysUntilCommitmentEnd(pl.commitmentEnd) : null;
                                 const isUrgent10 = dLeft !== null && dLeft <= 10;
@@ -4794,7 +4903,7 @@ function GiderlerPageContent() {
                                       )}
                                     </div>
                                     <p className="text-xs font-extrabold text-slate-900 truncate">
-                                      📞 {pl.number || "Numara Girilmedi"}
+                                      📞 {formatDisplayPhone(pl.number) || "Numara Girilmedi"}
                                     </p>
                                     <p className="text-[11px] font-bold text-blue-900 truncate">
                                       👤 {pl.title || "Kullanan Kişi Yok"}
@@ -4826,7 +4935,7 @@ function GiderlerPageContent() {
                           ) : (
                             <div className="flex items-center justify-between bg-blue-50/60 border border-dashed border-blue-200 rounded-xl px-3 py-2 text-xs text-blue-900">
                               <span>
-                                Bu faturaya ait 5 farklı telefon numarasını, kullanan kişileri ve taahhüt bitiş tarihlerini tek tıkla girebilirsiniz.
+                                Bu faturaya ait kurumsal telefon numaralarını, kullanan kişileri ve taahhüt bitiş tarihlerini tek tıkla girebilirsiniz.
                               </span>
                               <button
                                 type="button"
@@ -4968,6 +5077,23 @@ function GiderlerPageContent() {
                   )}
                 </div>
 
+                {/* Sıralama Seçimi */}
+                <div className="flex items-center gap-1.5 bg-teal-50 border border-teal-300 px-2.5 py-1 rounded-xl shadow-2xs">
+                  <ArrowUpDown className="w-3.5 h-3.5 text-teal-800 shrink-0" />
+                  <span className="text-[11px] font-extrabold text-teal-950 shrink-0">Sırala:</span>
+                  <select
+                    value={sortBy}
+                    onChange={(e) => setSortBy(e.target.value as any)}
+                    className="bg-white border border-teal-300 rounded-lg px-2 py-0.5 text-xs font-bold text-slate-800 focus:outline-none focus:ring-1 focus:ring-teal-600 cursor-pointer"
+                  >
+                    <option value="DUE_DATE_ASC">📅 Vade: En Yakın / Önce Vadesi Gelen (Artan)</option>
+                    <option value="DUE_DATE_DESC">📅 Vade: En Uzak / İleri Tarihli (Azalan)</option>
+                    <option value="CREATED_DESC">🕒 Eklenme: Yeniden Eskiye</option>
+                    <option value="AMOUNT_DESC">💰 Kalan Tutar: En Yüksek</option>
+                    <option value="AMOUNT_ASC">💰 Kalan Tutar: En Düşük</option>
+                  </select>
+                </div>
+
                 {/* Ödeme Yöntemi Filtresi */}
                 <div className="flex items-center bg-slate-100 p-1 rounded-xl">
                   {[
@@ -5077,10 +5203,48 @@ function GiderlerPageContent() {
                       <th className="py-3 px-3">Cari / Kurum / Kişi</th>
                       <th className="py-3 px-3">Tür & Ödeme Şekli</th>
                       <th className="py-3 px-3 text-center">Dönem / Taksit</th>
-                      <th className="py-3 px-3">Son Ödeme / Vade Tarihi</th>
+                      <th
+                        className="py-3 px-3 cursor-pointer hover:bg-slate-100 transition-colors select-none group"
+                        onClick={toggleDueDateSort}
+                        title="Vade / Son Ödeme Tarihine göre sıralamak için tıklayın"
+                      >
+                        <div className="flex items-center gap-1.5">
+                          <span>Son Ödeme / Vade Tarihi</span>
+                          {sortBy === "DUE_DATE_ASC" ? (
+                            <span className="inline-flex items-center text-[10px] bg-teal-100 text-teal-800 font-extrabold px-1.5 py-0.5 rounded border border-teal-300 normal-case whitespace-nowrap">
+                              ▲ En Yakın
+                            </span>
+                          ) : sortBy === "DUE_DATE_DESC" ? (
+                            <span className="inline-flex items-center text-[10px] bg-teal-100 text-teal-800 font-extrabold px-1.5 py-0.5 rounded border border-teal-300 normal-case whitespace-nowrap">
+                              ▼ En Uzak
+                            </span>
+                          ) : (
+                            <ArrowUpDown className="w-3.5 h-3.5 text-slate-400 group-hover:text-slate-600 transition-colors" />
+                          )}
+                        </div>
+                      </th>
                       <th className="py-3 px-3 text-right">Ödenecek</th>
                       <th className="py-3 px-3 text-right">Ödenen</th>
-                      <th className="py-3 px-3 text-right">Kalan</th>
+                      <th
+                        className="py-3 px-3 text-right cursor-pointer hover:bg-slate-100 transition-colors select-none group"
+                        onClick={toggleAmountSort}
+                        title="Kalan tutara göre sıralamak için tıklayın"
+                      >
+                        <div className="flex items-center justify-end gap-1.5">
+                          <span>Kalan</span>
+                          {sortBy === "AMOUNT_DESC" ? (
+                            <span className="inline-flex items-center text-[10px] bg-teal-100 text-teal-800 font-extrabold px-1.5 py-0.5 rounded border border-teal-300 normal-case whitespace-nowrap">
+                              ▼ Yüksek
+                            </span>
+                          ) : sortBy === "AMOUNT_ASC" ? (
+                            <span className="inline-flex items-center text-[10px] bg-teal-100 text-teal-800 font-extrabold px-1.5 py-0.5 rounded border border-teal-300 normal-case whitespace-nowrap">
+                              ▲ Düşük
+                            </span>
+                          ) : (
+                            <ArrowUpDown className="w-3 h-3 text-slate-400 group-hover:text-slate-600 transition-colors" />
+                          )}
+                        </div>
+                      </th>
                       <th className="py-3 px-3 text-center">Durum</th>
                       <th className="py-3 px-3 text-center min-w-[130px]">İşlem</th>
                     </tr>
@@ -5213,7 +5377,7 @@ function GiderlerPageContent() {
                                           }`}
                                         >
                                           <PhoneCall className="w-2.5 h-2.5 text-blue-600 shrink-0" />
-                                          <span>{pl.number || `${pIdx + 1}. Hat`}</span>
+                                          <span>{formatDisplayPhone(pl.number) || `${pIdx + 1}. Hat`}</span>
                                           {pl.title && (
                                             <span className="text-blue-800 font-bold">• 👤 {pl.title}</span>
                                           )}
@@ -5247,7 +5411,7 @@ function GiderlerPageContent() {
                                     className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-extrabold bg-blue-50 hover:bg-blue-100 text-blue-800 border border-blue-300 transition-colors"
                                   >
                                     <PhoneCall className="w-3 h-3 text-blue-700" />
-                                    <span>+ 5 Telefon Numarası / Kullanan Kişi / Taahhüt Tarihi Gir</span>
+                                    <span>+ Hat / Kullanan Kişi / Taahhüt Tarihi Gir</span>
                                   </button>
                                 </div>
                               )
@@ -5485,15 +5649,27 @@ function GiderlerPageContent() {
                           {/* Durum */}
                           <td className="py-3 px-3 text-center">
                             {exp.status === "PAID" ? (
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-emerald-100 text-emerald-800 border border-emerald-300 rounded-full font-bold text-[10px]">
-                                <CheckCircle2 className="w-3 h-3 text-emerald-700" />
-                                Ödendi
-                              </span>
+                              <button
+                                type="button"
+                                onClick={() => handleResetPayment(exp)}
+                                title="Ödemeyi İptal Etmek / Bekliyor Yapmak İçin Tıklayın"
+                                className="group inline-flex items-center gap-1 px-2.5 py-0.5 bg-emerald-100 hover:bg-rose-100 hover:text-rose-800 hover:border-rose-300 text-emerald-800 border border-emerald-300 rounded-full font-bold text-[10px] transition-all cursor-pointer shadow-2xs"
+                              >
+                                <CheckCircle2 className="w-3 h-3 text-emerald-700 group-hover:hidden" />
+                                <RotateCcw className="w-3 h-3 text-rose-700 hidden group-hover:inline" />
+                                <span className="group-hover:hidden">Ödendi</span>
+                                <span className="hidden group-hover:inline">İptal Et</span>
+                              </button>
                             ) : exp.status === "PARTIAL" ? (
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-amber-100 text-amber-900 border border-amber-300 rounded-full font-bold text-[10px]">
+                              <button
+                                type="button"
+                                onClick={() => openPaymentModal(exp)}
+                                title="Kısmi Ödeme Yapıldı - Ödeme Eklemek veya İptal İçin Tıklayın"
+                                className="inline-flex items-center gap-1 px-2 py-0.5 bg-amber-100 hover:bg-amber-200 text-amber-900 border border-amber-300 rounded-full font-bold text-[10px] cursor-pointer transition-colors"
+                              >
                                 <Clock className="w-3 h-3 text-amber-700" />
                                 Kısmi
-                              </span>
+                              </button>
                             ) : (
                               <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-rose-50 text-rose-800 border border-rose-200 rounded-full font-bold text-[10px]">
                                 <AlertCircle className="w-3 h-3 text-rose-600" />
@@ -5505,7 +5681,17 @@ function GiderlerPageContent() {
                           {/* İşlemler */}
                           <td className="py-3 px-3 text-center">
                             <div className="flex items-center justify-center gap-1">
-                              {exp.status !== "PAID" && (
+                              {exp.status === "PAID" ? (
+                                <button
+                                  type="button"
+                                  onClick={() => handleResetPayment(exp)}
+                                  className="inline-flex items-center gap-1 px-2 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-lg text-[10px] font-bold shadow-2xs transition-colors"
+                                  title="Ödemeyi İptal Et (Bekliyor Durumuna Al)"
+                                >
+                                  <RotateCcw className="w-3 h-3 text-rose-600" />
+                                  <span>Ödemeyi İptal Et</span>
+                                </button>
+                              ) : (
                                 <>
                                   <button
                                     type="button"
@@ -5522,6 +5708,16 @@ function GiderlerPageContent() {
                                   >
                                     <Check className="w-3.5 h-3.5" />
                                   </button>
+                                  {exp.status === "PARTIAL" && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleResetPayment(exp)}
+                                      className="p-1 text-amber-700 hover:bg-amber-50 rounded-lg transition-colors"
+                                      title="Kısmi Ödemeleri İptal Et / Sıfırla"
+                                    >
+                                      <RotateCcw className="w-3.5 h-3.5" />
+                                    </button>
+                                  )}
                                 </>
                               )}
                               <button
@@ -5757,6 +5953,35 @@ function GiderlerPageContent() {
             </div>
 
             <form onSubmit={handleFormSubmit} className="mt-4 space-y-3.5 text-xs">
+              {/* Düzenlenen giderin ödeme durumunu iptal edebilme kutusu */}
+              {editingExpense && (editingExpense.status === "PAID" || Number(editingExpense.amountPaid) > 0) && (
+                <div className="p-3 bg-amber-50 border border-amber-200 rounded-2xl flex items-center justify-between gap-3">
+                  <div className="space-y-0.5">
+                    <div className="flex items-center gap-1.5 font-bold text-amber-950 text-xs">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                      <span>
+                        Ödeme Durumu: {editingExpense.status === "PAID" ? "Tamamı Ödendi" : "Kısmi Ödendi"} (
+                        {formatCurrency(editingExpense.amountPaid)})
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-amber-800">
+                      Bu gider için yapılan ödemeyi iptal edip borcu tekrar &quot;Bekliyor&quot; durumuna alabilirsiniz.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      setModalOpen(false);
+                      await handleResetPayment(editingExpense);
+                    }}
+                    className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold whitespace-nowrap shadow-xs flex items-center gap-1.5 shrink-0 transition-colors"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    <span>Ödemeyi İptal Et</span>
+                  </button>
+                </div>
+              )}
+
               {/* İşlem Türü Seçimi */}
               {!editingExpense && (
                 <div>
@@ -6148,14 +6373,37 @@ function GiderlerPageContent() {
                           : "Kayıtlı Kartlardan Seç (Harcama seçilen kartın kullanılabilir limitinden düşer):"}
                       </span>
                       <div className="flex flex-wrap gap-1 max-h-28 overflow-y-auto">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const cleanedDesc = (form.description || "")
+                              .replace(/\[(card-[^\]]+)\]/gi, "")
+                              .trim();
+                            setForm({
+                              ...form,
+                              cardHolder: "",
+                              cardBank: "",
+                              description: cleanedDesc,
+                            });
+                          }}
+                          className={`px-2 py-1 rounded text-[10px] font-bold border transition-all text-left ${
+                            !/\[(card-[^\]]+)\]/i.test(form.description || "") && !form.cardHolder && !form.cardBank
+                              ? "bg-slate-800 text-white border-slate-900 shadow-2xs"
+                              : "bg-white text-slate-600 border-slate-200 hover:bg-slate-100"
+                          }`}
+                        >
+                          ✕ Kart Tanımlama (Genel Kredi Kartı)
+                        </button>
                         {ahmetCardsComputed.map((c) => {
                           const bt = getBankTheme(c.bankName);
                           const hasTag = (form.description || "").includes(`[${c.id}]`);
                           const isChosen =
                             hasTag ||
                             (!/\[(card-[^\]]+)\]/i.test(form.description || "") &&
-                              form.cardHolder === c.holder &&
-                              form.cardBank === c.bankName);
+                              Boolean(form.cardHolder) &&
+                              Boolean(form.cardBank) &&
+                              form.cardHolder.toLowerCase() === c.holder.toLowerCase() &&
+                              form.cardBank.toLowerCase() === c.bankName.toLowerCase());
                           return (
                             <button
                               key={c.id}
@@ -6164,13 +6412,23 @@ function GiderlerPageContent() {
                                 const cleanedDesc = (form.description || "")
                                   .replace(/\[(card-[^\]]+)\]/gi, "")
                                   .trim();
-                                setForm({
-                                  ...form,
-                                  cardHolder: c.holder,
-                                  cardBank: c.bankName,
-                                  dueDate: c.dueDateISO || form.dueDate,
-                                  description: `${cleanedDesc ? cleanedDesc + " " : ""}[${c.id}]`.trim(),
-                                });
+                                if (isChosen) {
+                                  // Zaten seçiliyse seçimi kaldır
+                                  setForm({
+                                    ...form,
+                                    cardHolder: "",
+                                    cardBank: "",
+                                    description: cleanedDesc,
+                                  });
+                                } else {
+                                  setForm({
+                                    ...form,
+                                    cardHolder: c.holder,
+                                    cardBank: c.bankName,
+                                    dueDate: c.dueDateISO || form.dueDate,
+                                    description: `${cleanedDesc ? cleanedDesc + " " : ""}[${c.id}]`.trim(),
+                                  });
+                                }
                               }}
                               className={`px-2 py-1 rounded text-[10px] font-bold border transition-all text-left ${
                                 isChosen
@@ -6402,145 +6660,6 @@ function GiderlerPageContent() {
                       </select>
                     </div>
                   </div>
-                </div>
-              )}
-
-              {/* TAAHHÜTLÜ ABONELİK & ÇOKLU TELEFON HATTI GİRİŞ / DÜZENLEME ALANI */}
-              {(form.entryType === "COMMITMENT" ||
-                showPhoneLinesInModal ||
-                (form.title || "").toLowerCase().includes("vodafone") ||
-                (form.subCategory || "").toLowerCase().includes("telefon") ||
-                (editingExpense && isTelecomOrPhoneExpense(editingExpense)) ||
-                (phoneLinesList && phoneLinesList.some((p) => (p.number || "").trim() !== "" || (p.title || "").trim() !== ""))) && (
-                <div className="p-3.5 bg-blue-50/90 border border-blue-200 rounded-2xl space-y-3 animate-in fade-in duration-200">
-                  <div className="flex items-center justify-between gap-2 flex-wrap pb-1 border-b border-blue-200/70">
-                    <div className="flex items-center gap-2 text-blue-950 font-bold text-xs">
-                      <PhoneCall className="w-4 h-4 text-blue-700" />
-                      <span>📱 Fatura İçi Telefon Hatları & Taahhütler ({phoneLinesList.length} Hat)</span>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setPhoneLinesList([
-                          ...phoneLinesList,
-                          { number: "", title: "", amount: "", commitmentEnd: "" },
-                        ])
-                      }
-                      className="px-2.5 py-1 rounded-lg bg-white hover:bg-blue-100 text-blue-800 border border-blue-300 font-extrabold text-[11px] shadow-2xs"
-                    >
-                      + Yeni Hat Ekle
-                    </button>
-                  </div>
-
-                  <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
-                    <div className="hidden sm:grid sm:grid-cols-12 gap-2 px-1 text-[10px] font-extrabold text-slate-500 uppercase">
-                      <div className="col-span-1">#</div>
-                      <div className="col-span-4">Telefon Numarası</div>
-                      <div className="col-span-3">Kullanan Kişi</div>
-                      <div className="col-span-2">Ücret (₺)</div>
-                      <div className="col-span-2">Taahhüt Bitiş</div>
-                    </div>
-                    {phoneLinesList.map((pl, idx) => (
-                      <div
-                        key={idx}
-                        className="p-2 bg-white rounded-xl border border-blue-100 grid grid-cols-1 sm:grid-cols-12 gap-1.5 items-center"
-                      >
-                        <div className="sm:col-span-1">
-                          <span className="px-1.5 py-0.5 rounded bg-blue-100 text-blue-900 text-[10px] font-extrabold">
-                            {idx + 1}
-                          </span>
-                        </div>
-                        <div className="sm:col-span-4">
-                          <input
-                            type="text"
-                            value={pl.number}
-                            onChange={(e) => {
-                              const copy = [...phoneLinesList];
-                              copy[idx] = { ...copy[idx], number: e.target.value };
-                              setPhoneLinesList(copy);
-                            }}
-                            placeholder="0542 123 45 67"
-                            className="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold text-slate-900 focus:bg-white focus:outline-none focus:border-blue-600"
-                          />
-                        </div>
-                        <div className="sm:col-span-3">
-                          <input
-                            type="text"
-                            value={pl.title}
-                            onChange={(e) => {
-                              const copy = [...phoneLinesList];
-                              copy[idx] = { ...copy[idx], title: e.target.value };
-                              setPhoneLinesList(copy);
-                            }}
-                            placeholder="Kullanan Kişi"
-                            className="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-900 focus:bg-white focus:outline-none focus:border-blue-600"
-                          />
-                        </div>
-                        <div className="sm:col-span-2">
-                          <input
-                            type="number"
-                            step="0.01"
-                            min="0"
-                            value={pl.amount ?? ""}
-                            onChange={(e) => {
-                              const copy = [...phoneLinesList];
-                              copy[idx] = { ...copy[idx], amount: e.target.value };
-                              setPhoneLinesList(copy);
-                            }}
-                            placeholder="Ücret"
-                            className="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold text-emerald-900 focus:bg-white focus:outline-none focus:border-blue-600"
-                          />
-                        </div>
-                        <div className="sm:col-span-2 flex items-center gap-1">
-                          <input
-                            type="date"
-                            value={pl.commitmentEnd}
-                            onChange={(e) => {
-                              const copy = [...phoneLinesList];
-                              copy[idx] = { ...copy[idx], commitmentEnd: e.target.value };
-                              setPhoneLinesList(copy);
-                            }}
-                            className="w-full px-1.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-[11px] text-slate-900 focus:bg-white focus:outline-none focus:border-blue-600"
-                          />
-                          {phoneLinesList.length > 1 && (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                const copy = [...phoneLinesList];
-                                copy[idx] = { number: "", title: "", amount: "", commitmentEnd: "" };
-                                setPhoneLinesList(copy);
-                              }}
-                              className="text-slate-400 hover:text-rose-600 p-1"
-                              title="Temizle"
-                            >
-                              <X className="w-3.5 h-3.5" />
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-
-                  {(() => {
-                    const totalLinesFee = Number(
-                      phoneLinesList.reduce((s, p) => s + (Number(p.amount) || 0), 0).toFixed(2)
-                    );
-                    if (totalLinesFee <= 0) return null;
-                    return (
-                      <div className="pt-2 flex items-center justify-between text-xs border-t border-blue-200/70">
-                        <span className="text-slate-600">
-                          Hat Ücretleri Toplamı: <strong className="text-emerald-700">{formatCurrency(totalLinesFee)}</strong>
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => setForm({ ...form, amountDue: String(totalLinesFee) })}
-                          className="px-2 py-0.5 rounded bg-blue-100 hover:bg-blue-200 text-blue-900 text-[10px] font-extrabold"
-                        >
-                          Fatura Tutarına Aktar ({formatCurrency(totalLinesFee)})
-                        </button>
-                      </div>
-                    );
-                  })()}
                 </div>
               )}
 
@@ -6867,7 +6986,17 @@ function GiderlerPageContent() {
                             {list.map((item: any, idx: number) => (
                               <div key={idx} className="flex items-center justify-between p-1.5 bg-white border border-slate-200 rounded-lg text-[10px]">
                                 <span className="font-semibold text-slate-700">{item.date} - {item.note || `${idx + 1}. Ödeme`}</span>
-                                <span className="font-extrabold text-emerald-800">{formatCurrency(item.amount)}</span>
+                                <div className="flex items-center gap-1.5">
+                                  <span className="font-extrabold text-emerald-800">{formatCurrency(item.amount)}</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDeletePaymentItem(activePaymentExpense, idx)}
+                                    className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded transition-colors"
+                                    title="Bu Ödeme Parçasını Sil"
+                                  >
+                                    <Trash2 className="w-3 h-3" />
+                                  </button>
+                                </div>
                               </div>
                             ))}
                           </div>
@@ -6915,21 +7044,38 @@ function GiderlerPageContent() {
                 />
               </div>
 
-              <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => setPaymentModalOpen(false)}
-                  className="px-4 py-2 border border-slate-200 text-slate-600 hover:bg-slate-100 rounded-xl font-bold transition-colors"
-                >
-                  Kapat
-                </button>
-                <button
-                  type="submit"
-                  disabled={paymentSubmitting}
-                  className="px-5 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl font-bold shadow-xs transition-colors disabled:opacity-50"
-                >
-                  {paymentSubmitting ? "Kaydediliyor..." : "Ödemeyi Kaydet"}
-                </button>
+              <div className="pt-3 border-t border-slate-100 flex items-center justify-between gap-2">
+                {activePaymentExpense.amountPaid > 0 ? (
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      setPaymentModalOpen(false);
+                      await handleResetPayment(activePaymentExpense);
+                    }}
+                    className="px-3 py-2 text-rose-600 hover:bg-rose-50 border border-rose-200 rounded-xl font-bold text-xs flex items-center gap-1.5 transition-colors"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    <span>Tüm Ödemeleri İptal Et</span>
+                  </button>
+                ) : (
+                  <div />
+                )}
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setPaymentModalOpen(false)}
+                    className="px-4 py-2 border border-slate-200 text-slate-600 hover:bg-slate-100 rounded-xl font-bold transition-colors"
+                  >
+                    Kapat
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={paymentSubmitting}
+                    className="px-5 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl font-bold shadow-xs transition-colors disabled:opacity-50"
+                  >
+                    {paymentSubmitting ? "Kaydediliyor..." : "Ödemeyi Kaydet"}
+                  </button>
+                </div>
               </div>
             </form>
           </div>
@@ -7648,7 +7794,7 @@ function GiderlerPageContent() {
                 </div>
                 <div>
                   <h3 className="font-extrabold text-base text-slate-900">
-                    📞 Tek Fatura İçi Telefon Numaraları & Taahhüt Takibi (5 Hat)
+                    📞 Tek Fatura İçi Telefon Numaraları & Taahhüt Takibi ({phoneModalLines.filter(p => p.number || p.title).length || phoneModalLines.length} Hat)
                   </h3>
                   <p className="text-xs text-slate-500">
                     Fatura: <strong className="text-slate-800">{activePhoneExpense.title}</strong> • Ödeme listesinde tek kalem görünür, taahhüt bitimine <strong>10 gün kala</strong> otomatik hatırlatır.

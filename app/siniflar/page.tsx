@@ -32,6 +32,8 @@ interface Staff {
   fullName: string;
   title: string | null;
   phone: string | null;
+  status?: string;
+  terminationDate?: string | null;
 }
 
 interface ClassroomStudent {
@@ -142,7 +144,8 @@ export default function SiniflarPage() {
       }
       if (staffRes.ok) {
         const data = await staffRes.json();
-        setStaffList(data.staff || []);
+        const list: Staff[] = Array.isArray(data) ? data : data.staff || [];
+        setStaffList(list);
       }
     } catch (err) {
       console.error("Sınıflar yüklenemedi:", err);
@@ -468,7 +471,14 @@ export default function SiniflarPage() {
                       <UserCheck className="w-3.5 h-3.5 text-slate-400" />
                       <span className="truncate">
                         <strong>{isAnaokulu ? "Sınıf Öğretmeni:" : "Rehber Öğretmen:"}</strong>{" "}
-                        {c.teacherStaff?.fullName || "Atanmadı"}
+                        {c.teacherStaff ? (
+                          <span className="font-semibold text-teal-800">
+                            {c.teacherStaff.fullName}
+                            {c.teacherStaff.title ? ` (${c.teacherStaff.title})` : ""}
+                          </span>
+                        ) : (
+                          <span className="text-slate-400 italic">Atanmadı</span>
+                        )}
                       </span>
                     </div>
                     {c.roomNumber && (
@@ -600,11 +610,53 @@ export default function SiniflarPage() {
                   className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 text-xs focus:ring-2 focus:ring-teal-600 focus:bg-white focus:outline-none"
                 >
                   <option value="">Öğretmen Seçiniz...</option>
-                  {staffList.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.fullName} ({s.title || "Öğretmen"})
-                    </option>
-                  ))}
+                  {(() => {
+                    const activeStaff = staffList.filter((s) => s.status !== "PASSIVE" && !s.terminationDate);
+                    const isTeacher = (s: Staff) => {
+                      const t = (s.title || "").toLowerCase();
+                      return (
+                        t.includes("öğretmen") ||
+                        t.includes("ogretmen") ||
+                        t.includes("eğit") ||
+                        t.includes("egit") ||
+                        t.includes("koordinatör") ||
+                        t.includes("psikolog") ||
+                        t.includes("satranç") ||
+                        t.includes("spor") ||
+                        t.includes("dans") ||
+                        t.includes("müdür")
+                      );
+                    };
+                    const teachers = activeStaff
+                      .filter(isTeacher)
+                      .sort((a, b) => a.fullName.localeCompare(b.fullName, "tr"));
+                    const others = activeStaff
+                      .filter((s) => !isTeacher(s))
+                      .sort((a, b) => a.fullName.localeCompare(b.fullName, "tr"));
+
+                    return (
+                      <>
+                        {teachers.length > 0 && (
+                          <optgroup label="🎓 Öğretmenler & Eğitim Kadrosu">
+                            {teachers.map((s) => (
+                              <option key={s.id} value={s.id}>
+                                {s.fullName} {s.title ? `(${s.title})` : ""}
+                              </option>
+                            ))}
+                          </optgroup>
+                        )}
+                        {others.length > 0 && (
+                          <optgroup label="👥 Diğer Personeller">
+                            {others.map((s) => (
+                              <option key={s.id} value={s.id}>
+                                {s.fullName} {s.title ? `(${s.title})` : ""}
+                              </option>
+                            ))}
+                          </optgroup>
+                        )}
+                      </>
+                    );
+                  })()}
                 </select>
               </div>
 
@@ -638,6 +690,16 @@ export default function SiniflarPage() {
                   {selectedClassroom.section === "ANAOKULU" ? "🧸 Anaokulu Öğrenci Listesi" : "Sınıf Öğrenci Listesi"}
                 </span>
                 <h3 className="text-base font-bold text-slate-800">{selectedClassroom.name}</h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  {selectedClassroom.section === "ANAOKULU" ? "Sınıf Öğretmeni: " : "Rehber Öğretmen: "}
+                  <strong className="text-teal-900 font-bold">
+                    {selectedClassroom.teacherStaff?.fullName || "Atanmadı"}
+                  </strong>
+                  {selectedClassroom.teacherStaff?.title && (
+                    <span className="text-slate-500"> ({selectedClassroom.teacherStaff.title})</span>
+                  )}
+                  {selectedClassroom.roomNumber && ` • Derslik: ${selectedClassroom.roomNumber}`}
+                </p>
               </div>
               <button
                 onClick={() => setSelectedClassroom(null)}

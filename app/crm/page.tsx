@@ -304,7 +304,7 @@ export default function CRMPage() {
       }
       if (staffRes.ok) {
         const data = await staffRes.json();
-        setStaffList(data.staff || []);
+        setStaffList(Array.isArray(data) ? data : data.staff || []);
       }
       if (classRes.ok) {
         const data = await classRes.json();

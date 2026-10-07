@@ -165,6 +165,10 @@ export async function PUT(
 
     // Bekliyor durumuna geri alma / Sıfırlama
     if (body.action === "RESET_PAYMENT") {
+      let resetDesc = existing.description;
+      if (resetDesc && resetDesc.toLowerCase().includes("borç tamamen kapandı")) {
+        resetDesc = resetDesc.replace(/Tüm taksitler ödendi - Borç tamamen kapandı/gi, "").trim();
+      }
       const updated = await prisma.schoolExpense.update({
         where: { id },
         data: {
@@ -173,22 +177,106 @@ export async function PUT(
           status: "PENDING",
           periodStatus: "Cari Dönem",
           paymentHistory: null,
+          ...(resetDesc !== existing.description ? { description: resetDesc } : {}),
         },
       });
+
+      if (supMatch) {
+        try {
+          await ensureSupplierCariTables();
+          const supplierId = supMatch[1];
+          const ym = supMatch[2];
+          const [y, m] = ym.split("-");
+          const dueISO = `${y}-${String(m).padStart(2, "0")}-15`;
+          await prisma.$executeRawUnsafe(
+            `DELETE FROM SupplierCariTransaction WHERE supplierId = ? AND txType = 'PAYMENT' AND dueDate = ? AND notes LIKE '%Giderler listesinden%'`,
+            supplierId,
+            dueISO
+          );
+        } catch {}
+      }
 
       await syncSchoolExpenseToRefund(id, "RESET_PAYMENT");
 
       return NextResponse.json(updated);
     }
 
-    // Fatura içi çoklu telefon hatlarını (5 numara, kullanan kişi, ücret, taahhüt bitiş tarihi) güncelleme
+    // Tek bir kısmi ödeme parçasını silme
+    if (body.action === "DELETE_PAYMENT") {
+      const paymentIndex = typeof body.index === "number" ? body.index : -1;
+      let history: any[] = [];
+      try {
+        if (existing.paymentHistory) {
+          history = JSON.parse(existing.paymentHistory);
+        }
+      } catch {}
+
+      if (paymentIndex >= 0 && paymentIndex < history.length) {
+        history.splice(paymentIndex, 1);
+      } else if (history.length > 0) {
+        history.pop();
+      }
+
+      const newAmountPaid = Number(history.reduce((sum: number, p: any) => sum + (Number(p.amount) || 0), 0).toFixed(2));
+      const newAmountRemaining = Math.max(0, Number((existing.amountDue - newAmountPaid).toFixed(2)));
+      const newStatus =
+        newAmountPaid >= existing.amountDue
+          ? "PAID"
+          : newAmountPaid > 0
+          ? "PARTIAL"
+          : "PENDING";
+      const newPeriodStatus = newStatus === "PAID" ? "Ödendi" : newStatus === "PARTIAL" ? "Kısmi" : "Cari Dönem";
+
+      let resetDesc = existing.description;
+      if (newStatus !== "PAID" && resetDesc && resetDesc.toLowerCase().includes("borç tamamen kapandı")) {
+        resetDesc = resetDesc.replace(/Tüm taksitler ödendi - Borç tamamen kapandı/gi, "").trim();
+      }
+
+      const updated = await prisma.schoolExpense.update({
+        where: { id },
+        data: {
+          amountPaid: newAmountPaid,
+          amountRemaining: newAmountRemaining,
+          status: newStatus,
+          periodStatus: newPeriodStatus,
+          paymentHistory: history.length > 0 ? JSON.stringify(history) : null,
+          ...(resetDesc !== existing.description ? { description: resetDesc } : {}),
+        },
+      });
+
+      return NextResponse.json(updated);
+    }
+
+    // Fatura içi çoklu telefon hatlarını (numara, kullanan kişi, ücret, taahhüt bitiş tarihi) güncelleme
     if (body.action === "UPDATE_PHONE_LINES") {
+      let rawLines = body.phoneLines;
+      if (Array.isArray(rawLines)) {
+        rawLines = rawLines.map((l: any) => {
+          let num = String(l.number || "").trim().replace(/\s+/g, "");
+          if (num.length === 10 && num.startsWith("5")) {
+            num = "0" + num;
+          }
+          return {
+            ...l,
+            number: num,
+          };
+        });
+      }
+
       const serializedLines =
-        body.phoneLines === null
+        rawLines === null
           ? null
-          : typeof body.phoneLines === "object"
-          ? JSON.stringify(body.phoneLines)
-          : body.phoneLines;
+          : typeof rawLines === "object"
+          ? JSON.stringify(rawLines)
+          : rawLines;
+
+      const lineCount = Array.isArray(rawLines) ? rawLines.length : 0;
+      let nextTitle = existing.title;
+      if (lineCount > 0 && nextTitle) {
+        if (/Tek Fatura\s*-\s*\d+\s*(Numara|Hat)/i.test(nextTitle)) {
+          nextTitle = nextTitle.replace(/Tek Fatura\s*-\s*\d+\s*(Numara|Hat)/i, `Tek Fatura - ${lineCount} Hat`);
+        }
+      }
 
       const updateAmount = Boolean(body.syncAmountToTotal) && Number(body.linesTotalAmount) > 0;
       const nextDue = updateAmount ? Number(body.linesTotalAmount) : existing.amountDue;
@@ -201,6 +289,7 @@ export async function PUT(
         data: {
           phoneLines: serializedLines,
           isCommitment: serializedLines ? true : existing.isCommitment,
+          ...(nextTitle !== existing.title ? { title: nextTitle } : {}),
           ...(updateAmount
             ? {
                 amountDue: nextDue,
@@ -217,6 +306,7 @@ export async function PUT(
           id: { not: id },
           OR: [
             { title: existing.title },
+            { title: nextTitle },
             { title: { contains: "Vodafone" } },
             { title: { contains: "vodafone" } },
             { phoneLines: { not: null } },
@@ -225,6 +315,7 @@ export async function PUT(
         data: {
           phoneLines: serializedLines,
           isCommitment: serializedLines ? true : existing.isCommitment,
+          ...(nextTitle !== existing.title ? { title: nextTitle } : {}),
         },
       });
 

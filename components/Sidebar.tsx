@@ -15,6 +15,7 @@ import {
   X,
   LogOut,
   ChevronRight,
+  ChevronDown,
   ShieldCheck,
   KeyRound,
   Lock,
@@ -157,29 +158,58 @@ export function Sidebar() {
 
   const isTeklifOnly = currentUser?.role === "TEKLIF_ONLY";
 
-  const menuItems = isTeklifOnly
+  type NavItem =
+    | { type?: "link"; href: string; label: string; icon: any }
+    | {
+        type: "group";
+        id: string;
+        label: string;
+        icon: any;
+        subItems: { href: string; label: string; icon: any }[];
+      };
+
+  const [personnelOpen, setPersonnelOpen] = useState(true);
+
+  useEffect(() => {
+    const isPersonnelRoute = ["/personeller", "/maas", "/odeme", "/cari", "/izin"].some((p) =>
+      pathname.startsWith(p)
+    );
+    if (isPersonnelRoute) {
+      setPersonnelOpen(true);
+    }
+  }, [pathname]);
+
+  const navItems: NavItem[] = isTeklifOnly
     ? [
-        { href: "/teklifler", label: "Fiyat Teklif Formu", icon: FileText },
+        { type: "link", href: "/teklifler", label: "Fiyat Teklif Formu", icon: FileText },
       ]
     : [
-        { href: "/", label: "Gösterge Paneli", icon: LayoutDashboard },
-        { href: "/crm", label: "CRM & Aday Öğrenci", icon: Target },
-        { href: "/teklifler", label: "Fiyat Teklif Formu", icon: FileText },
-        { href: "/ogrenciler", label: "Öğrenci Kütüğü", icon: GraduationCap },
-        { href: "/siniflar", label: "Sınıflar & Şubeler", icon: School },
-        { href: "/personeller", label: "Personeller", icon: Users },
-        { href: "/departmanlar", label: "Departmanlar", icon: Building2 },
-        { href: "/maas", label: "Maaş / Tahakkuk", icon: Calculator },
-        { href: "/odeme", label: "Personel Ödeme", icon: CreditCard },
-        { href: "/giderler", label: "Okul Gider & Taksit", icon: Coins },
-        { href: "/tedarikci-cariler", label: "Tedarikçi & Ürün Carileri", icon: Building2 },
-        { href: "/kayit-silme-iadeleri", label: "Kayıt Silme İadeleri", icon: UserMinus },
-        { href: "/giderler?tab=GOLD_DAYS", label: "Altın Günleri Takibi", icon: Coins },
-        { href: "/cari", label: "Muhasebe & Cari", icon: ReceiptText },
-        { href: "/izin", label: "İzin Girişi & Takip", icon: CalendarCheck },
-        { href: "/raporlar", label: "Raporlar & Excel", icon: FileSpreadsheet },
-        { href: "/kullanicilar", label: "Yetkili Kullanıcılar", icon: ShieldCheck },
-        { href: "/yedekleme", label: "Yedek & Senkronizasyon", icon: HardDrive },
+        { type: "link", href: "/", label: "Gösterge Paneli", icon: LayoutDashboard },
+        { type: "link", href: "/crm", label: "CRM & Aday Öğrenci", icon: Target },
+        { type: "link", href: "/teklifler", label: "Fiyat Teklif Formu", icon: FileText },
+        { type: "link", href: "/ogrenciler", label: "Öğrenci Kütüğü", icon: GraduationCap },
+        { type: "link", href: "/siniflar", label: "Sınıflar & Şubeler", icon: School },
+        {
+          type: "group",
+          id: "personel-islemleri",
+          label: "Personel İşlemleri",
+          icon: Users,
+          subItems: [
+            { href: "/personeller", label: "Personeller", icon: Users },
+            { href: "/maas", label: "Maaş / Tahakkuk", icon: Calculator },
+            { href: "/odeme", label: "Personel Ödeme", icon: CreditCard },
+            { href: "/cari", label: "Personel Cari", icon: ReceiptText },
+            { href: "/izin", label: "İzin Girişi & Takip", icon: CalendarCheck },
+          ],
+        },
+        { type: "link", href: "/departmanlar", label: "Departmanlar", icon: Building2 },
+        { type: "link", href: "/giderler", label: "Okul Gider & Taksit", icon: Coins },
+        { type: "link", href: "/tedarikci-cariler", label: "Tedarikçi & Ürün Carileri", icon: Building2 },
+        { type: "link", href: "/kayit-silme-iadeleri", label: "Kayıt Silme İadeleri", icon: UserMinus },
+        { type: "link", href: "/giderler?tab=GOLD_DAYS", label: "Altın Günleri Takibi", icon: Coins },
+        { type: "link", href: "/raporlar", label: "Raporlar & Excel", icon: FileSpreadsheet },
+        { type: "link", href: "/kullanicilar", label: "Yetkili Kullanıcılar", icon: ShieldCheck },
+        { type: "link", href: "/yedekleme", label: "Yedek & Senkronizasyon", icon: HardDrive },
       ];
 
   const getInitials = (name?: string) => {
@@ -261,7 +291,72 @@ export function Sidebar() {
               <div className="text-xs font-semibold text-slate-400 px-3 py-1 uppercase tracking-wider">
                 Ana Menü
               </div>
-              {menuItems.map((item) => {
+              {navItems.map((item) => {
+                if (item.type === "group") {
+                  const GroupIcon = item.icon;
+                  const hasActiveChild = item.subItems.some((sub) => isActive(sub.href));
+                  return (
+                    <div key={item.id} className="space-y-1">
+                      <button
+                        type="button"
+                        onClick={() => setPersonnelOpen((prev) => !prev)}
+                        className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-lg text-sm font-medium transition-all ${
+                          hasActiveChild
+                            ? "bg-teal-50 text-teal-900 font-bold"
+                            : "text-slate-700 hover:bg-slate-100 hover:text-slate-900"
+                        }`}
+                      >
+                        <div className="flex items-center gap-3">
+                          <GroupIcon
+                            className={`w-5 h-5 ${
+                              hasActiveChild ? "text-teal-700" : "text-slate-400"
+                            }`}
+                          />
+                          <span>{item.label}</span>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-teal-100 text-teal-800">
+                            {item.subItems.length}
+                          </span>
+                          {personnelOpen ? (
+                            <ChevronDown className="w-4 h-4 text-slate-400" />
+                          ) : (
+                            <ChevronRight className="w-4 h-4 text-slate-400" />
+                          )}
+                        </div>
+                      </button>
+
+                      {personnelOpen && (
+                        <div className="ml-3.5 pl-3 border-l-2 border-teal-200/80 space-y-1 py-1">
+                          {item.subItems.map((sub) => {
+                            const SubIcon = sub.icon;
+                            const active = isActive(sub.href);
+                            return (
+                              <Link
+                                key={sub.href}
+                                href={sub.href}
+                                onClick={() => setMobileOpen(false)}
+                                className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold transition-all ${
+                                  active
+                                    ? "bg-teal-700 text-white font-bold shadow-xs"
+                                    : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
+                                }`}
+                              >
+                                <SubIcon
+                                  className={`w-4 h-4 shrink-0 ${
+                                    active ? "text-white" : "text-slate-400"
+                                  }`}
+                                />
+                                <span>{sub.label}</span>
+                              </Link>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                }
+
                 const Icon = item.icon;
                 const active = isActive(item.href);
                 return (
@@ -341,7 +436,71 @@ export function Sidebar() {
 
         {/* Navigation Items */}
         <nav className="flex-1 overflow-y-auto px-4 py-4 space-y-1">
-          {menuItems.map((item) => {
+          {navItems.map((item) => {
+            if (item.type === "group") {
+              const GroupIcon = item.icon;
+              const hasActiveChild = item.subItems.some((sub) => isActive(sub.href));
+              return (
+                <div key={item.id} className="space-y-1">
+                  <button
+                    type="button"
+                    onClick={() => setPersonnelOpen((prev) => !prev)}
+                    className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${
+                      hasActiveChild
+                        ? "bg-teal-50/90 text-teal-900 font-bold"
+                        : "text-slate-700 hover:bg-slate-50 hover:text-slate-900"
+                    }`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <GroupIcon
+                        className={`w-5 h-5 transition-colors ${
+                          hasActiveChild ? "text-teal-700" : "text-slate-400"
+                        }`}
+                      />
+                      <span>{item.label}</span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-teal-100 text-teal-800">
+                        {item.subItems.length}
+                      </span>
+                      {personnelOpen ? (
+                        <ChevronDown className="w-4 h-4 text-slate-400" />
+                      ) : (
+                        <ChevronRight className="w-4 h-4 text-slate-400" />
+                      )}
+                    </div>
+                  </button>
+
+                  {personnelOpen && (
+                    <div className="ml-3 pl-3 border-l-2 border-teal-200/80 space-y-1 py-1">
+                      {item.subItems.map((sub) => {
+                        const SubIcon = sub.icon;
+                        const active = isActive(sub.href);
+                        return (
+                          <Link
+                            key={sub.href}
+                            href={sub.href}
+                            className={`flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                              active
+                                ? "bg-teal-700 text-white font-bold shadow-xs"
+                                : "text-slate-600 hover:bg-teal-50/70 hover:text-teal-900"
+                            }`}
+                          >
+                            <SubIcon
+                              className={`w-4 h-4 shrink-0 ${
+                                active ? "text-white" : "text-slate-400"
+                              }`}
+                            />
+                            <span className="truncate">{sub.label}</span>
+                          </Link>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            }
+
             const Icon = item.icon;
             const active = isActive(item.href);
             return (

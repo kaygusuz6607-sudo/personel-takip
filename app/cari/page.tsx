@@ -32,6 +32,7 @@ import {
   Download,
   X,
   ReceiptText,
+  UserMinus,
 } from "lucide-react";
 import { calculateDuration } from "@/lib/date-utils";
 import ThirdPartyLedger from "./components/ThirdPartyLedger";
@@ -43,6 +44,7 @@ interface StaffSummary {
   title: string;
   status: string;
   hireDate: string | null;
+  terminationDate?: string | null;
   totalNet: number;
   totalPaid: number;
   totalPending: number;
@@ -62,6 +64,7 @@ interface SelectedStaff {
   title: string | null;
   status: string;
   hireDate: string | null;
+  terminationDate?: string | null;
   mebAssignmentDate: string | null;
   mebAssignmentEndDate?: string | null;
   isMebPermanent?: boolean;
@@ -236,6 +239,11 @@ function CariContent() {
     return true;
   });
 
+  // İşten ayrılan / pasif personel kontrolü
+  const isStaffTerminated = (s: StaffSummary) => {
+    return s.status === "PASSIVE" || s.status === "TERMINATED" || Boolean(s.terminationDate);
+  };
+
   // Filtrelenmiş Personel Listesi (Arama)
   const filteredStaffSummaries = staffSummaries.filter(
     (s) =>
@@ -244,12 +252,18 @@ function CariContent() {
       s.title.toLowerCase().includes(staffSearch.toLowerCase())
   );
 
+  const activeStaffSummaries = filteredStaffSummaries.filter((s) => !isStaffTerminated(s));
+  const terminatedStaffSummaries = filteredStaffSummaries.filter((s) => isStaffTerminated(s));
+
   // Mevcut yıllar listesi
   const availableYears = Array.from(new Set(payrolls.map((p) => p.year))).sort((a, b) => b - a);
 
-  // Güvenli çalışma süresi hesabı
+  // Güvenli çalışma süresi hesabı (İşten ayrılanlar için çıkış tarihine kadar)
   const totalWorkPeriod = selectedStaff?.hireDate
-    ? calculateDuration(selectedStaff.hireDate, new Date().toISOString())
+    ? calculateDuration(
+        selectedStaff.hireDate,
+        selectedStaff.terminationDate || new Date().toISOString()
+      )
     : "—";
 
   return (
@@ -302,7 +316,7 @@ function CariContent() {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 print:hidden">
         <div>
           <div className="flex items-center gap-2">
-            <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Muhasebe & Cari Hesap</h1>
+            <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Personel Cari & Hesap Takibi</h1>
             <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-teal-100 text-teal-800">
               Personel Ekstresi
             </span>
@@ -342,8 +356,8 @@ function CariContent() {
               <Users className="w-3.5 h-3.5 text-teal-700" />
               <span>Personel Seçimi</span>
             </span>
-            <span className="text-[11px] font-semibold text-slate-400">
-              {staffSummaries.length} Kişi
+            <span className="text-[11px] font-bold text-slate-500">
+              {activeStaffSummaries.length} Aktif{terminatedStaffSummaries.length > 0 ? ` • ${terminatedStaffSummaries.length} Ayrılan` : ""}
             </span>
           </div>
 
@@ -360,45 +374,113 @@ function CariContent() {
           </div>
 
           {/* Liste */}
-          <div className="space-y-1.5 max-h-[600px] overflow-y-auto pr-1">
+          <div className="space-y-1.5 max-h-[640px] overflow-y-auto pr-1">
             {filteredStaffSummaries.length === 0 ? (
               <p className="text-xs text-slate-400 text-center py-4">Personel bulunamadı.</p>
             ) : (
-              filteredStaffSummaries.map((s) => {
-                const isSelected = selectedStaff?.id === s.id;
-                return (
-                  <button
-                    key={s.id}
-                    type="button"
-                    onClick={() => handleSelectStaff(s.id)}
-                    className={`w-full text-left p-2.5 rounded-xl border transition-all flex items-center justify-between group ${
-                      isSelected
-                        ? "bg-teal-50/90 border-teal-500 shadow-2xs ring-1 ring-teal-500/20"
-                        : "bg-white border-slate-100 hover:bg-slate-50 hover:border-slate-200"
-                    }`}
-                  >
-                    <div className="min-w-0 pr-2">
-                      <p className={`text-xs font-bold truncate ${isSelected ? "text-teal-950" : "text-slate-800"}`}>
-                        {s.fullName}
-                      </p>
-                      <p className="text-[10px] text-slate-400 truncate">
-                        {s.title} • {s.payrollCount} Dönem
-                      </p>
+              <>
+                {/* 1. Aktif Personeller */}
+                <div className="space-y-1.5">
+                  {activeStaffSummaries.map((s) => {
+                    const isSelected = selectedStaff?.id === s.id;
+                    return (
+                      <button
+                        key={s.id}
+                        type="button"
+                        onClick={() => handleSelectStaff(s.id)}
+                        className={`w-full text-left p-2.5 rounded-xl border transition-all flex items-center justify-between group ${
+                          isSelected
+                            ? "bg-teal-50/90 border-teal-500 shadow-2xs ring-1 ring-teal-500/20"
+                            : "bg-white border-slate-100 hover:bg-slate-50 hover:border-slate-200"
+                        }`}
+                      >
+                        <div className="min-w-0 pr-2">
+                          <p className={`text-xs font-bold truncate ${isSelected ? "text-teal-950" : "text-slate-800"}`}>
+                            {s.fullName}
+                          </p>
+                          <p className="text-[10px] text-slate-400 truncate">
+                            {s.title} • {s.payrollCount} Dönem
+                          </p>
+                        </div>
+
+                        <div className="text-right shrink-0">
+                          <span className="text-[11px] font-extrabold text-teal-800 block">
+                            {formatCurrency(s.totalNet)}
+                          </span>
+                          {s.totalPending > 0 && (
+                            <span className="text-[9px] text-rose-600 font-bold block">
+                              Bekleyen: {formatCurrency(s.totalPending)}
+                            </span>
+                          )}
+                        </div>
+                      </button>
+                    );
+                  })}
+                  {activeStaffSummaries.length === 0 && (
+                    <p className="text-xs text-slate-400 text-center py-2">Aktif personel bulunamadı.</p>
+                  )}
+                </div>
+
+                {/* 2. İşten Ayrılanlar Bölmesi (En Altta Bölme & Ayrılmış Liste) */}
+                {terminatedStaffSummaries.length > 0 && (
+                  <div className="pt-3 border-t-2 border-dashed border-slate-200 mt-3 space-y-2">
+                    <div className="flex items-center justify-between px-1.5 py-1 rounded-lg bg-rose-50/70 border border-rose-100">
+                      <div className="flex items-center gap-1.5 text-rose-800">
+                        <UserMinus className="w-3.5 h-3.5 text-rose-600 shrink-0" />
+                        <span className="text-[11px] font-extrabold uppercase tracking-wider">
+                          İşten Ayrılanlar
+                        </span>
+                      </div>
+                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-rose-200/80 text-rose-900">
+                        {terminatedStaffSummaries.length} Kişi
+                      </span>
                     </div>
 
-                    <div className="text-right shrink-0">
-                      <span className="text-[11px] font-extrabold text-teal-800 block">
-                        {formatCurrency(s.totalNet)}
-                      </span>
-                      {s.totalPending > 0 && (
-                        <span className="text-[9px] text-rose-600 font-bold block">
-                          Bekleyen: {formatCurrency(s.totalPending)}
-                        </span>
-                      )}
+                    <div className="space-y-1.5">
+                      {terminatedStaffSummaries.map((s) => {
+                        const isSelected = selectedStaff?.id === s.id;
+                        return (
+                          <button
+                            key={s.id}
+                            type="button"
+                            onClick={() => handleSelectStaff(s.id)}
+                            className={`w-full text-left p-2.5 rounded-xl border transition-all flex items-center justify-between group ${
+                              isSelected
+                                ? "bg-amber-50/90 border-amber-500 shadow-2xs ring-1 ring-amber-500/20"
+                                : "bg-slate-50/80 border-slate-200 hover:bg-slate-100 hover:border-slate-300"
+                            }`}
+                          >
+                            <div className="min-w-0 pr-2">
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <p className={`text-xs font-bold truncate ${isSelected ? "text-amber-950" : "text-slate-700"}`}>
+                                  {s.fullName}
+                                </p>
+                                <span className="text-[9px] font-extrabold px-1.5 py-0.2 rounded bg-rose-100 text-rose-800 border border-rose-200">
+                                  Ayrıldı
+                                </span>
+                              </div>
+                              <p className="text-[10px] text-slate-400 truncate mt-0.5">
+                                {s.title} • {s.payrollCount} Dönem
+                              </p>
+                            </div>
+
+                            <div className="text-right shrink-0">
+                              <span className="text-[11px] font-extrabold text-slate-600 block">
+                                {formatCurrency(s.totalNet)}
+                              </span>
+                              {s.totalPending > 0 && (
+                                <span className="text-[9px] text-rose-600 font-bold block">
+                                  Bekleyen: {formatCurrency(s.totalPending)}
+                                </span>
+                              )}
+                            </div>
+                          </button>
+                        );
+                      })}
                     </div>
-                  </button>
-                );
-              })
+                  </div>
+                )}
+              </>
             )}
           </div>
         </div>
@@ -423,10 +505,18 @@ function CariContent() {
                       {selectedStaff.fullName.substring(0, 2).toUpperCase()}
                     </div>
                     <div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <h2 className="text-lg font-extrabold text-slate-900 tracking-tight">
                           {selectedStaff.fullName}
                         </h2>
+                        {(selectedStaff.status === "PASSIVE" ||
+                          selectedStaff.status === "TERMINATED" ||
+                          Boolean(selectedStaff.terminationDate)) && (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-rose-100 text-rose-900 border border-rose-300">
+                            <UserMinus className="w-3 h-3 text-rose-600" />
+                            <span>İşten Ayrıldı</span>
+                          </span>
+                        )}
                         <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-teal-100 text-teal-900">
                           {selectedStaff.title || "Personel"}
                         </span>
@@ -449,6 +539,18 @@ function CariContent() {
                         {selectedStaff.hireDate ? new Date(selectedStaff.hireDate).toLocaleDateString("tr-TR") : "—"}
                       </span>
                     </div>
+
+                    {selectedStaff.terminationDate && (
+                      <>
+                        <div className="h-6 w-px bg-slate-200" />
+                        <div>
+                          <span className="text-[10px] text-rose-500 block font-medium">Ayrılış Tarihi:</span>
+                          <span className="font-bold text-rose-800 bg-rose-50 px-1.5 py-0.5 rounded border border-rose-200">
+                            {new Date(selectedStaff.terminationDate).toLocaleDateString("tr-TR")}
+                          </span>
+                        </div>
+                      </>
+                    )}
 
                     <div className="h-6 w-px bg-slate-200" />
 
