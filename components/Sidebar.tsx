@@ -207,6 +207,7 @@ export function Sidebar() {
         },
         { type: "link", href: "/departmanlar", label: "Departmanlar", icon: Building2 },
         { type: "link", href: "/giderler", label: "Okul Gider & Taksit", icon: Coins },
+        { type: "link", href: "/kredi-kartlari", label: "Kredi Kartları Takip", icon: CreditCard },
         { type: "link", href: "/cekler", label: "Çek Takibi", icon: ScrollText },
         { type: "link", href: "/kurumsal-hatlar", label: "Telefon & Taahhüt Takibi", icon: PhoneCall },
         { type: "link", href: "/tedarikci-cariler", label: "Tedarikçi & Ürün Carileri", icon: Building2 },

@@ -214,3 +214,11 @@ export function getClientLoadedCreditCards(): DefinedCreditCard[] {
   } catch {}
   return DEFAULT_DEFINED_CARDS;
 }
+
+export function saveClientCreditCards(cards: DefinedCreditCard[]): void {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem("cosmos_all_credit_cards_v2", JSON.stringify(cards));
+  } catch {}
+}
+

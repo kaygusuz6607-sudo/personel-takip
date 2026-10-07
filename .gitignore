@@ -13,3 +13,5 @@ sqlite_migration_dump.json
 YEDEK_PAKETI/
 scripts/staging/
 cosmos_tum_veriler.json
+backups/
+
