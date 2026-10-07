@@ -2642,6 +2642,176 @@ function GiderlerPageContent() {
     };
   }, [ahmetCardsComputed]);
 
+  // Tüm Kredi Kartlarının Genel Toplam Limit ve Kalan Borç Özeti (Tüm Aylar & Taksitler)
+  const creditCardsOverallSummary = useMemo(() => {
+    let totalLimits = 0;
+    let totalUsed = 0;
+    let totalAvailable = 0;
+    let allTimeTotalDue = 0;
+    let allTimeTotalPaid = 0;
+    let allTimeTotalRemaining = 0;
+
+    ahmetCardsComputed.forEach((c) => {
+      totalLimits += c.cardLimit || 0;
+      totalUsed += c.usedLimit || 0;
+      totalAvailable += c.availableLimit || 0;
+      allTimeTotalDue += c.allTimeTotalDue || 0;
+      allTimeTotalPaid += c.allTimeTotalPaid || 0;
+      allTimeTotalRemaining += c.allTimeTotalRemaining || 0;
+    });
+
+    return {
+      totalLimits,
+      totalUsed,
+      totalAvailable,
+      allTimeTotalDue,
+      allTimeTotalPaid,
+      allTimeTotalRemaining,
+    };
+  }, [ahmetCardsComputed]);
+
+  // Aylara Göre Kredi Kartı Ödeme & Asgari Dağılımı (Tüm Kartlar İçin)
+  const allCardsMonthlyDistribution = useMemo(() => {
+    const ymMap = new Map<
+      string,
+      {
+        year: number;
+        month: number;
+        ym: string;
+        label: string;
+        totalDue: number;
+        totalPaid: number;
+        totalRemaining: number;
+        totalMinTarget: number;
+        totalMinRemaining: number;
+        activeCardsCount: number;
+        pendingMinCardsCount: number;
+      }
+    >();
+
+    allCardExpenses.forEach((exp) => {
+      const ymInfo = getExpenseDueYM(exp);
+      const ymKey = ymInfo.ym;
+      if (!ymMap.has(ymKey)) {
+        ymMap.set(ymKey, {
+          year: ymInfo.year,
+          month: ymInfo.month,
+          ym: ymKey,
+          label: `${ymInfo.month}. Ay (${TR_MONTH_SHORT[ymInfo.month] || ""} ${ymInfo.year})`,
+          totalDue: 0,
+          totalPaid: 0,
+          totalRemaining: 0,
+          totalMinTarget: 0,
+          totalMinRemaining: 0,
+          activeCardsCount: 0,
+          pendingMinCardsCount: 0,
+        });
+      }
+    });
+
+    const curSel = parseSelectedPeriod(selectedMonth);
+    if (curSel.mode === "YM" && !ymMap.has(curSel.ym)) {
+      ymMap.set(curSel.ym, {
+        year: curSel.year,
+        month: curSel.month,
+        ym: curSel.ym,
+        label: `${curSel.month}. Ay (${TR_MONTH_SHORT[curSel.month] || ""} ${curSel.year})`,
+        totalDue: 0,
+        totalPaid: 0,
+        totalRemaining: 0,
+        totalMinTarget: 0,
+        totalMinRemaining: 0,
+        activeCardsCount: 0,
+        pendingMinCardsCount: 0,
+      });
+    }
+
+    const result: Array<{
+      year: number;
+      month: number;
+      ym: string;
+      label: string;
+      totalDue: number;
+      totalPaid: number;
+      totalRemaining: number;
+      totalMinTarget: number;
+      totalMinRemaining: number;
+      activeCardsCount: number;
+      pendingMinCardsCount: number;
+    }> = [];
+
+    Array.from(ymMap.keys()).forEach((ymKey) => {
+      const mData = ymMap.get(ymKey)!;
+      let monthDue = 0;
+      let monthPaid = 0;
+      let monthRemaining = 0;
+      let monthMinTarget = 0;
+      let monthMinRemaining = 0;
+      let activeCards = 0;
+      let pendingMinCards = 0;
+
+      ahmetCards.forEach((card) => {
+        const cardMonthExpenses = allCardExpenses.filter(
+          (exp) => doesExpenseMatchAhmetCard(exp, card) && doesExpenseMatchSelectedPeriod(exp, ymKey)
+        );
+
+        const cDue = cardMonthExpenses.reduce((s, e) => s + e.amountDue, 0);
+        const cPaid = cardMonthExpenses.reduce((s, e) => s + e.amountPaid, 0);
+        const cRemaining = cardMonthExpenses.reduce((s, e) => s + e.amountRemaining, 0);
+
+        if (cDue > 0 || cRemaining > 0) {
+          activeCards++;
+          monthDue += cDue;
+          monthPaid += cPaid;
+          monthRemaining += cRemaining;
+
+          const cardLimit = Number((card as any).cardLimit) > 0 ? Number((card as any).cardLimit) : 750000;
+          const defaultRate = (card as any).minPaymentRate || (cardLimit > 50000 ? 40 : 20);
+          const manualMonthlyMin = (card as any).monthlyMinPayments?.[ymKey];
+          const manualGeneralMin = (card as any).minPaymentAmount;
+          const manualMinNum =
+            manualMonthlyMin !== undefined && manualMonthlyMin !== null && Number(manualMonthlyMin) > 0
+              ? Number(manualMonthlyMin)
+              : manualGeneralMin !== undefined && manualGeneralMin !== null && Number(manualGeneralMin) > 0
+              ? Number(manualGeneralMin)
+              : null;
+
+          const autoMin = Number(((cDue * defaultRate) / 100).toFixed(2));
+          const effectiveMin = manualMinNum !== null ? Math.min(cDue, manualMinNum) : autoMin;
+
+          const isMinMet = cRemaining <= 0 || (effectiveMin > 0 && cPaid >= effectiveMin);
+          const remMin = !isMinMet ? Math.max(0, Number((effectiveMin - cPaid).toFixed(2))) : 0;
+
+          monthMinTarget += effectiveMin;
+          monthMinRemaining += remMin;
+
+          if (remMin > 0) {
+            pendingMinCards++;
+          }
+        }
+      });
+
+      mData.totalDue = monthDue;
+      mData.totalPaid = monthPaid;
+      mData.totalRemaining = monthRemaining;
+      mData.totalMinTarget = monthMinTarget;
+      mData.totalMinRemaining = monthMinRemaining;
+      mData.activeCardsCount = activeCards;
+      mData.pendingMinCardsCount = pendingMinCards;
+
+      if (monthDue > 0 || monthRemaining > 0 || ymKey === curSel.ym) {
+        result.push(mData);
+      }
+    });
+
+    result.sort((a, b) => {
+      if (a.year !== b.year) return a.year - b.year;
+      return a.month - b.month;
+    });
+
+    return result;
+  }, [ahmetCards, allCardExpenses, selectedMonth]);
+
   const totalAllCardsMinDue = useMemo(() => {
     return creditCardsMonthlySummary.totalMinRemaining;
   }, [creditCardsMonthlySummary]);
@@ -3865,19 +4035,19 @@ function GiderlerPageContent() {
             </div>
           </div>
 
-          {/* 🛡️ FİNANSAL ÖZET: OKUL GİDERLERİ YANINDA KREDİ KARTI EKSTRELERİ & ASGARİ ÖDEME PLANI */}
-          <div className="p-4 bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 rounded-2xl text-white shadow-md border border-slate-800 space-y-3">
+          {/* 💳 FİNANSAL ÖZET: TÜM KREDİ KARTLARI EKSTRE & ASGARİ ÖDEME PLANI */}
+          <div className="p-4 bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 rounded-2xl text-white shadow-md border border-slate-800 space-y-3.5">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-white/10 pb-2.5">
               <div className="flex items-center gap-2.5">
                 <div className="w-8 h-8 rounded-xl bg-amber-400 text-slate-950 flex items-center justify-center font-black shrink-0">
-                  <Zap className="w-4 h-4 fill-current" />
+                  <CreditCard className="w-4 h-4" />
                 </div>
                 <div>
                   <h3 className="font-extrabold text-sm sm:text-base text-amber-300 flex items-center gap-2">
-                    <span>{parseSelectedPeriod(selectedMonth).label} — Okul Giderleri & Kredi Kartı Asgari Ödeme Planı</span>
+                    <span>{parseSelectedPeriod(selectedMonth).label} — Kredi Kartları Ekstre & Asgari Ödeme Durumu</span>
                   </h3>
                   <p className="text-[11px] text-slate-300">
-                    Kredi notunun olumsuz etkilenmemesi için okul giderleri ile kart asgarilerinin nakit çıkış dengesi
+                    Kredi notunun olumsuz etkilenmemesi için tüm kredi kartlarının aylık ekstre, asgari ödeme ve kalan borç takibi
                   </p>
                 </div>
               </div>
@@ -3898,23 +4068,14 @@ function GiderlerPageContent() {
               </div>
             </div>
 
-            {/* 4 Kolonlu Finansal Karşılaştırma Tablosu */}
+            {/* 4 Kolonlu Finansal Karşılaştırma Tablosu (Sadece Kredi Kartları) */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 text-xs">
-              {/* 1. Okul Nakit Giderleri */}
+              {/* 1. Seçili Dönem Toplam Ekstre Borcu */}
               <div className="p-3 rounded-xl bg-white/5 border border-white/10 space-y-1">
-                <span className="text-[11px] font-bold text-slate-400 block">🏫 Okul Nakit Giderleri (Kira/Maaş/Fatura)</span>
-                <span className="text-base font-black text-white block">
-                  {formatCurrency(stats.cashDue)}
-                </span>
-                <div className="flex items-center justify-between text-[11px] text-slate-300 pt-1 border-t border-white/10">
-                  <span>Ödenen: {formatCurrency(stats.cashPaid)}</span>
-                  <span className="font-bold text-amber-300">Kalan: {formatCurrency(stats.cashRemaining)}</span>
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-bold text-indigo-300 block">💳 Dönem Toplam Ekstre Borcu</span>
+                  <span className="text-[10px] text-indigo-200/70 font-semibold">Tüm Kartlar</span>
                 </div>
-              </div>
-
-              {/* 2. Kredi Kartları Toplam Ekstresi */}
-              <div className="p-3 rounded-xl bg-white/5 border border-white/10 space-y-1">
-                <span className="text-[11px] font-bold text-indigo-300 block">💳 Kartlar Toplam Ekstre Borcu</span>
                 <span className="text-base font-black text-indigo-200 block">
                   {formatCurrency(creditCardsMonthlySummary.totalStatementDue)}
                 </span>
@@ -3924,7 +4085,7 @@ function GiderlerPageContent() {
                 </div>
               </div>
 
-              {/* 3. Kartların Toplam Asgari Tutar Hedefi */}
+              {/* 2. Kartların Toplam Asgari Tutar Hedefi */}
               <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 space-y-1">
                 <div className="flex items-center justify-between">
                   <span className="text-[11px] font-bold text-amber-300">⚡ Toplam Asgari Ödeme Hedefi</span>
@@ -3943,23 +4104,122 @@ function GiderlerPageContent() {
                 </div>
               </div>
 
-              {/* 4. Kredi Notu Koruma Minimum Nakit İhtiyacı */}
-              <div className="p-3 rounded-xl bg-emerald-500/15 border border-emerald-400/30 space-y-1">
+              {/* 3. Dönem Kalan Ekstre Borcu & Asgari Durumu */}
+              <div className="p-3 rounded-xl bg-white/5 border border-white/10 space-y-1">
                 <div className="flex items-center justify-between">
-                  <span className="text-[11px] font-bold text-emerald-300 flex items-center gap-1">
-                    <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-                    <span>Kredi Notunu Koruma İhtiyacı</span>
-                  </span>
-                  <span className="text-[10px] text-emerald-400 font-extrabold">Min. Nakit</span>
+                  <span className="text-[11px] font-bold text-slate-300 block">💰 Dönem Kalan Kart Borcu</span>
+                  <span className="text-[10px] text-slate-400 font-semibold">Net Kalan</span>
                 </div>
-                <span className="text-base font-black text-emerald-300 block">
-                  {formatCurrency(stats.cashRemaining + creditCardsMonthlySummary.totalMinRemaining)}
+                <span className="text-base font-black text-amber-300 block">
+                  {formatCurrency(creditCardsMonthlySummary.totalStatementRemaining)}
                 </span>
-                <p className="text-[10px] text-emerald-200/90 pt-1 border-t border-emerald-500/20 leading-tight">
-                  Kalan Okul Nakit Borcu + Kartların Kalan Asgarileri
-                </p>
+                <div className="flex items-center justify-between text-[11px] pt-1 border-t border-white/10">
+                  {creditCardsMonthlySummary.totalMinRemaining > 0 ? (
+                    <span className="text-amber-400 font-extrabold flex items-center gap-1">
+                      ⚠️ Asgari Açığı: {formatCurrency(creditCardsMonthlySummary.totalMinRemaining)}
+                    </span>
+                  ) : creditCardsMonthlySummary.totalStatementDue > 0 ? (
+                    <span className="text-emerald-400 font-bold flex items-center gap-1">
+                      <ShieldCheck className="w-3 h-3" /> Asgari Karşılandı
+                    </span>
+                  ) : (
+                    <span className="text-slate-400">Bu ay kart borcu yok</span>
+                  )}
+                </div>
+              </div>
+
+              {/* 4. Kartların Toplam Kalan Borcu (Tüm Aylar & Taksitler) */}
+              <div className="p-3 rounded-xl bg-purple-500/15 border border-purple-400/30 space-y-1">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-bold text-purple-300 flex items-center gap-1">
+                    <Layers className="w-3.5 h-3.5 text-purple-400" />
+                    <span>Genel Kalan Borç (Tüm Aylar)</span>
+                  </span>
+                  <span className="text-[10px] text-purple-300 font-extrabold">Tüm Taksitler</span>
+                </div>
+                <span className="text-base font-black text-purple-200 block">
+                  {formatCurrency(creditCardsOverallSummary.allTimeTotalRemaining)}
+                </span>
+                <div className="flex items-center justify-between text-[10px] text-purple-200/90 pt-1 border-t border-purple-500/20">
+                  <span>Limit: {formatCurrency(creditCardsOverallSummary.totalLimits)}</span>
+                  <span className="font-bold text-emerald-300">Kullanılabilir: {formatCurrency(creditCardsOverallSummary.totalAvailable)}</span>
+                </div>
               </div>
             </div>
+
+            {/* Aylara Göre Kredi Kartı Ödenecek Ekstre & Asgari Dağılımı */}
+            {allCardsMonthlyDistribution.length > 0 && (
+              <div className="pt-2 border-t border-white/10 space-y-2">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="font-bold text-slate-300 flex items-center gap-1.5">
+                    <Calendar className="w-3.5 h-3.5 text-amber-400" />
+                    <span>Aylara Göre Kredi Kartı Ekstre & Asgari Ödeme Dağılımı ({allCardsMonthlyDistribution.length} Dönem):</span>
+                  </span>
+                  <span className="text-[10px] text-slate-400 hidden sm:inline">
+                    (Döneme tıklayarak o aya ait harcama ve kartları filtreleyebilirsiniz)
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2">
+                  {allCardsMonthlyDistribution.map((m) => {
+                    const isSelected =
+                      selectedMonth === m.ym ||
+                      (selectedMonth !== "ALL" && parseSelectedPeriod(selectedMonth).ym === m.ym);
+                    return (
+                      <button
+                        key={m.ym}
+                        type="button"
+                        onClick={() => setSelectedMonth(m.ym)}
+                        className={`text-left p-2 rounded-xl transition-all border cursor-pointer ${
+                          isSelected
+                            ? "bg-amber-400/20 border-amber-400 text-white shadow-xs ring-1 ring-amber-400"
+                            : "bg-white/5 border-white/10 hover:bg-white/10 text-slate-200"
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-1 mb-1">
+                          <span className={`text-[11px] font-extrabold truncate ${isSelected ? "text-amber-300" : "text-white"}`}>
+                            {m.label}
+                          </span>
+                          {m.activeCardsCount > 0 && (
+                            <span className="text-[9px] px-1 py-0.2 rounded bg-white/10 text-slate-300 font-bold shrink-0">
+                              {m.activeCardsCount} K
+                            </span>
+                          )}
+                        </div>
+                        <div className="space-y-0.5 text-[10px]">
+                          <div className="flex items-center justify-between text-slate-300">
+                            <span>Ekstre:</span>
+                            <span className="font-bold text-white">{formatCurrency(m.totalDue)}</span>
+                          </div>
+                          <div className="flex items-center justify-between text-amber-300/90">
+                            <span>Asgari:</span>
+                            <span className="font-black">{formatCurrency(m.totalMinTarget)}</span>
+                          </div>
+                          <div className="flex items-center justify-between text-slate-300">
+                            <span>Ödenen:</span>
+                            <span className="text-emerald-400 font-semibold">{formatCurrency(m.totalPaid)}</span>
+                          </div>
+                          <div className="flex items-center justify-between pt-0.5 border-t border-white/10 font-bold">
+                            <span className="text-slate-400">Kalan:</span>
+                            <span className={m.totalRemaining > 0 ? "text-rose-300" : "text-emerald-400"}>
+                              {formatCurrency(m.totalRemaining)}
+                            </span>
+                          </div>
+                        </div>
+                        {m.pendingMinCardsCount > 0 ? (
+                          <div className="mt-1 pt-1 border-t border-white/10 text-[9px] text-amber-300 font-bold flex items-center gap-0.5">
+                            <span>⚠️ {m.pendingMinCardsCount} Kart Asgari Bekliyor</span>
+                          </div>
+                        ) : m.totalDue > 0 ? (
+                          <div className="mt-1 pt-1 border-t border-white/10 text-[9px] text-emerald-400 font-semibold flex items-center gap-0.5">
+                            <span>✓ Asgari Ödendi</span>
+                          </div>
+                        ) : null}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Son Ödeme Günü Gelen / Geciken Faturalar ve Kartlar Uyarısı */}
