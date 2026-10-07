@@ -496,22 +496,47 @@ export async function POST(request: Request) {
     const numAmount = Math.max(0, Number(amountDue) || 0);
     const effectivePaymentMethod =
       category === "CREDIT_CARD" || category === "CHEQUE" ? "CASH" : paymentMethod;
-    let baseDate = dueDate ? new Date(dueDate) : new Date();
-    const dueIsoMonthMatch = typeof dueDate === "string" ? dueDate.match(/^\d{4}-(\d{2})-\d{2}/) : null;
-    const dueMonthNum = dueIsoMonthMatch
-      ? parseInt(dueIsoMonthMatch[1], 10)
-      : dueDate && !isNaN(baseDate.getTime())
-      ? baseDate.getMonth() + 1
-      : null;
-    const calculatedMonthIndex =
-      dueMonthNum && dueMonthNum >= 1 && dueMonthNum <= 12
-        ? dueMonthNum
-        : monthIndex
+    const userExplicitMonth =
+      monthIndex && Number(monthIndex) >= 1 && Number(monthIndex) <= 12
         ? Number(monthIndex)
-        : baseDate.getMonth() + 1;
-    if (!dueDate && monthIndex) {
-      baseDate = new Date(2026, Number(monthIndex) - 1, 15);
+        : null;
+    const dueIsoMatch =
+      typeof dueDate === "string" ? dueDate.match(/^(\d{4})-(\d{2})-(\d{2})/) : null;
+
+    let targetYear = 2026;
+    let targetMonth =
+      userExplicitMonth ||
+      (dueIsoMatch
+        ? parseInt(dueIsoMatch[2], 10)
+        : dueDate && !isNaN(new Date(dueDate).getTime())
+        ? new Date(dueDate).getMonth() + 1
+        : 9);
+    let targetDay = dueIsoMatch
+      ? parseInt(dueIsoMatch[3], 10)
+      : dueDate && !isNaN(new Date(dueDate).getTime())
+      ? new Date(dueDate).getDate()
+      : 15;
+
+    if (userExplicitMonth) {
+      targetMonth = userExplicitMonth;
+      targetYear =
+        dueIsoMatch && parseInt(dueIsoMatch[1], 10) >= 2000
+          ? userExplicitMonth >= 7
+            ? 2026
+            : 2027
+          : userExplicitMonth >= 7
+          ? 2026
+          : 2027;
+    } else if (dueIsoMatch) {
+      targetYear = parseInt(dueIsoMatch[1], 10);
+      targetMonth = parseInt(dueIsoMatch[2], 10);
+      targetDay = parseInt(dueIsoMatch[3], 10);
     }
+
+    const daysInTargetMonth = new Date(targetYear, targetMonth, 0).getDate();
+    targetDay = Math.min(Math.max(1, targetDay), daysInTargetMonth);
+    let baseDate = new Date(targetYear, targetMonth - 1, targetDay, 12, 0, 0);
+    const calculatedMonthIndex = targetMonth;
 
     // 0. DÜZENLİ AYLIK FATURA ÖDEMESİ (Doğalgaz, Elektrik, Su, İnternet vb. - Her Ay Ödeme Listesinde Gözüksün)
     if (isUtilityInvoiceMode && Number(invoiceRepeatMonths) > 1) {
@@ -669,7 +694,7 @@ export async function POST(request: Request) {
         : category === "CREDIT_CARD" || paymentMethod === "CREDIT_CARD"
         ? "1t/1t"
         : null;
-    const finalDueDateStr = dueDateStr || (dueDate ? formatTurkishDate(new Date(dueDate)) : "");
+    const finalDueDateStr = dueDateStr || formatTurkishDate(baseDate);
 
     const newExpense = await prisma.schoolExpense.create({
       data: {
@@ -680,7 +705,7 @@ export async function POST(request: Request) {
         installmentInfo,
         monthIndex: calculatedMonthIndex,
         dueDateStr: finalDueDateStr,
-        dueDate: dueDate ? new Date(dueDate) : null,
+        dueDate: baseDate,
         amountDue: numAmount,
         amountPaid: 0,
         amountRemaining: numAmount,

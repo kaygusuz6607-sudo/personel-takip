@@ -2665,21 +2665,41 @@ function GiderlerPageContent() {
     }
   };
 
+  const computeCardDueDateForMonth = (card: any, monthIndex: number, preferredDay?: number) => {
+    const targetYear = monthIndex >= 7 ? 2026 : 2027;
+    let targetDay = preferredDay || 20;
+    if (!preferredDay) {
+      if (card?.dueDay && Number(card.dueDay) >= 1 && Number(card.dueDay) <= 31) {
+        targetDay = Number(card.dueDay);
+      } else if (card?.dueDateISO) {
+        const parts = String(card.dueDateISO).split("-");
+        if (parts.length === 3) {
+          targetDay = Number(parts[2]) || 20;
+        }
+      }
+    }
+    const daysInTargetMonth = new Date(targetYear, monthIndex, 0).getDate();
+    const safeDay = Math.min(Math.max(1, targetDay), daysInTargetMonth);
+    return `${targetYear}-${String(monthIndex).padStart(2, "0")}-${String(safeDay).padStart(2, "0")}`;
+  };
+
   const openCardTxModal = (cardId: string) => {
-    const todayStr = new Date().toISOString().split("T")[0];
     const targetCard = ahmetCardsComputed.find((c) => c.id === cardId) || ahmetCardsComputed[0];
     if (targetCard) {
       setSelectedVisualCardId(targetCard.id);
     }
     const parsedSel = parseSelectedPeriod(selectedMonth);
+    const initialMonth = parsedSel.month || 10;
+    const initialDueDate = computeCardDueDateForMonth(targetCard, initialMonth);
+
     setCardTxForm({
       cardId: targetCard ? targetCard.id : "card-1",
       title: "",
       amount: "",
       amountMode: "TOTAL",
       installmentCount: 1,
-      monthIndex: parsedSel.month,
-      dueDate: targetCard?.dueDateISO || todayStr,
+      monthIndex: initialMonth,
+      dueDate: initialDueDate,
       description: "",
     });
     setCardTxModalOpen(true);
@@ -2704,6 +2724,16 @@ function GiderlerPageContent() {
         ? cleanTitle
         : `${holderName} / ${card.bankName} KK / ${cleanTitle}`;
 
+      const selM = Number(cardTxForm.monthIndex) || 9;
+      let preferredDay: number | undefined = undefined;
+      if (cardTxForm.dueDate) {
+        const parts = cardTxForm.dueDate.split("-");
+        if (parts.length === 3) {
+          preferredDay = Number(parts[2]);
+        }
+      }
+      const effectiveDueDate = computeCardDueDateForMonth(card, selM, preferredDay);
+
       const res = await fetch("/api/giderler", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -2711,8 +2741,8 @@ function GiderlerPageContent() {
           title: fullTitle,
           category: "CREDIT_CARD",
           subCategory: count > 1 ? `Kredi Kartı (${count} Taksit)` : "Kredi Kartı (Tek Çekim)",
-          dueDate: cardTxForm.dueDate || card.dueDateISO || null,
-          monthIndex: Number(cardTxForm.monthIndex) || 9,
+          dueDate: effectiveDueDate,
+          monthIndex: selM,
           amountDue: numAmount,
           amountMode: cardTxForm.amountMode,
           isInstallment: count > 1,
@@ -7004,13 +7034,20 @@ function GiderlerPageContent() {
                       <button
                         key={c.id}
                         type="button"
-                        onClick={() =>
+                        onClick={() => {
+                          const targetCard = c;
+                          let curDay: number | undefined = undefined;
+                          if (cardTxForm.dueDate) {
+                            const parts = cardTxForm.dueDate.split("-");
+                            if (parts.length === 3) curDay = Number(parts[2]);
+                          }
+                          const newDueDate = computeCardDueDateForMonth(targetCard, cardTxForm.monthIndex, curDay);
                           setCardTxForm({
                             ...cardTxForm,
                             cardId: c.id,
-                            dueDate: c.dueDateISO || cardTxForm.dueDate,
-                          })
-                        }
+                            dueDate: newDueDate,
+                          });
+                        }}
                         className={`p-2 rounded-lg border text-left transition-all ${
                           active ? bt.selectedBg : bt.cardBg
                         }`}
@@ -7168,7 +7205,22 @@ function GiderlerPageContent() {
                     </label>
                     <select
                       value={cardTxForm.monthIndex}
-                      onChange={(e) => setCardTxForm({ ...cardTxForm, monthIndex: parseInt(e.target.value) || 9 })}
+                      onChange={(e) => {
+                        const selM = parseInt(e.target.value) || 9;
+                        const targetCard =
+                          ahmetCardsComputed.find((c) => c.id === cardTxForm.cardId) || ahmetCardsComputed[0];
+                        let curDay: number | undefined = undefined;
+                        if (cardTxForm.dueDate) {
+                          const parts = cardTxForm.dueDate.split("-");
+                          if (parts.length === 3) curDay = Number(parts[2]);
+                        }
+                        const newDueDate = computeCardDueDateForMonth(targetCard, selM, curDay);
+                        setCardTxForm({
+                          ...cardTxForm,
+                          monthIndex: selM,
+                          dueDate: newDueDate,
+                        });
+                      }}
                       className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs font-bold text-slate-900 focus:outline-none"
                     >
                       <optgroup label="📅 2026 Yılı (Temmuz – Aralık 2026)">
@@ -7310,13 +7362,31 @@ function GiderlerPageContent() {
               {/* 5. İşlem / Son Ödeme Tarihi ve Açıklama */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">İşlem / Son Ödeme Tarihi</label>
+                  <label className="block font-bold text-slate-700 mb-1">
+                    📅 1. Taksit Son Ödeme / Vade Tarihi
+                  </label>
                   <input
                     type="date"
                     value={cardTxForm.dueDate}
-                    onChange={(e) => setCardTxForm({ ...cardTxForm, dueDate: e.target.value })}
-                    className="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs font-semibold"
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      let newM = cardTxForm.monthIndex;
+                      if (val) {
+                        const parts = val.split("-");
+                        if (parts.length === 3) {
+                          const parsedM = parseInt(parts[1], 10);
+                          if (!isNaN(parsedM) && parsedM >= 1 && parsedM <= 12) {
+                            newM = parsedM;
+                          }
+                        }
+                      }
+                      setCardTxForm({ ...cardTxForm, dueDate: val, monthIndex: newM });
+                    }}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs font-bold text-slate-900 bg-white"
                   />
+                  <span className="text-[10px] text-slate-500 mt-0.5 block">
+                    İlk ekstre ayı seçildiğinde kartın son ödeme gününe göre otomatik ayarlanır.
+                  </span>
                 </div>
                 <div>
                   <label className="block font-bold text-slate-700 mb-1">Not / Açıklama (Opsiyonel)</label>
