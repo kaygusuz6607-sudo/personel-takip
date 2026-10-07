@@ -2182,8 +2182,8 @@ function GiderlerPageContent() {
             }))
         : [];
 
-      const isCommitment = form.entryType === "COMMITMENT";
-      const isInstallment = form.entryType === "INSTALLMENT";
+      const isCommitment = form.entryType === "COMMITMENT" || Boolean(form.isCommitment);
+      const isInstallment = form.entryType === "INSTALLMENT" || Boolean(form.isInstallment);
       const isRecurringInvoice = form.entryType === "UTILITY_INVOICE";
 
       let finalCardHolder = form.cardHolder;
@@ -3112,7 +3112,9 @@ function GiderlerPageContent() {
                   {sortedYears.map((yr) => {
                     const st = yearStyles[yr] || defaultFutureStyle;
                     const monthsSet = new Set<number>(
-                      yr === 2026 ? [7, 8, 9, 10, 11, 12] : yr === 2027 ? [1, 2, 3, 4, 5, 6] : []
+                      yr === 2026
+                        ? [7, 8, 9, 10, 11, 12]
+                        : [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
                     );
                     availablePeriods
                       .filter((p) => p.year === yr)

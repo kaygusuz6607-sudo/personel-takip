@@ -139,15 +139,6 @@ export async function GET(request: Request) {
       where.cardHolder = cardHolder;
     }
 
-    // Yanlışlıkla 2027 Temmuz/Ağustos (7. ve 8. ay 2027) olarak taşmış otomatik fatura kopyalarını temizle (2026-2027 okul takviminde 7. ve 8. ay 2026 yılına aittir)
-    await prisma.schoolExpense.deleteMany({
-      where: {
-        category: "INVOICE",
-        monthIndex: { in: [7, 8] },
-        dueDateStr: { contains: "2027" },
-        status: "PENDING",
-      },
-    });
 
     const trMonthsMap: Record<string, number> = {
       ocak: 1,
@@ -531,9 +522,6 @@ export async function POST(request: Request) {
         const itemDate = addMonthsPreservingDay(baseDate, i - 1);
         const itemDateStr = formatTurkishDate(itemDate);
         const itemMonthIdx = ((calculatedMonthIndex - 1 + (i - 1)) % 12) + 1;
-        if (baseDate.getFullYear() === 2026 && itemDate.getFullYear() >= 2027 && itemMonthIdx >= 7) {
-          break;
-        }
         const thisMonthAmount =
           i === 1 || invoiceFutureAmountMode !== "FIRST_MONTH_ONLY" ? numAmount : 0;
 
@@ -572,7 +560,7 @@ export async function POST(request: Request) {
     }
 
     // 1. TAAHHÜTLÜ ABONELİK (Telefon, İnternet, TV vb.) ÇOKLU AYLIK PLAN
-    if (isCommitment && Number(commitmentMonths) > 1) {
+    if ((isCommitment || entryType === "COMMITMENT") && Number(commitmentMonths) > 1) {
       const N = Number(commitmentMonths);
       const monthlyAmount = amountMode === "TOTAL" ? Number((numAmount / N).toFixed(2)) : numAmount;
       const finalEndDate = addMonthsPreservingDay(baseDate, N - 1);
