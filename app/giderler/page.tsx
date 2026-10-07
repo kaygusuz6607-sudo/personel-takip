@@ -31,8 +31,6 @@ import {
   Smartphone,
   Tv,
   BellRing,
-  Car,
-  ShieldAlert,
   ChevronDown,
   ChevronUp,
   ChevronRight,
@@ -88,22 +86,6 @@ interface SchoolExpense {
   createdAt: string;
 }
 
-interface AssetTrackingItem {
-  id: string;
-  title: string;
-  assetType: string;
-  owner: string | null;
-  inspectionDate: string | null;
-  insuranceDate: string | null;
-  kaskoDate: string | null;
-  housingDate: string | null;
-  notes: string | null;
-  inspDays?: number | null;
-  insDays?: number | null;
-  kaskoDays?: number | null;
-  houseDays?: number | null;
-  hasWarning?: boolean;
-}
 
 const CATEGORY_MAP: Record<string, { label: string; icon: any; color: string; badgeBg: string }> = {
   RENT: { label: "Kira", icon: Building2, color: "text-amber-700", badgeBg: "bg-amber-50 text-amber-800 border-amber-200" },
@@ -304,14 +286,15 @@ function GiderlerPageContent() {
   // SSR Hydration koruması
   const [isMounted, setIsMounted] = useState(false);
   // Aktif Sekme: EXPENSES (Okul Giderleri) | SUPPLIERS (Tedarikçi Carileri) | ASSETS (Araç / Mülk Sigorta & Kasko) | GOLD_DAYS (Altın Günleri)
-  const [activeMainTab, setActiveMainTab] = useState<"EXPENSES" | "SUPPLIERS" | "ASSETS" | "GOLD_DAYS">("EXPENSES");
+  const [activeMainTab, setActiveMainTab] = useState<"EXPENSES" | "SUPPLIERS" | "GOLD_DAYS">("EXPENSES");
 
   useEffect(() => {
     setIsMounted(true);
     try {
       const params = new URLSearchParams(window.location.search);
       if (params.get("tab") === "ASSETS") {
-        setActiveMainTab("ASSETS");
+        window.location.replace("/arac-mulk-takip");
+        return;
       } else if (params.get("tab") === "SUPPLIERS") {
         setActiveMainTab("SUPPLIERS");
       } else if (params.get("tab") === "GOLD_DAYS") {
@@ -435,23 +418,7 @@ function GiderlerPageContent() {
   // Kart Sahibi Filtresi: ALL, Ahmet Taymaz, Duygu Köse, vb.
   const [selectedCardHolder, setSelectedCardHolder] = useState<string>("ALL");
 
-  // Varlıklar (Araç & Mülk Muayene/Kasko)
-  const [assets, setAssets] = useState<AssetTrackingItem[]>([]);
-  const [assetWarningCount, setAssetWarningCount] = useState(0);
-  const [assetModalOpen, setAssetModalOpen] = useState(false);
-  const [editingAsset, setEditingAsset] = useState<AssetTrackingItem | null>(null);
-  const [assetSubmitting, setAssetSubmitting] = useState(false);
-  const [assetForm, setAssetForm] = useState({
-    title: "",
-    assetType: "VEHICLE",
-    owner: "",
-    inspectionDate: "",
-    insuranceDate: "",
-    kaskoDate: "",
-    housingDate: "",
-    notes: "",
-  });
-
+  
   // Yeni / Düzenle Modal
   const [modalOpen, setModalOpen] = useState(false);
   const [editingExpense, setEditingExpense] = useState<SchoolExpense | null>(null);
@@ -518,6 +485,13 @@ function GiderlerPageContent() {
   const [paymentNote, setPaymentNote] = useState("");
   const [paymentDate, setPaymentDate] = useState("");
   const [paymentSubmitting, setPaymentSubmitting] = useState(false);
+  const [paymentMethodChoice, setPaymentMethodChoice] = useState<"CASH" | "CREDIT_CARD">("CASH");
+  const [paymentCardSource, setPaymentCardSource] = useState<"DEFINED" | "CUSTOM">("DEFINED");
+  const [paymentSelectedCardId, setPaymentSelectedCardId] = useState<string>("");
+  const [paymentCustomCardBank, setPaymentCustomCardBank] = useState<string>("");
+  const [paymentCustomCardHolder, setPaymentCustomCardHolder] = useState<string>("");
+  const [paymentCreateCardExpense, setPaymentCreateCardExpense] = useState<boolean>(true);
+  const [paymentCardInstallments, setPaymentCardInstallments] = useState<number>(1);
 
   // Kredi Kartları Cüzdanı (Ahmet Taymaz, Muhammed Ali Çağır, Şirket Kartları vb.)
   const [showCardSummary, setShowCardSummary] = useState(true);
@@ -968,21 +942,7 @@ function GiderlerPageContent() {
     }
   };
 
-  const fetchAssets = async () => {
-    try {
-      const res = await fetch("/api/assets");
-      const data = await res.json();
-      if (data.assets && Array.isArray(data.assets)) {
-        setAssets(data.assets);
-      }
-      if (typeof data.warningCount === "number") {
-        setAssetWarningCount(data.warningCount);
-      }
-    } catch (e) {
-      console.error(e);
-    }
-  };
-
+  
   useEffect(() => {
     fetchExpenses();
   }, [
@@ -997,10 +957,7 @@ function GiderlerPageContent() {
     selectedCardHolder,
   ]);
 
-  useEffect(() => {
-    fetchAssets();
-  }, []);
-
+  
   const stats = useMemo(() => {
     const isCardPm = (e: SchoolExpense) =>
       e.category !== "CREDIT_CARD" &&
@@ -2422,6 +2379,14 @@ function GiderlerPageContent() {
     setPaymentAmount(String(expense.amountRemaining));
     setPaymentNote("");
     setPaymentDate(new Date().toISOString().split("T")[0]);
+    const defaultIsCard = expense.paymentMethod === "CREDIT_CARD";
+    setPaymentMethodChoice(defaultIsCard ? "CREDIT_CARD" : "CASH");
+    setPaymentCardSource("DEFINED");
+    setPaymentSelectedCardId(ahmetCards.length > 0 ? ahmetCards[0].id : "");
+    setPaymentCustomCardBank("");
+    setPaymentCustomCardHolder("");
+    setPaymentCreateCardExpense(true);
+    setPaymentCardInstallments(1);
     setPaymentModalOpen(true);
   };
 
@@ -2430,6 +2395,32 @@ function GiderlerPageContent() {
     if (!activePaymentExpense) return;
     try {
       setPaymentSubmitting(true);
+      const isCard = paymentMethodChoice === "CREDIT_CARD";
+      const isDefinedCard = isCard && paymentCardSource === "DEFINED";
+      const selectedCard = isDefinedCard
+        ? ahmetCards.find((c) => c.id === paymentSelectedCardId) || ahmetCards[0]
+        : null;
+
+      const cardId = isCard ? (isDefinedCard ? (selectedCard?.id || "card-1") : "OTHER") : undefined;
+      const cardHolder = isCard
+        ? isDefinedCard
+          ? selectedCard?.holder
+          : (paymentCustomCardHolder.trim() || "Diğer Kart Sahibi")
+        : undefined;
+      const cardBank = isCard
+        ? isDefinedCard
+          ? selectedCard?.bankName
+          : (paymentCustomCardBank.trim() || "Diğer Kredi Kartı")
+        : undefined;
+
+      let finalNote = paymentNote.trim();
+      if (isCard) {
+        const cardTag = isDefinedCard && selectedCard
+          ? `${selectedCard.holder} - ${selectedCard.bankName} (${selectedCard.cardLabel})`
+          : `${cardBank || "Kredi Kartı"}${cardHolder ? ` - ${cardHolder}` : ""}`;
+        finalNote = finalNote ? `${finalNote} [${cardTag}]` : `${cardTag} ile Ödendi`;
+      }
+
       const res = await fetch(`/api/giderler/${activePaymentExpense.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
@@ -2437,7 +2428,13 @@ function GiderlerPageContent() {
           action: "ADD_PAYMENT",
           amount: Number(paymentAmount) || 0,
           date: paymentDate,
-          note: paymentNote,
+          note: finalNote,
+          paymentMethod: isCard ? "CREDIT_CARD" : "CASH",
+          cardId,
+          cardHolder,
+          cardBank,
+          cardInstallmentCount: isCard ? paymentCardInstallments : 1,
+          createCardExpense: isCard ? paymentCreateCardExpense : false,
         }),
       });
 
@@ -3116,75 +3113,7 @@ function GiderlerPageContent() {
     }
   };
 
-  // Varlık Ekle / Düzenle
-  const openNewAssetModal = () => {
-    setEditingAsset(null);
-    setAssetForm({
-      title: "",
-      assetType: "VEHICLE",
-      owner: "Cosmos Koleji",
-      inspectionDate: "",
-      insuranceDate: "",
-      kaskoDate: "",
-      housingDate: "",
-      notes: "",
-    });
-    setAssetModalOpen(true);
-  };
-
-  const openEditAssetModal = (asset: AssetTrackingItem) => {
-    setEditingAsset(asset);
-    setAssetForm({
-      title: asset.title,
-      assetType: asset.assetType,
-      owner: asset.owner || "",
-      inspectionDate: asset.inspectionDate ? new Date(asset.inspectionDate).toISOString().split("T")[0] : "",
-      insuranceDate: asset.insuranceDate ? new Date(asset.insuranceDate).toISOString().split("T")[0] : "",
-      kaskoDate: asset.kaskoDate ? new Date(asset.kaskoDate).toISOString().split("T")[0] : "",
-      housingDate: asset.housingDate ? new Date(asset.housingDate).toISOString().split("T")[0] : "",
-      notes: asset.notes || "",
-    });
-    setAssetModalOpen(true);
-  };
-
-  const handleAssetSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    try {
-      setAssetSubmitting(true);
-      const url = editingAsset ? `/api/assets/${editingAsset.id}` : "/api/assets";
-      const method = editingAsset ? "PUT" : "POST";
-
-      const res = await fetch(url, {
-        method,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(assetForm),
-      });
-
-      if (!res.ok) {
-        const err = await res.json();
-        alert(err.error || "İşlem başarısız");
-        return;
-      }
-
-      setAssetModalOpen(false);
-      fetchAssets();
-    } catch (e) {
-      alert("Hata oluştu");
-    } finally {
-      setAssetSubmitting(false);
-    }
-  };
-
-  const handleDeleteAsset = async (id: string, title: string) => {
-    if (!confirm(`"${title}" varlık kaydını silmek istediğinize emin misiniz?`)) return;
-    try {
-      const res = await fetch(`/api/assets/${id}`, { method: "DELETE" });
-      if (res.ok) fetchAssets();
-    } catch (e) {
-      alert("Silinemedi");
-    }
-  };
-
+  
   const formatCurrency = (val: number) => {
     return new Intl.NumberFormat("tr-TR", {
       style: "currency",
@@ -3251,24 +3180,7 @@ function GiderlerPageContent() {
             <span>🏪 Tedarikçi & Ürün Carileri (Alınan / Ödenen)</span>
           </button>
 
-          <button
-            type="button"
-            onClick={() => setActiveMainTab("ASSETS")}
-            className={`px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2 transition-all ${
-              activeMainTab === "ASSETS"
-                ? "bg-slate-900 text-white shadow-xs"
-                : "text-slate-600 hover:text-slate-900 hover:bg-slate-100"
-            }`}
-          >
-            <Car className="w-4 h-4 text-amber-500" />
-            <span>Araç & Mülk Muayene / Kasko Takibi</span>
-            {assetWarningCount > 0 && (
-              <span className="px-2 py-0.5 rounded-full text-[11px] bg-rose-600 text-white animate-pulse">
-                {assetWarningCount} Acil Uyarı
-              </span>
-            )}
-          </button>
-
+          
           <button
             type="button"
             onClick={() => setActiveMainTab("GOLD_DAYS")}
@@ -3349,17 +3261,7 @@ function GiderlerPageContent() {
           </div>
         )}
 
-        {activeMainTab === "ASSETS" && (
-          <button
-            type="button"
-            onClick={openNewAssetModal}
-            className="inline-flex items-center gap-2 px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold shadow-sm transition-all"
-          >
-            <Plus className="w-4 h-4" />
-            <span>+ Yeni Araç / Mülk Ekle</span>
-          </button>
-        )}
-      </div>
+              </div>
 
       {/* ============================================================== */}
       {/* SEKME 1: OKUL GİDERLERİ & BORÇ TAKİBİ                          */}
@@ -4827,164 +4729,7 @@ function GiderlerPageContent() {
         />
       )}
 
-      {/* ============================================================== */}
-      {/* SEKME 3: ARAÇ & MÜLK TAKİBİ (Kasko, Muayene, Sigorta)         */}
-      {/* ============================================================== */}
-      {activeMainTab === "ASSETS" && (
-        <div className="space-y-6">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-            <div>
-              <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2">
-                <Car className="w-6 h-6 text-amber-600" />
-                <span>Şirket & Bireysel Araç / Mülk Takip Sistemi</span>
-              </h2>
-              <p className="text-xs text-slate-500 mt-0.5">
-                TÜVTÜRK muayeneleri, kasko poliçeleri, trafik sigortaları ve bina DASK bitiş tarihleri
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={openNewAssetModal}
-              className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold shadow-xs transition-colors flex items-center gap-2 self-start"
-            >
-              <Plus className="w-4 h-4" />
-              <span>+ Yeni Araç / Mülk Ekle</span>
-            </button>
-          </div>
-
-          {/* 10 Gün Erken Uyarı Bildirimi */}
-          {assetWarningCount > 0 && (
-            <div className="bg-rose-50 border-2 border-rose-300 rounded-2xl p-4 flex items-start gap-3.5 text-rose-950 shadow-sm animate-pulse">
-              <ShieldAlert className="w-6 h-6 text-rose-600 shrink-0 mt-0.5" />
-              <div>
-                <h4 className="font-extrabold text-sm text-rose-950">
-                  ⚠️ Acil Hatırlatma: Muayene veya Kasko Süresine 10 Günden Az Kalan Varlıklar ({assetWarningCount} Kalem)
-                </h4>
-                <p className="text-xs text-rose-800 mt-0.5">
-                  Trafik cezası ve sigortasız kalma riskini önlemek için muayene randevusu alınız ve kaskonuzu yenileyiniz.
-                </p>
-              </div>
-            </div>
-          )}
-
-          {/* Varlık Kartları Izgarası */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {assets.length === 0 ? (
-              <div className="col-span-full p-12 text-center text-slate-400 bg-white rounded-2xl border border-slate-200">
-                Henüz kayıtlı araç veya mülk bulunamadı. &quot;Yeni Araç / Mülk Ekle&quot; butonuyla ekleyebilirsiniz.
-              </div>
-            ) : (
-              assets.map((item) => (
-                <div
-                  key={item.id}
-                  className={`bg-white rounded-2xl border p-5 space-y-4 shadow-xs relative transition-all ${
-                    item.hasWarning ? "border-rose-400 ring-2 ring-rose-300/30" : "border-slate-200 hover:border-slate-300"
-                  }`}
-                >
-                  <div className="flex items-start justify-between">
-                    <div>
-                      <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full bg-slate-100 text-slate-700">
-                        {item.assetType === "VEHICLE" ? "🚗 Araç / Servis" : "🏢 Gayrimenkul / Mülk"}
-                      </span>
-                      <h3 className="font-extrabold text-slate-900 text-base mt-1.5">{item.title}</h3>
-                      <p className="text-xs text-slate-500 font-medium">Sahibi: {item.owner || "Kurum"}</p>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <button
-                        type="button"
-                        onClick={() => openEditAssetModal(item)}
-                        className="p-1 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg"
-                      >
-                        <Edit2 className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleDeleteAsset(item.id, item.title)}
-                        className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="space-y-2 pt-2 border-t border-slate-100 text-xs">
-                    {item.assetType === "VEHICLE" ? (
-                      <>
-                        {/* TÜVTÜRK Muayene */}
-                        <div className="flex items-center justify-between p-2 rounded-xl bg-slate-50 border border-slate-100">
-                          <span className="text-slate-600 font-semibold">TÜVTÜRK Muayene:</span>
-                          <div className="text-right">
-                            <span className="font-bold text-slate-900 block">
-                              {item.inspectionDate ? formatSafeDate(item.inspectionDate) : "Belirtilmedi"}
-                            </span>
-                            {typeof item.inspDays === "number" && (
-                              <span className={`text-[10px] font-black ${item.inspDays <= 10 ? "text-rose-600" : "text-slate-500"}`}>
-                                {item.inspDays <= 0 ? "Süresi Doldu!" : `${item.inspDays} gün kaldı`}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-
-                        {/* Kasko Poliçesi */}
-                        <div className="flex items-center justify-between p-2 rounded-xl bg-slate-50 border border-slate-100">
-                          <span className="text-slate-600 font-semibold">Kasko Bitiş:</span>
-                          <div className="text-right">
-                            <span className="font-bold text-slate-900 block">
-                              {item.kaskoDate ? formatSafeDate(item.kaskoDate) : "Belirtilmedi"}
-                            </span>
-                            {typeof item.kaskoDays === "number" && (
-                              <span className={`text-[10px] font-black ${item.kaskoDays <= 10 ? "text-rose-600" : "text-slate-500"}`}>
-                                {item.kaskoDays <= 0 ? "Süresi Doldu!" : `${item.kaskoDays} gün kaldı`}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-
-                        {/* Trafik Sigortası */}
-                        <div className="flex items-center justify-between p-2 rounded-xl bg-slate-50 border border-slate-100">
-                          <span className="text-slate-600 font-semibold">Trafik Sigortası:</span>
-                          <div className="text-right">
-                            <span className="font-bold text-slate-900 block">
-                              {item.insuranceDate ? formatSafeDate(item.insuranceDate) : "Belirtilmedi"}
-                            </span>
-                            {typeof item.insDays === "number" && (
-                              <span className={`text-[10px] font-black ${item.insDays <= 10 ? "text-rose-600" : "text-slate-500"}`}>
-                                {item.insDays <= 0 ? "Süresi Doldu!" : `${item.insDays} gün kaldı`}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                      </>
-                    ) : (
-                      <>
-                        {/* Gayrimenkul / DASK */}
-                        <div className="flex items-center justify-between p-2 rounded-xl bg-slate-50 border border-slate-100">
-                          <span className="text-slate-600 font-semibold">DASK / Yangın Sigortası:</span>
-                          <div className="text-right">
-                            <span className="font-bold text-slate-900 block">
-                              {item.housingDate ? formatSafeDate(item.housingDate) : "Belirtilmedi"}
-                            </span>
-                            {typeof item.houseDays === "number" && (
-                              <span className={`text-[10px] font-black ${item.houseDays <= 10 ? "text-rose-600" : "text-slate-500"}`}>
-                                {item.houseDays <= 0 ? "Süresi Doldu!" : `${item.houseDays} gün kaldı`}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                      </>
-                    )}
-
-                    {item.notes && (
-                      <p className="text-[11px] text-slate-500 italic pt-1">{item.notes}</p>
-                    )}
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-        </div>
-      )}
-
+      
       {/* ============================================================== */}
       {/* SEKME 4: ALTIN GÜNLERİ TAKİBİ                                  */}
       {/* ============================================================== */}
@@ -6074,6 +5819,174 @@ function GiderlerPageContent() {
               </div>
 
               <div>
+                <label className="block font-bold text-slate-700 mb-1">Ödeme Yöntemi</label>
+                <div className="grid grid-cols-2 gap-2 mb-3">
+                  <button
+                    type="button"
+                    onClick={() => setPaymentMethodChoice("CASH")}
+                    className={`p-2.5 rounded-xl border text-left flex items-center gap-2 transition-all ${
+                      paymentMethodChoice === "CASH"
+                        ? "border-emerald-600 bg-emerald-50/80 text-emerald-950 font-black ring-2 ring-emerald-500/20"
+                        : "border-slate-200 bg-slate-50 text-slate-700 font-bold hover:bg-slate-100"
+                    }`}
+                  >
+                    <Banknote className="w-4 h-4 text-emerald-700 shrink-0" />
+                    <div>
+                      <div className="text-xs">💵 Nakit / Kasa / Banka</div>
+                      <div className="text-[10px] text-slate-500 font-normal">Okul Kasasından Nakit/Havale</div>
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setPaymentMethodChoice("CREDIT_CARD")}
+                    className={`p-2.5 rounded-xl border text-left flex items-center gap-2 transition-all ${
+                      paymentMethodChoice === "CREDIT_CARD"
+                        ? "border-blue-600 bg-blue-50/80 text-blue-950 font-black ring-2 ring-blue-500/20"
+                        : "border-slate-200 bg-slate-50 text-slate-700 font-bold hover:bg-slate-100"
+                    }`}
+                  >
+                    <CreditCard className="w-4 h-4 text-blue-700 shrink-0" />
+                    <div>
+                      <div className="text-xs">💳 Kredi Kartı ile Öde</div>
+                      <div className="text-[10px] text-slate-500 font-normal">Tanımlı Kartla Çekim</div>
+                    </div>
+                  </button>
+                </div>
+
+                {paymentMethodChoice === "CREDIT_CARD" && (
+                  <div className="p-3 bg-blue-50/80 border border-blue-200 rounded-2xl space-y-2.5 mb-3 animate-in fade-in duration-150">
+                    <div>
+                      <label className="block font-bold text-blue-950 text-[11px] mb-1.5">
+                        Kart Seçimi
+                      </label>
+                      <div className="grid grid-cols-2 gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setPaymentCardSource("DEFINED")}
+                          className={`py-1.5 px-2 rounded-xl border text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
+                            paymentCardSource === "DEFINED"
+                              ? "bg-blue-600 text-white border-blue-700 shadow-2xs"
+                              : "bg-white text-blue-950 border-blue-200 hover:bg-blue-100/60"
+                          }`}
+                        >
+                          <CreditCard className="w-3.5 h-3.5 shrink-0" />
+                          <span>Tanımlı Kartlar ({ahmetCards.length})</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setPaymentCardSource("CUSTOM")}
+                          className={`py-1.5 px-2 rounded-xl border text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
+                            paymentCardSource === "CUSTOM"
+                              ? "bg-blue-600 text-white border-blue-700 shadow-2xs"
+                              : "bg-white text-blue-950 border-blue-200 hover:bg-blue-100/60"
+                          }`}
+                        >
+                          <Plus className="w-3.5 h-3.5 shrink-0" />
+                          <span>Farklı / Başka Kart</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    {paymentCardSource === "DEFINED" ? (
+                      <div>
+                        <label className="block font-bold text-blue-950 text-[11px] mb-1">
+                          Kullanılacak Tanımlı Kredi Kartı *
+                        </label>
+                        <select
+                          value={paymentSelectedCardId}
+                          onChange={(e) => setPaymentSelectedCardId(e.target.value)}
+                          className="w-full px-2.5 py-2 bg-white border border-blue-300 rounded-xl text-xs font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-400"
+                        >
+                          {ahmetCards.map((card) => (
+                            <option key={card.id} value={card.id}>
+                              {card.holder} • {card.bankName} - {card.cardLabel} (Son 4: {card.last4})
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        <div>
+                          <label className="block font-bold text-blue-950 text-[11px] mb-1">
+                            Banka / Kart Adı *
+                          </label>
+                          <input
+                            type="text"
+                            value={paymentCustomCardBank}
+                            onChange={(e) => setPaymentCustomCardBank(e.target.value)}
+                            placeholder="Örn: Garanti BBVA Bonus, Finansbank, Şahsi Kart vb."
+                            className="w-full px-2.5 py-2 bg-white border border-blue-300 rounded-xl text-xs font-bold text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-400"
+                          />
+                          <div className="flex flex-wrap gap-1 mt-1.5">
+                            {["Garanti BBVA", "Yapı Kredi", "İş Bankası", "Akbank", "Vakıfbank", "QNB Finansbank", "Ziraat"].map((b) => (
+                              <button
+                                key={b}
+                                type="button"
+                                onClick={() => setPaymentCustomCardBank(b)}
+                                className="text-[10px] font-semibold px-2 py-0.5 bg-white border border-blue-200 rounded-md text-blue-900 hover:bg-blue-100 transition-colors"
+                              >
+                                +{b}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+
+                        <div>
+                          <label className="block font-bold text-blue-950 text-[11px] mb-1">
+                            Kart Sahibi / Not (Opsiyonel)
+                          </label>
+                          <input
+                            type="text"
+                            value={paymentCustomCardHolder}
+                            onChange={(e) => setPaymentCustomCardHolder(e.target.value)}
+                            placeholder="Örn: Ahmet Bey, Muhasebe, Misafir Kart vb."
+                            className="w-full px-2.5 py-2 bg-white border border-blue-300 rounded-xl text-xs font-medium text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-400"
+                          />
+                        </div>
+                      </div>
+                    )}
+
+                    <div>
+                      <label className="block font-bold text-blue-950 text-[11px] mb-1">
+                        Çekim Türü / Taksit Sayısı
+                      </label>
+                      <select
+                        value={paymentCardInstallments}
+                        onChange={(e) => setPaymentCardInstallments(Number(e.target.value))}
+                        className="w-full px-2.5 py-2 bg-white border border-blue-300 rounded-xl text-xs font-semibold text-slate-900 focus:outline-none"
+                      >
+                        <option value={1}>Tek Çekim (Peşin)</option>
+                        <option value={2}>2 Taksit</option>
+                        <option value={3}>3 Taksit</option>
+                        <option value={4}>4 Taksit</option>
+                        <option value={5}>5 Taksit</option>
+                        <option value={6}>6 Taksit</option>
+                        <option value={9}>9 Taksit</option>
+                        <option value={12}>12 Taksit</option>
+                      </select>
+                    </div>
+
+                    <label className="flex items-center gap-2 cursor-pointer pt-0.5">
+                      <input
+                        type="checkbox"
+                        checked={paymentCreateCardExpense}
+                        onChange={(e) => setPaymentCreateCardExpense(e.target.checked)}
+                        className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 border-blue-300"
+                      />
+                      <span className="text-[11px] font-bold text-blue-950 select-none">
+                        Bu ödemeyi sisteme Kredi Kartı borcu olarak yansıt ve takip et
+                      </span>
+                    </label>
+
+                    <p className="text-[10px] text-blue-700">
+                      ℹ️ Kartla ödenen tutar Günlük Kasa Planı'nda "Kredi Kartı Çıkışı" olarak ayrışır, nakit kasasını eksiltmez.
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              <div>
                 <label className="block font-bold text-slate-700 mb-1">Şimdi Ödenecek Tutar (TL) *</label>
                 <input
                   type="number"
@@ -6147,154 +6060,7 @@ function GiderlerPageContent() {
         </div>
       )}
 
-      {/* ============================================================== */}
-      {/* MODAL 3: YENİ ARAÇ / MÜLK EKLE                                 */}
-      {/* ============================================================== */}
-      {assetModalOpen && (
-        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-white rounded-3xl max-w-md w-full shadow-2xl p-6 relative border border-slate-100 animate-in fade-in zoom-in duration-200">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-              <h3 className="font-bold text-slate-900 text-base flex items-center gap-2">
-                <Car className="w-5 h-5 text-amber-600" />
-                <span>{editingAsset ? "Varlık Düzenle" : "Yeni Araç / Mülk Ekle"}</span>
-              </h3>
-              <button
-                onClick={() => setAssetModalOpen(false)}
-                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <form onSubmit={handleAssetSubmit} className="mt-4 space-y-3 text-xs">
-              <div>
-                <label className="block font-bold text-slate-700 mb-1">Varlık Türü</label>
-                <div className="grid grid-cols-2 gap-2">
-                  <label className="flex items-center gap-2 p-2 rounded-xl border bg-slate-50 cursor-pointer">
-                    <input
-                      type="radio"
-                      name="assetType"
-                      value="VEHICLE"
-                      checked={assetForm.assetType === "VEHICLE"}
-                      onChange={() => setAssetForm({ ...assetForm, assetType: "VEHICLE" })}
-                    />
-                    <span className="font-bold text-slate-800">🚗 Araç / Servis</span>
-                  </label>
-                  <label className="flex items-center gap-2 p-2 rounded-xl border bg-slate-50 cursor-pointer">
-                    <input
-                      type="radio"
-                      name="assetType"
-                      value="REAL_ESTATE"
-                      checked={assetForm.assetType === "REAL_ESTATE"}
-                      onChange={() => setAssetForm({ ...assetForm, assetType: "REAL_ESTATE" })}
-                    />
-                    <span className="font-bold text-slate-800">🏢 Ev / Bina / Mülk</span>
-                  </label>
-                </div>
-              </div>
-
-              <div>
-                <label className="block font-bold text-slate-700 mb-1">
-                  {assetForm.assetType === "VEHICLE" ? "Araç Plakası & Modeli *" : "Mülk / Ev Adresi & Tanımı *"}
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={assetForm.title}
-                  onChange={(e) => setAssetForm({ ...assetForm, title: e.target.value })}
-                  placeholder={assetForm.assetType === "VEHICLE" ? "Örn: 38 AB 123 - Ford Transit" : "Örn: Kampüs Ana Binası"}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs font-semibold focus:outline-none"
-                />
-              </div>
-
-              <div>
-                <label className="block font-bold text-slate-700 mb-1">Kimin Üzerine / Sahibi</label>
-                <input
-                  type="text"
-                  value={assetForm.owner}
-                  onChange={(e) => setAssetForm({ ...assetForm, owner: e.target.value })}
-                  placeholder="Örn: Şirket Aracı, Ahmet Bey, Kiralık Mülk"
-                  className="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs font-medium focus:outline-none"
-                />
-              </div>
-
-              {assetForm.assetType === "VEHICLE" ? (
-                <>
-                  <div className="grid grid-cols-2 gap-2">
-                    <div>
-                      <label className="block font-bold text-slate-700 mb-1">TÜVTÜRK Muayene Tarihi</label>
-                      <input
-                        type="date"
-                        value={assetForm.inspectionDate}
-                        onChange={(e) => setAssetForm({ ...assetForm, inspectionDate: e.target.value })}
-                        className="w-full px-2.5 py-2 border border-slate-200 rounded-xl text-xs"
-                      />
-                    </div>
-                    <div>
-                      <label className="block font-bold text-slate-700 mb-1">Kasko Bitiş Tarihi</label>
-                      <input
-                        type="date"
-                        value={assetForm.kaskoDate}
-                        onChange={(e) => setAssetForm({ ...assetForm, kaskoDate: e.target.value })}
-                        className="w-full px-2.5 py-2 border border-slate-200 rounded-xl text-xs"
-                      />
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block font-bold text-slate-700 mb-1">Trafik Sigortası Bitiş Tarihi</label>
-                    <input
-                      type="date"
-                      value={assetForm.insuranceDate}
-                      onChange={(e) => setAssetForm({ ...assetForm, insuranceDate: e.target.value })}
-                      className="w-full px-2.5 py-2 border border-slate-200 rounded-xl text-xs"
-                    />
-                  </div>
-                </>
-              ) : (
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">DASK / Bina Sigortası Bitiş Tarihi</label>
-                  <input
-                    type="date"
-                    value={assetForm.housingDate}
-                    onChange={(e) => setAssetForm({ ...assetForm, housingDate: e.target.value })}
-                    className="w-full px-2.5 py-2 border border-slate-200 rounded-xl text-xs"
-                  />
-                </div>
-              )}
-
-              <div>
-                <label className="block font-bold text-slate-700 mb-1">Notlar / Poliçe No</label>
-                <textarea
-                  rows={2}
-                  value={assetForm.notes}
-                  onChange={(e) => setAssetForm({ ...assetForm, notes: e.target.value })}
-                  placeholder="Opsiyonel notlar..."
-                  className="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs focus:outline-none"
-                />
-              </div>
-
-              <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => setAssetModalOpen(false)}
-                  className="px-4 py-2 border border-slate-200 text-slate-600 hover:bg-slate-100 rounded-xl font-bold"
-                >
-                  Vazgeç
-                </button>
-                <button
-                  type="submit"
-                  disabled={assetSubmitting}
-                  className="px-5 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl font-bold shadow-xs disabled:opacity-50"
-                >
-                  {assetSubmitting ? "Kaydediliyor..." : editingAsset ? "Güncelle" : "Kaydet"}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
+      
       {/* ============================================================== */}
       {/* MODAL: AHMET TAYMAZ KREDİ KARTI HARCAMA & MANUEL TAKSİT GİRİŞİ */}
       {/* ============================================================== */}

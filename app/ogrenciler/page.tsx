@@ -3,6 +3,9 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import {
   GraduationCap,
+  ShoppingBag,
+  BookOpen,
+  Shirt,
   Users,
   Search,
   Plus,
@@ -40,6 +43,8 @@ import {
   CheckCheck,
   Lock,
   HeartHandshake,
+  UserMinus,
+  RotateCcw,
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import {
@@ -47,6 +52,76 @@ import {
   SchoolCategoryBadge,
   SchoolCategoryModal,
 } from "@/components/SchoolCategoryGate";
+
+interface ContractSaleItem {
+  id: string;
+  type: "EDUCATION" | "MEAL" | "STATIONERY" | "CLOTHING" | "SERVICE" | "OTHER";
+  title: string;
+  amount: number;
+  paidAmount?: number;
+  remainingAmount?: number;
+}
+
+const CONTRACT_ITEM_PRESETS: {
+  type: ContractSaleItem["type"];
+  label: string;
+  defaultTitle: string;
+  defaultAmount: number;
+  icon: string;
+}[] = [
+  { type: "EDUCATION", label: "Eğitim", defaultTitle: "Eğitim Öğretim Hizmeti", defaultAmount: 180000, icon: "🎓" },
+  { type: "MEAL", label: "Yemek", defaultTitle: "Yıllık Yemek Hizmeti (3 Öğün)", defaultAmount: 70000, icon: "🍽️" },
+  { type: "STATIONERY", label: "Kırtasiye & Kitap", defaultTitle: "Kırtasiye, Kitap & Materyal Seti", defaultAmount: 45000, icon: "📚" },
+  { type: "CLOTHING", label: "Kıyafet / Üniforma", defaultTitle: "Okul Kıyafeti / Üniforma Paketi", defaultAmount: 15000, icon: "👕" },
+  { type: "SERVICE", label: "Okul Servisi", defaultTitle: "Servis Ulaşım Hizmeti", defaultAmount: 35000, icon: "🚌" },
+  { type: "OTHER", label: "Özel / Diğer Hizmet", defaultTitle: "Özel Etüt / Kulüp / Ek Hizmet", defaultAmount: 10000, icon: "✨" },
+];
+
+const DEFAULT_CONTRACT_ITEMS: ContractSaleItem[] = [
+  { id: "item-1", type: "EDUCATION", title: "Eğitim Öğretim Hizmeti", amount: 180000 },
+  { id: "item-2", type: "MEAL", title: "Yıllık Yemek Hizmeti", amount: 70000 },
+  { id: "item-3", type: "STATIONERY", title: "Kırtasiye & Kitap Seti", amount: 45000 },
+];
+
+function parseStudentContractNotes(rawNotes: string | null | undefined): { contractItems: ContractSaleItem[]; userNote: string } {
+  if (!rawNotes) return { contractItems: [], userNote: "" };
+  try {
+    if (rawNotes.startsWith("{") && rawNotes.includes("contractItems")) {
+      const parsed = JSON.parse(rawNotes);
+      return {
+        contractItems: Array.isArray(parsed.contractItems) ? parsed.contractItems : [],
+        userNote: parsed.userNote || "",
+      };
+    }
+  } catch {}
+  return { contractItems: [], userNote: rawNotes };
+}
+
+interface StudentCancellationInfo {
+  droppedAt?: string;
+  reason?: string;
+  hasRefund?: boolean;
+  refundAmount?: number;
+  refundId?: string | null;
+  previousClassroomId?: string | null;
+  previousClassroomName?: string | null;
+}
+
+function parseStudentCancellationInfo(rawNotes: string | null | undefined): StudentCancellationInfo | null {
+  if (!rawNotes) return null;
+  try {
+    if (rawNotes.startsWith("{")) {
+      const parsed = JSON.parse(rawNotes);
+      if (parsed.cancellationInfo) return parsed.cancellationInfo;
+    } else if (rawNotes.includes("[KAYIT_SILINDI:")) {
+      const match = rawNotes.match(/\[KAYIT_SILINDI:\s*(\{.*?\})\]/);
+      if (match && match[1]) {
+        return JSON.parse(match[1]);
+      }
+    }
+  } catch {}
+  return null;
+}
 
 interface Classroom {
   id: string;
@@ -180,7 +255,7 @@ const STATUS_MAP: { [key: string]: { label: string; color: string } } = {
   ACTIVE: { label: "Aktif Kayıtlı", color: "bg-emerald-50 text-emerald-700 border-emerald-200" },
   FROZEN: { label: "Donduruldu", color: "bg-amber-50 text-amber-700 border-amber-200" },
   TRANSFERRED: { label: "Nakil Gitti", color: "bg-blue-50 text-blue-700 border-blue-200" },
-  DROPPED: { label: "Ayrıldı / İptal", color: "bg-rose-50 text-rose-700 border-rose-200" },
+  DROPPED: { label: "Kayıt Silindi", color: "bg-rose-50 text-rose-700 border-rose-200" },
   GRADUATED: { label: "Mezun", color: "bg-purple-50 text-purple-700 border-purple-200" },
 };
 
@@ -211,6 +286,25 @@ export default function OgrencilerPage() {
   const [statusFilter, setStatusFilter] = useState("ALL");
   const [classFilter, setClassFilter] = useState("ALL");
   const [tagFilter, setTagFilter] = useState("ALL");
+
+  // Sekme Seçimi: Aktif / Kayıt Sildiren / Tümü
+  const [activeListTab, setActiveListTab] = useState<"ACTIVE" | "DROPPED" | "ALL">("ACTIVE");
+
+  // Kayıt Silme & İade Modalı State'leri
+  const [dropModalOpen, setDropModalOpen] = useState(false);
+  const [droppingStudent, setDroppingStudent] = useState<Student | null>(null);
+  const [dropForm, setDropForm] = useState({
+    reason: "Başka Okula Nakil",
+    customReason: "",
+    cancellationDate: new Date().toISOString().split("T")[0],
+    hasRefund: false,
+    refundAmount: "",
+    refundStartDate: new Date().toISOString().split("T")[0],
+    refundInstallments: "1",
+    refundIban: "",
+    refundNotes: "",
+  });
+  const [dropSubmitting, setDropSubmitting] = useState(false);
 
   // Modallar
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -275,7 +369,8 @@ export default function OgrencilerPage() {
     classroomId: "",
     academicYear: "2025-2026",
     previousSchool: "",
-    contractAmount: "",
+    contractItems: DEFAULT_CONTRACT_ITEMS as ContractSaleItem[],
+    contractAmount: String(DEFAULT_CONTRACT_ITEMS.reduce((sum, i) => sum + i.amount, 0)),
     discountAmount: "0",
     installmentCount: "10",
     firstInstallmentDate: new Date().toISOString().split("T")[0],
@@ -319,9 +414,18 @@ export default function OgrencilerPage() {
     fetchData();
   }, []);
 
+  // Öğrenci Sayıları (Sekme Rozetleri için)
+  const activeStudentsCount = useMemo(() => students.filter((s) => s.status !== "DROPPED").length, [students]);
+  const droppedStudentsCount = useMemo(() => students.filter((s) => s.status === "DROPPED").length, [students]);
+  const totalStudentsCount = students.length;
+
   // Filtreleme
   const filteredStudents = useMemo(() => {
     return students.filter((s) => {
+      // Sekme Filtresi (Aktif / Kayıt Sildiren / Tümü)
+      if (activeListTab === "ACTIVE" && s.status === "DROPPED") return false;
+      if (activeListTab === "DROPPED" && s.status !== "DROPPED") return false;
+
       const matchSearch =
         !search.trim() ||
         s.fullName.toLowerCase().includes(search.toLowerCase()) ||
@@ -341,28 +445,31 @@ export default function OgrencilerPage() {
 
       return matchSearch && matchSection && matchStatus && matchClass && matchTag;
     });
-  }, [students, search, sectionFilter, statusFilter, classFilter, tagFilter]);
+  }, [students, search, sectionFilter, statusFilter, classFilter, tagFilter, activeListTab]);
 
   // Finansal KPI Hesaplama
   const stats = useMemo(() => {
     const total = students.length;
-    const active = students.filter((s) => s.status === "ACTIVE").length;
+    const active = students.filter((s) => s.status !== "DROPPED").length;
+    const dropped = students.filter((s) => s.status === "DROPPED").length;
 
     let totalContractSum = 0;
     let totalPaidSum = 0;
     let totalRemainingSum = 0;
 
     students.forEach((s) => {
-      totalContractSum += s.netAmount || 0;
-      s.payments?.forEach((p) => {
-        totalPaidSum += p.paidAmount || (p.isPaid ? p.amount : 0);
-        if (!p.isPaid) {
-          totalRemainingSum += Math.max(0, p.amount - (p.paidAmount || 0));
-        }
-      });
+      if (s.status !== "DROPPED") {
+        totalContractSum += s.netAmount || 0;
+        s.payments?.forEach((p) => {
+          totalPaidSum += p.paidAmount || (p.isPaid ? p.amount : 0);
+          if (!p.isPaid) {
+            totalRemainingSum += Math.max(0, p.amount - (p.paidAmount || 0));
+          }
+        });
+      }
     });
 
-    return { total, active, totalContractSum, totalPaidSum, totalRemainingSum };
+    return { total, active, dropped, totalContractSum, totalPaidSum, totalRemainingSum };
   }, [students]);
 
   // Öğrenci Detayını Getir
@@ -412,6 +519,54 @@ export default function OgrencilerPage() {
   const generateRandomPin = () => {
     const pin = Math.floor(100000 + Math.random() * 900000).toString();
     setFormData((prev) => ({ ...prev, portalPassword: pin }));
+  };
+
+  const addContractItem = (type: ContractSaleItem["type"] = "EDUCATION") => {
+    const preset = CONTRACT_ITEM_PRESETS.find((p) => p.type === type) || CONTRACT_ITEM_PRESETS[0];
+    const newItem: ContractSaleItem = {
+      id: `item-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      type,
+      title: preset.defaultTitle,
+      amount: preset.defaultAmount,
+    };
+    const nextItems = [...formData.contractItems, newItem];
+    const newTotal = nextItems.reduce((sum, i) => sum + (Number(i.amount) || 0), 0);
+    setFormData((prev) => ({
+      ...prev,
+      contractItems: nextItems,
+      contractAmount: String(newTotal),
+    }));
+  };
+
+  const removeContractItem = (id: string) => {
+    const nextItems = formData.contractItems.filter((i) => i.id !== id);
+    const newTotal = nextItems.reduce((sum, i) => sum + (Number(i.amount) || 0), 0);
+    setFormData((prev) => ({
+      ...prev,
+      contractItems: nextItems,
+      contractAmount: String(newTotal),
+    }));
+  };
+
+  const updateContractItem = (id: string, field: "title" | "amount" | "type", val: any) => {
+    const nextItems = formData.contractItems.map((i) => {
+      if (i.id !== id) return i;
+      if (field === "type") {
+        const preset = CONTRACT_ITEM_PRESETS.find((p) => p.type === val);
+        return {
+          ...i,
+          type: val,
+          title: preset ? preset.defaultTitle : i.title,
+        };
+      }
+      return { ...i, [field]: field === "amount" ? Number(val) || 0 : val };
+    });
+    const newTotal = nextItems.reduce((sum, i) => sum + (Number(i.amount) || 0), 0);
+    setFormData((prev) => ({
+      ...prev,
+      contractItems: nextItems,
+      contractAmount: String(newTotal),
+    }));
   };
 
   // Yeni Öğrenci Kaydı / Güncelleme
@@ -480,7 +635,8 @@ export default function OgrencilerPage() {
       classroomId: "",
       academicYear: "2025-2026",
       previousSchool: "",
-      contractAmount: "",
+      contractItems: DEFAULT_CONTRACT_ITEMS,
+      contractAmount: String(DEFAULT_CONTRACT_ITEMS.reduce((sum, i) => sum + i.amount, 0)),
       discountAmount: "0",
       installmentCount: "10",
       firstInstallmentDate: new Date().toISOString().split("T")[0],
@@ -501,6 +657,16 @@ export default function OgrencilerPage() {
     }
     if (parsedPickups.length === 0) {
       parsedPickups = [{ name: "", relation: "ANNEANNE", phone: "", tcNo: "" }];
+    }
+
+    const { contractItems: parsedSavedItems, userNote: parsedUserNote } = parseStudentContractNotes(s.notes);
+    let effectiveItems = parsedSavedItems;
+    if (effectiveItems.length === 0 && s.contractAmount && s.contractAmount > 0) {
+      effectiveItems = [
+        { id: "item-init", type: "EDUCATION", title: "Eğitim ve Okul Hizmetleri", amount: s.contractAmount }
+      ];
+    } else if (effectiveItems.length === 0) {
+      effectiveItems = DEFAULT_CONTRACT_ITEMS;
     }
 
     setFormData({
@@ -539,12 +705,13 @@ export default function OgrencilerPage() {
       classroomId: s.classroomId || "",
       academicYear: s.academicYear || "2025-2026",
       previousSchool: s.previousSchool || "",
-      contractAmount: s.contractAmount ? s.contractAmount.toString() : "",
+      contractItems: effectiveItems,
+      contractAmount: s.contractAmount ? s.contractAmount.toString() : String(effectiveItems.reduce((sum, i) => sum + i.amount, 0)),
       discountAmount: s.discountAmount ? s.discountAmount.toString() : "0",
       installmentCount: s.installmentCount ? s.installmentCount.toString() : "10",
       firstInstallmentDate: new Date().toISOString().split("T")[0],
-      tags: s.tags ? s.tags.split(",") : [],
-      notes: s.notes || "",
+      tags: s.tags ? (typeof s.tags === "string" ? (s.tags.startsWith("[") ? JSON.parse(s.tags) : s.tags.split(",")) : s.tags) : [],
+      notes: parsedUserNote,
     });
     setIsAddModalOpen(true);
   };
@@ -612,19 +779,128 @@ export default function OgrencilerPage() {
     }
   };
 
+  // Kayıt Silme Modalı Aç
+  const openDropModal = (s: Student) => {
+    setDroppingStudent(s);
+    const paidTotal = (s.payments || []).reduce(
+      (sum, p) => sum + (p.paidAmount || (p.isPaid ? p.amount : 0)),
+      0
+    );
+
+    setDropForm({
+      reason: "Başka Okula Nakil",
+      customReason: "",
+      cancellationDate: new Date().toISOString().split("T")[0],
+      hasRefund: paidTotal > 0,
+      refundAmount: paidTotal > 0 ? String(paidTotal) : "",
+      refundStartDate: new Date().toISOString().split("T")[0],
+      refundInstallments: "1",
+      refundIban: "",
+      refundNotes: `${s.fullName} - Kayıt Silme İadesi`,
+    });
+    setDropModalOpen(true);
+  };
+
+  // Kayıt Silme & İade Formu Gönder
+  const handleDropSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!droppingStudent) return;
+
+    const finalReason = dropForm.reason === "DİĞER" && dropForm.customReason.trim()
+      ? dropForm.customReason.trim()
+      : dropForm.reason;
+
+    if (dropForm.hasRefund) {
+      const amt = parseFloat(dropForm.refundAmount);
+      if (isNaN(amt) || amt <= 0) {
+        alert("Lütfen geçerli bir iade tutarı giriniz.");
+        return;
+      }
+    }
+
+    setDropSubmitting(true);
+    try {
+      const res = await fetch(`/api/ogrenciler/${droppingStudent.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "DROP_STUDENT",
+          reason: finalReason,
+          cancellationDate: dropForm.cancellationDate,
+          hasRefund: dropForm.hasRefund,
+          refundAmount: dropForm.hasRefund ? parseFloat(dropForm.refundAmount) : 0,
+          refundStartDate: dropForm.refundStartDate,
+          refundInstallments: parseInt(dropForm.refundInstallments, 10) || 1,
+          refundIban: dropForm.refundIban,
+          refundNotes: dropForm.refundNotes,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || "Öğrenci kaydı silinirken hata oluştu.");
+        return;
+      }
+
+      setDropModalOpen(false);
+      setDroppingStudent(null);
+      await fetchData();
+      alert("Öğrencinin kaydı başarıyla silindi ve sınıftan düşürüldü." + (dropForm.hasRefund ? " İade planı 'Kayıt Silme İadeleri' sayfasına ve kasa gider planına yansıtıldı." : ""));
+    } catch (err) {
+      console.error("Drop student error:", err);
+      alert("Bir hata oluştu.");
+    } finally {
+      setDropSubmitting(false);
+    }
+  };
+
+  // Kaydı Geri Al (Yeniden Aktif Et)
+  const handleReinstateStudent = async (student: Student) => {
+    if (!confirm(`${student.fullName} isimli öğrencinin kaydını yeniden aktif etmek ve önceki sınıfına geri atamak istiyor musunuz?`)) {
+      return;
+    }
+
+    try {
+      const res = await fetch(`/api/ogrenciler/${student.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "REINSTATE_STUDENT",
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || "Öğrenci kaydı geri alınırken hata oluştu.");
+        return;
+      }
+
+      await fetchData();
+      alert(`${student.fullName} başarıyla yeniden aktif edildi ve sınıfına geri atandı.`);
+    } catch (err) {
+      console.error("Reinstate student error:", err);
+      alert("Bir hata oluştu.");
+    }
+  };
+
   // Excel Dışa Aktar
   const handleExportExcel = () => {
-    const rows = filteredStudents.map((s) => ({
-      "Öğrenci No": s.studentNo || "-",
-      "TC Kimlik No": s.tcNo,
-      "Adı Soyadı": s.fullName,
-      "Sınıfı": s.classroom?.name || "Atanmadı",
-      "Durum": STATUS_MAP[s.status]?.label || s.status,
-      "Veli İletişim": s.primaryPhone,
-      "Toplam Anlaşma (TL)": s.netAmount || 0,
-      "Taksit Sayısı": s.installmentCount || 1,
-      "Kayıt Tarihi": new Date(s.enrollmentDate).toLocaleDateString("tr-TR"),
-    }));
+    const rows = filteredStudents.map((s) => {
+      const cancelInfo = parseStudentCancellationInfo(s.notes);
+      return {
+        "Öğrenci No": s.studentNo || "-",
+        "TC Kimlik No": s.tcNo,
+        "Adı Soyadı": s.fullName,
+        "Sınıfı": s.status === "DROPPED" ? `Sınıftan Düşürüldü (${cancelInfo?.previousClassroomName || "Eski Sınıf Yok"})` : (s.classroom?.name || "Atanmadı"),
+        "Durum": s.status === "DROPPED" ? `Kayıt Silindi (${cancelInfo?.reason || "Ayrıldı"})` : (STATUS_MAP[s.status]?.label || s.status),
+        "Ayrılış Nedeni": cancelInfo?.reason || "-",
+        "İade Tutarı (TL)": cancelInfo?.refundAmount || 0,
+        "Veli İletişim": s.primaryPhone,
+        "Toplam Anlaşma (TL)": s.netAmount || 0,
+        "Taksit Sayısı": s.installmentCount || 1,
+        "Kayıt Tarihi": new Date(s.enrollmentDate).toLocaleDateString("tr-TR"),
+      };
+    });
 
     const worksheet = XLSX.utils.json_to_sheet(rows);
     const workbook = XLSX.utils.book_new();
@@ -683,10 +959,10 @@ export default function OgrencilerPage() {
       </div>
 
       {/* KPI Kartları */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
         <div className="p-4 rounded-2xl bg-white border border-slate-200 shadow-xs">
           <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider block">
-            Toplam Kayıt
+            Toplam Kütük
           </span>
           <div className="flex items-baseline justify-between mt-1">
             <span className="text-2xl font-extrabold text-slate-800">{stats.total}</span>
@@ -704,9 +980,19 @@ export default function OgrencilerPage() {
           </div>
         </div>
 
+        <div className="p-4 rounded-2xl bg-white border border-rose-200 bg-rose-50/30 shadow-xs">
+          <span className="text-[11px] font-semibold text-rose-600 uppercase tracking-wider block">
+            Kayıt Sildiren
+          </span>
+          <div className="flex items-baseline justify-between mt-1">
+            <span className="text-2xl font-extrabold text-rose-700">{stats.dropped}</span>
+            <UserMinus className="w-4 h-4 text-rose-500" />
+          </div>
+        </div>
+
         <div className="p-4 rounded-2xl bg-white border border-slate-200 shadow-xs">
           <span className="text-[11px] font-semibold text-teal-600 uppercase tracking-wider block">
-            Toplam Eğitim Cirosu
+            Aktif Ciro
           </span>
           <div className="flex items-baseline justify-between mt-1">
             <span className="text-xl font-extrabold text-teal-800 font-mono">
@@ -718,7 +1004,7 @@ export default function OgrencilerPage() {
 
         <div className="p-4 rounded-2xl bg-white border border-slate-200 shadow-xs">
           <span className="text-[11px] font-semibold text-blue-600 uppercase tracking-wider block">
-            Tahsil Edilen Tutar
+            Tahsil Edilen
           </span>
           <div className="flex items-baseline justify-between mt-1">
             <span className="text-xl font-extrabold text-blue-700 font-mono">
@@ -730,7 +1016,7 @@ export default function OgrencilerPage() {
 
         <div className="p-4 rounded-2xl bg-white border border-slate-200 shadow-xs">
           <span className="text-[11px] font-semibold text-amber-600 uppercase tracking-wider block">
-            Kalan Alacak / Taksit
+            Kalan Taksit
           </span>
           <div className="flex items-baseline justify-between mt-1">
             <span className="text-xl font-extrabold text-amber-700 font-mono">
@@ -739,6 +1025,84 @@ export default function OgrencilerPage() {
             <CreditCard className="w-4 h-4 text-amber-500" />
           </div>
         </div>
+      </div>
+
+      {/* Kütük Sekmeleri (Aktif / Kayıt Sildiren / Tümü) */}
+      <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 pb-2">
+        <button
+          type="button"
+          onClick={() => {
+            setActiveListTab("ACTIVE");
+            setStatusFilter("ALL");
+          }}
+          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs transition-all ${
+            activeListTab === "ACTIVE"
+              ? "bg-teal-700 text-white shadow-sm ring-2 ring-teal-700/20"
+              : "bg-white text-slate-600 hover:bg-slate-100 border border-slate-200"
+          }`}
+        >
+          <GraduationCap className="w-4 h-4" />
+          <span>🎓 Aktif Öğrenciler</span>
+          <span
+            className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold ${
+              activeListTab === "ACTIVE"
+                ? "bg-teal-800 text-teal-100"
+                : "bg-slate-100 text-slate-600"
+            }`}
+          >
+            {activeStudentsCount}
+          </span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => {
+            setActiveListTab("DROPPED");
+            setStatusFilter("ALL");
+          }}
+          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs transition-all ${
+            activeListTab === "DROPPED"
+              ? "bg-rose-700 text-white shadow-sm ring-2 ring-rose-700/20"
+              : "bg-white text-rose-700 hover:bg-rose-50 border border-rose-200"
+          }`}
+        >
+          <UserMinus className="w-4 h-4" />
+          <span>🚫 Kayıt Sildiren Öğrenciler</span>
+          <span
+            className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold ${
+              activeListTab === "DROPPED"
+                ? "bg-rose-800 text-rose-100"
+                : "bg-rose-100 text-rose-800"
+            }`}
+          >
+            {droppedStudentsCount}
+          </span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => {
+            setActiveListTab("ALL");
+            setStatusFilter("ALL");
+          }}
+          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs transition-all ${
+            activeListTab === "ALL"
+              ? "bg-slate-800 text-white shadow-sm ring-2 ring-slate-800/20"
+              : "bg-white text-slate-600 hover:bg-slate-100 border border-slate-200"
+          }`}
+        >
+          <Users className="w-4 h-4" />
+          <span>📋 Tüm Kütük</span>
+          <span
+            className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold ${
+              activeListTab === "ALL"
+                ? "bg-slate-700 text-slate-100"
+                : "bg-slate-100 text-slate-600"
+            }`}
+          >
+            {totalStudentsCount}
+          </span>
+        </button>
       </div>
 
       {/* Arama & Filtre Çubuğu */}
@@ -824,22 +1188,34 @@ export default function OgrencilerPage() {
                 </tr>
               ) : (
                 filteredStudents.map((s) => {
-                  const paidTotal = s.payments.reduce(
+                  const paidTotal = (s.payments || []).reduce(
                     (sum, p) => sum + (p.paidAmount || (p.isPaid ? p.amount : 0)),
                     0
                   );
                   const remaining = Math.max(0, (s.netAmount || 0) - paidTotal);
+                  const isDropped = s.status === "DROPPED";
+                  const cancelInfo = parseStudentCancellationInfo(s.notes);
                   const statusInfo = STATUS_MAP[s.status] || STATUS_MAP.ACTIVE;
 
                   return (
                     <tr
                       key={s.id}
                       onClick={() => openStudentDetail(s.id, "profile")}
-                      className="hover:bg-slate-50/80 transition-colors cursor-pointer group"
+                      className={`transition-colors cursor-pointer group ${
+                        isDropped
+                          ? "bg-rose-50/25 hover:bg-rose-50/50"
+                          : "hover:bg-slate-50/80"
+                      }`}
                     >
                       <td className="py-3 px-4">
                         <div className="flex items-center gap-3">
-                          <div className="w-9 h-9 rounded-xl bg-teal-100 text-teal-800 flex items-center justify-center font-bold text-xs shrink-0">
+                          <div
+                            className={`w-9 h-9 rounded-xl flex items-center justify-center font-bold text-xs shrink-0 ${
+                              isDropped
+                                ? "bg-rose-100 text-rose-700"
+                                : "bg-teal-100 text-teal-800"
+                            }`}
+                          >
                             {s.fullName.substring(0, 2).toUpperCase()}
                           </div>
                           <div>
@@ -875,7 +1251,18 @@ export default function OgrencilerPage() {
                       </td>
 
                       <td className="py-3 px-4">
-                        {s.classroom ? (
+                        {isDropped ? (
+                          <div className="space-y-0.5">
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-rose-100 text-rose-800">
+                              <UserMinus className="w-3 h-3" /> Sınıftan Düşürüldü
+                            </span>
+                            {cancelInfo?.previousClassroomName && (
+                              <span className="block text-[10px] text-slate-500 font-medium">
+                                Eski Sınıfı: {cancelInfo.previousClassroomName}
+                              </span>
+                            )}
+                          </div>
+                        ) : s.classroom ? (
                           <div>
                             <span className="font-bold text-slate-800">{s.classroom.name}</span>
                             <span className="block text-[11px] text-slate-400">{s.classroom.gradeLevel}. Seviye</span>
@@ -905,43 +1292,109 @@ export default function OgrencilerPage() {
                       </td>
 
                       <td className="py-3 px-4">
-                        <span
-                          className={`inline-block px-2.5 py-1 rounded-full text-[10px] font-bold border ${statusInfo.color}`}
-                        >
-                          {statusInfo.label}
-                        </span>
+                        {isDropped ? (
+                          <div className="space-y-0.5">
+                            <span className="inline-block px-2.5 py-1 rounded-full text-[10px] font-bold border bg-rose-50 text-rose-700 border-rose-200">
+                              🚫 Kayıt Silindi
+                            </span>
+                            {cancelInfo?.reason && (
+                              <span className="block text-[10px] text-slate-500 max-w-[130px] truncate" title={cancelInfo.reason}>
+                                {cancelInfo.reason}
+                              </span>
+                            )}
+                            {cancelInfo?.hasRefund && cancelInfo.refundAmount ? (
+                              <a
+                                href="/kayit-silme-iadeleri"
+                                onClick={(e) => e.stopPropagation()}
+                                className="inline-flex items-center gap-1 text-[10px] text-rose-600 font-bold hover:underline mt-0.5"
+                                title="Kayıt Silme İadeleri Sayfasında Gör"
+                              >
+                                <span>İade: {Number(cancelInfo.refundAmount).toLocaleString("tr-TR")} ₺</span>
+                                <ArrowRight className="w-2.5 h-2.5" />
+                              </a>
+                            ) : null}
+                          </div>
+                        ) : (
+                          <span
+                            className={`inline-block px-2.5 py-1 rounded-full text-[10px] font-bold border ${statusInfo.color}`}
+                          >
+                            {statusInfo.label}
+                          </span>
+                        )}
                       </td>
 
                       <td className="py-3 px-4 text-right">
                         <div className="flex items-center justify-end gap-1.5" onClick={(e) => e.stopPropagation()}>
-                          <button
-                            onClick={() => openEditModal(s)}
-                            title="Öğrenci Bilgilerini Düzenle"
-                            className="p-1.5 rounded-lg border border-slate-200 text-slate-600 hover:text-blue-700 hover:bg-blue-50"
-                          >
-                            <Edit2 className="w-3.5 h-3.5" />
-                          </button>
-                          <button
-                            onClick={() => openStudentDetail(s.id, "payments")}
-                            title="Taksit & Finans Defteri"
-                            className="p-1.5 rounded-lg border border-slate-200 text-slate-600 hover:text-teal-700 hover:bg-teal-50"
-                          >
-                            <CreditCard className="w-3.5 h-3.5" />
-                          </button>
-                          <button
-                            onClick={() => openStudentDetail(s.id, "contract")}
-                            title="Resmî MEB Sözleşmesi Yazdır"
-                            className="p-1.5 rounded-lg border border-slate-200 text-slate-600 hover:text-purple-700 hover:bg-purple-50"
-                          >
-                            <Printer className="w-3.5 h-3.5" />
-                          </button>
-                          <button
-                            onClick={() => openStudentDetail(s.id, "attendance")}
-                            title="Yoklama & Devamsızlık"
-                            className="p-1.5 rounded-lg border border-slate-200 text-slate-600 hover:text-amber-700 hover:bg-amber-50"
-                          >
-                            <Clock className="w-3.5 h-3.5" />
-                          </button>
+                          {isDropped ? (
+                            <>
+                              <button
+                                onClick={() => handleReinstateStudent(s)}
+                                title="Kaydı Geri Al / Yeniden Aktif Et"
+                                className="p-1.5 rounded-lg border border-emerald-300 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 transition-colors"
+                              >
+                                <RotateCcw className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                onClick={() => openStudentDetail(s.id, "profile")}
+                                title="Öğrenci Bilgilerini İncele"
+                                className="p-1.5 rounded-lg border border-slate-200 text-slate-600 hover:text-blue-700 hover:bg-blue-50"
+                              >
+                                <FileText className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                onClick={() => openStudentDetail(s.id, "payments")}
+                                title="Taksit & Finans Defteri"
+                                className="p-1.5 rounded-lg border border-slate-200 text-slate-600 hover:text-teal-700 hover:bg-teal-50"
+                              >
+                                <CreditCard className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                onClick={() => openStudentDetail(s.id, "contract")}
+                                title="Resmî MEB Sözleşmesi Yazdır"
+                                className="p-1.5 rounded-lg border border-slate-200 text-slate-600 hover:text-purple-700 hover:bg-purple-50"
+                              >
+                                <Printer className="w-3.5 h-3.5" />
+                              </button>
+                            </>
+                          ) : (
+                            <>
+                              <button
+                                onClick={() => openDropModal(s)}
+                                title="Öğrenci Kaydını Sil & Sınıftan Düşür"
+                                className="p-1.5 rounded-lg border border-rose-200 text-rose-600 hover:text-rose-800 hover:bg-rose-50 transition-colors"
+                              >
+                                <UserMinus className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                onClick={() => openEditModal(s)}
+                                title="Öğrenci Bilgilerini Düzenle"
+                                className="p-1.5 rounded-lg border border-slate-200 text-slate-600 hover:text-blue-700 hover:bg-blue-50"
+                              >
+                                <Edit2 className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                onClick={() => openStudentDetail(s.id, "payments")}
+                                title="Taksit & Finans Defteri"
+                                className="p-1.5 rounded-lg border border-slate-200 text-slate-600 hover:text-teal-700 hover:bg-teal-50"
+                              >
+                                <CreditCard className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                onClick={() => openStudentDetail(s.id, "contract")}
+                                title="Resmî MEB Sözleşmesi Yazdır"
+                                className="p-1.5 rounded-lg border border-purple-200 text-purple-700 hover:bg-purple-50"
+                              >
+                                <Printer className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                onClick={() => openStudentDetail(s.id, "attendance")}
+                                title="Yoklama & Devamsızlık"
+                                className="p-1.5 rounded-lg border border-slate-200 text-slate-600 hover:text-amber-700 hover:bg-amber-50"
+                              >
+                                <Clock className="w-3.5 h-3.5" />
+                              </button>
+                            </>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -972,6 +1425,30 @@ export default function OgrencilerPage() {
               </div>
 
               <div className="flex items-center gap-2">
+                {selectedStudent.status !== "DROPPED" ? (
+                  <button
+                    onClick={() => {
+                      const s = selectedStudent;
+                      setSelectedStudent(null);
+                      openDropModal(s);
+                    }}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100 text-xs font-semibold transition-colors"
+                  >
+                    <UserMinus className="w-3.5 h-3.5" />
+                    <span>Kayıt Sil</span>
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => {
+                      handleReinstateStudent(selectedStudent);
+                      setSelectedStudent(null);
+                    }}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 text-xs font-semibold transition-colors"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    <span>Kaydı Geri Al</span>
+                  </button>
+                )}
                 <button
                   onClick={() => openStudentDetail(selectedStudent.id, "contract")}
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-purple-200 bg-purple-50 text-purple-700 hover:bg-purple-100 text-xs font-semibold"
@@ -1045,6 +1522,47 @@ export default function OgrencilerPage() {
 
             {/* Modal Gövdesi */}
             <div className="p-6 overflow-y-auto flex-1">
+              {/* SİLİNEN ÖĞRENCİ BİLGİLENDİRME UYARISI */}
+              {selectedStudent.status === "DROPPED" && (() => {
+                const cancelInfo = parseStudentCancellationInfo(selectedStudent.notes);
+                return (
+                  <div className="mb-5 p-4 rounded-xl bg-rose-50 border border-rose-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2.5 rounded-xl bg-rose-100 text-rose-700 shrink-0">
+                        <UserMinus className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <h4 className="font-bold text-rose-900 text-sm">Bu Öğrencinin Kaydı Silinmiştir</h4>
+                        <p className="text-xs text-rose-700 mt-0.5">
+                          Ayrılış Nedeni: <span className="font-semibold">{cancelInfo?.reason || "Belirtilmedi"}</span> • Tarih: {cancelInfo?.droppedAt || "-"} • Sınıf ve şubeden düşürülmüştür.
+                          {cancelInfo?.hasRefund && ` • İade Tutarı: ${Number(cancelInfo.refundAmount).toLocaleString("tr-TR")} ₺`}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      {cancelInfo?.hasRefund && (
+                        <a
+                          href="/kayit-silme-iadeleri"
+                          className="px-3 py-1.5 rounded-lg border border-rose-300 bg-white text-rose-700 hover:bg-rose-100 text-xs font-semibold"
+                        >
+                          İade Planını Gör
+                        </a>
+                      )}
+                      <button
+                        onClick={() => {
+                          handleReinstateStudent(selectedStudent);
+                          setSelectedStudent(null);
+                        }}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold shadow-xs"
+                      >
+                        <RotateCcw className="w-3.5 h-3.5" />
+                        <span>Kaydı Geri Al (Aktif Et)</span>
+                      </button>
+                    </div>
+                  </div>
+                );
+              })()}
+
               {/* TAB 1: ÖZLÜK & AİLE */}
               {detailTab === "profile" && (
                 <div className="space-y-6">
@@ -1291,6 +1809,57 @@ export default function OgrencilerPage() {
               {/* TAB 2: TAKSİT & FİNANS DEFTERİ */}
               {detailTab === "payments" && (
                 <div className="space-y-4">
+                  {/* Sözleşme Satış Kalemleri Özeti */}
+                  {(() => {
+                    const { contractItems: items } = parseStudentContractNotes(selectedStudent.notes);
+                    if (items.length === 0) return null;
+                    return (
+                      <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-3 text-xs">
+                        <div className="flex items-center justify-between">
+                          <span className="font-bold text-slate-900 flex items-center gap-1.5 uppercase text-[11px] tracking-wide">
+                            <ShoppingBag className="w-4 h-4 text-teal-700" /> Sözleşmeye Dahil Satış & Hizmet Paketleri ({items.length} Kalem)
+                          </span>
+                          <span className="text-[11px] font-bold text-slate-700 font-mono">
+                            Toplam Brüt: {(selectedStudent.contractAmount || 0).toLocaleString("tr-TR")} ₺
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+                          {items.map((it, idx) => (
+                            <div key={idx} className="p-3 bg-white rounded-xl border border-slate-200 flex items-center justify-between shadow-2xs">
+                              <div className="min-w-0 pr-2">
+                                <div className="font-bold text-slate-800 truncate text-xs">{it.title}</div>
+                                <div className="text-[10px] text-slate-500 font-semibold mt-0.5">
+                                  {it.type === "EDUCATION" ? "🎓 Eğitim Öğretim" :
+                                   it.type === "MEAL" ? "🍽️ Yemek Hizmeti" :
+                                   it.type === "STATIONERY" ? "📚 Kırtasiye & Kitap" :
+                                   it.type === "CLOTHING" ? "👕 Kıyafet / Üniforma" :
+                                   it.type === "SERVICE" ? "🚌 Okul Servisi" : "✨ Özel / Diğer"}
+                                </div>
+                              </div>
+                              <div className="text-right shrink-0">
+                                <span className="font-mono font-extrabold text-teal-900 text-xs block">
+                                  {(Number(it.amount) || 0).toLocaleString("tr-TR")} ₺
+                                </span>
+                                {(it.paidAmount !== undefined || it.remainingAmount !== undefined) && (
+                                  <div className="text-[10px] font-mono mt-0.5 flex flex-col items-end">
+                                    <span className="text-emerald-700 font-semibold">Ödenen: {(Number(it.paidAmount) || 0).toLocaleString("tr-TR")} ₺</span>
+                                    <span className="text-amber-700 font-semibold">Kalan: {(Number(it.remainingAmount) || 0).toLocaleString("tr-TR")} ₺</span>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                        {selectedStudent.discountAmount > 0 && (
+                          <div className="flex items-center justify-between pt-2 border-t border-slate-200 text-xs font-bold text-emerald-800">
+                            <span>Uygulanan İndirim ({selectedStudent.contractDiscountType ? (DISCOUNT_TYPES.find(d => d.id === selectedStudent.contractDiscountType)?.label || selectedStudent.contractDiscountType) : "İndirim"})</span>
+                            <span className="font-mono font-extrabold">-{(selectedStudent.discountAmount || 0).toLocaleString("tr-TR")} ₺</span>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
+
                   <div className="p-4 rounded-xl bg-teal-50 border border-teal-200 flex items-center justify-between text-xs">
                     <div>
                       <span className="text-teal-800 font-semibold block">Sözleşme Tutarı</span>
@@ -1320,53 +1889,67 @@ export default function OgrencilerPage() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100 font-medium">
-                        {selectedStudent.payments.map((p) => (
-                          <tr key={p.id} className="hover:bg-slate-50">
-                            <td className="py-2.5 px-3 font-bold text-slate-800">{p.title}</td>
-                            <td className="py-2.5 px-3 font-mono">
-                              {new Date(p.dueDate).toLocaleDateString("tr-TR")}
-                            </td>
-                            <td className="py-2.5 px-3 font-mono font-bold text-slate-800">
-                              {p.amount.toLocaleString("tr-TR")} ₺
-                            </td>
-                            <td className="py-2.5 px-3">
-                              {p.isPaid ? (
-                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-bold">
-                                  <Check className="w-3 h-3" /> Ödendi ({p.paidAmount.toLocaleString("tr-TR")} ₺)
-                                </span>
-                              ) : (
-                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 text-[10px] font-bold">
-                                  Bekliyor
-                                </span>
-                              )}
-                            </td>
-                            <td className="py-2.5 px-3 font-mono text-slate-500">
-                              {p.paidDate ? new Date(p.paidDate).toLocaleDateString("tr-TR") : "-"}
-                            </td>
-                            <td className="py-2.5 px-3 text-right">
-                              {!p.isPaid ? (
-                                <button
-                                  onClick={() => {
-                                    setPayingInstallment(p);
-                                    setPayFormData({
-                                      paidAmount: p.amount.toString(),
-                                      paymentMethod: "CASH",
-                                      receiptNo: `MAK-${new Date().getFullYear()}-${p.installmentNo}`,
-                                      notes: "",
-                                    });
-                                  }}
-                                  className="px-2.5 py-1 rounded-lg bg-teal-600 hover:bg-teal-700 text-white font-semibold text-[11px]"
-                                >
-                                  Tahsil Et
-                                </button>
-                              ) : (
-                                <span className="text-slate-400 text-[11px]">
-                                  {p.paymentMethod || "Nakit"}
-                                </span>
-                              )}
+                        {(!selectedStudent.payments || selectedStudent.payments.length === 0) ? (
+                          <tr>
+                            <td colSpan={6} className="py-8 text-center text-slate-400">
+                              <CreditCard className="w-7 h-7 text-slate-300 mx-auto mb-2" />
+                              <p className="font-semibold text-xs text-slate-700">Ödeme / Taksit Planı Bekleniyor</p>
+                              <p className="text-[11px] text-slate-400 mt-0.5">Sözleşme paketleri tanımlandı. Taksitli veya Vinov otomatik ödeme planını daha sonra belirleyebilirsiniz.</p>
                             </td>
                           </tr>
-                        ))}
+                        ) : (
+                          selectedStudent.payments.map((p) => (
+                            <tr key={p.id} className="hover:bg-slate-50">
+                              <td className="py-2.5 px-3 font-bold text-slate-800">{p.title}</td>
+                              <td className="py-2.5 px-3 font-mono">
+                                {new Date(p.dueDate).toLocaleDateString("tr-TR")}
+                              </td>
+                              <td className="py-2.5 px-3 font-mono font-bold text-slate-800">
+                                {p.amount.toLocaleString("tr-TR")} ₺
+                              </td>
+                              <td className="py-2.5 px-3">
+                                {p.isPaid ? (
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-bold">
+                                    <Check className="w-3 h-3" /> Ödendi ({p.paidAmount.toLocaleString("tr-TR")} ₺)
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 text-[10px] font-bold">
+                                    Bekliyor
+                                  </span>
+                                )}
+                              </td>
+                              <td className="py-2.5 px-3 font-mono text-slate-500">
+                                {p.paidDate ? new Date(p.paidDate).toLocaleDateString("tr-TR") : "-"}
+                              </td>
+                              <td className="py-2.5 px-3 text-right">
+                                {!p.isPaid ? (
+                                  <button
+                                    onClick={() => {
+                                      setPayingInstallment(p);
+                                      setPayFormData({
+                                        paidAmount: p.amount.toString(),
+                                        paymentMethod: "CASH",
+                                        receiptNo: `MAK-${new Date().getFullYear()}-${p.installmentNo}`,
+                                        notes: "",
+                                      });
+                                    }}
+                                    className="px-2.5 py-1 rounded-lg bg-teal-600 hover:bg-teal-700 text-white font-semibold text-[11px]"
+                                  >
+                                    Tahsil Et
+                                  </button>
+                                ) : (
+                                  <span className="text-slate-500 font-semibold text-[11px]">
+                                    {p.paymentMethod === "VINOV" ? "Vinov (Oto. Ödeme)" :
+                                     p.paymentMethod === "CREDIT_CARD" ? "Kredi Kartı" :
+                                     p.paymentMethod === "BANK_TRANSFER" ? "Havale / EFT" :
+                                     p.paymentMethod === "CHEQUE" ? "Çek" :
+                                     p.paymentMethod || "Nakit"}
+                                  </span>
+                                )}
+                              </td>
+                            </tr>
+                          ))
+                        )}
                       </tbody>
                     </table>
                   </div>
@@ -1702,6 +2285,56 @@ export default function OgrencilerPage() {
                         </span>
                       </div>
 
+                      {/* Dahil Olan Paket Satış Kalemleri */}
+                      {(() => {
+                        const { contractItems: items } = parseStudentContractNotes(selectedStudent.notes);
+                        if (items.length === 0) return null;
+                        return (
+                          <div className="mb-2 border border-slate-300 rounded-lg overflow-hidden">
+                            <table className="w-full text-left text-xs">
+                              <thead className="bg-slate-100 font-bold border-b border-slate-300 text-[11px]">
+                                <tr>
+                                  <th className="p-2">Dahil Olan Paket / Hizmet Kalemi</th>
+                                  <th className="p-2">Hizmet Türü</th>
+                                  <th className="p-2 text-right">Tutar (TL)</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-slate-200">
+                                {items.map((it, idx) => (
+                                  <tr key={idx}>
+                                    <td className="p-2 font-semibold text-slate-800">{it.title}</td>
+                                    <td className="p-2 text-slate-600">
+                                      {it.type === "EDUCATION" ? "🎓 Eğitim Öğretim" :
+                                       it.type === "MEAL" ? "🍽️ Yemek Hizmeti" :
+                                       it.type === "STATIONERY" ? "📚 Kırtasiye & Kitap" :
+                                       it.type === "CLOTHING" ? "👕 Kıyafet / Üniforma" :
+                                       it.type === "SERVICE" ? "🚌 Okul Servisi" : "✨ Diğer"}
+                                    </td>
+                                    <td className="p-2 text-right font-mono font-bold text-slate-800">
+                                      {(Number(it.amount) || 0).toLocaleString("tr-TR")} ₺
+                                    </td>
+                                  </tr>
+                                ))}
+                                <tr className="bg-slate-50 font-bold text-[11px]">
+                                  <td colSpan={2} className="p-2 text-right">TOPLAM BRÜT PAKET TUTARI:</td>
+                                  <td className="p-2 text-right font-mono text-slate-900">
+                                    {(selectedStudent.contractAmount || 0).toLocaleString("tr-TR")} ₺
+                                  </td>
+                                </tr>
+                                {selectedStudent.discountAmount > 0 && (
+                                  <tr className="bg-emerald-50/50 font-bold text-[11px] text-emerald-800">
+                                    <td colSpan={2} className="p-2 text-right">UYGULANAN İNDİRİM:</td>
+                                    <td className="p-2 text-right font-mono">
+                                      -{(selectedStudent.discountAmount || 0).toLocaleString("tr-TR")} ₺
+                                    </td>
+                                  </tr>
+                                )}
+                              </tbody>
+                            </table>
+                          </div>
+                        );
+                      })()}
+
                       <div className="border border-slate-300 rounded-lg overflow-hidden">
                         <table className="w-full text-left text-xs">
                           <thead className="bg-slate-100 font-bold border-b border-slate-300 text-[11px]">
@@ -1952,151 +2585,11 @@ export default function OgrencilerPage() {
                 </div>
               </div>
 
-              {/* BÖLÜM 3: SAĞLIK, BESLENME VE SERVİS PROTOKOLÜ */}
-              <div className="p-4 rounded-2xl bg-amber-50/60 border border-amber-200 space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-amber-950 flex items-center gap-1.5 text-xs uppercase tracking-wide">
-                    <Baby className="w-4 h-4 text-amber-700" /> 3. Sağlık, Beslenme & Servis Bilgileri
-                  </span>
-                  <span className="text-[10px] text-amber-800 font-semibold">{activeCategory.label} Protokolü</span>
-                </div>
-
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                  {formData.section === "ANAOKULU" && (
-                    <>
-                      <div className="p-3 bg-white rounded-xl border border-amber-200">
-                        <label className="block font-semibold text-slate-700 mb-1.5 text-[11px]">Tuvalet Eğitimi</label>
-                        <div className="flex gap-2">
-                          <button
-                            type="button"
-                            onClick={() => setFormData({ ...formData, toiletTrained: true })}
-                            className={`flex-1 py-1.5 rounded-lg font-bold text-[11px] transition-all ${
-                              formData.toiletTrained ? "bg-emerald-600 text-white" : "bg-slate-100 text-slate-600"
-                            }`}
-                          >
-                            Tamamlandı
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setFormData({ ...formData, toiletTrained: false })}
-                            className={`flex-1 py-1.5 rounded-lg font-bold text-[11px] transition-all ${
-                              !formData.toiletTrained ? "bg-amber-600 text-white" : "bg-slate-100 text-slate-600"
-                            }`}
-                          >
-                            Destekleniyor
-                          </button>
-                        </div>
-                      </div>
-
-                      <div className="p-3 bg-white rounded-xl border border-amber-200">
-                        <label className="block font-semibold text-slate-700 mb-1.5 text-[11px]">Öğle Uykusu Odası</label>
-                        <div className="flex gap-2">
-                          <button
-                            type="button"
-                            onClick={() => setFormData({ ...formData, napTime: true })}
-                            className={`flex-1 py-1.5 rounded-lg font-bold text-[11px] transition-all ${
-                              formData.napTime ? "bg-teal-600 text-white" : "bg-slate-100 text-slate-600"
-                            }`}
-                          >
-                            Uyku Var
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setFormData({ ...formData, napTime: false })}
-                            className={`flex-1 py-1.5 rounded-lg font-bold text-[11px] transition-all ${
-                              !formData.napTime ? "bg-slate-400 text-white" : "bg-slate-100 text-slate-600"
-                            }`}
-                          >
-                            Uyku Yok
-                          </button>
-                        </div>
-                      </div>
-                    </>
-                  )}
-
-                  <div className="p-3 bg-white rounded-xl border border-amber-200">
-                    <label className="block font-semibold text-slate-700 mb-1.5 text-[11px]">Yemek / Öğün Hizmeti</label>
-                    <div className="flex gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setFormData({ ...formData, mealUsed: true })}
-                        className={`flex-1 py-1.5 rounded-lg font-bold text-[11px] transition-all ${
-                          formData.mealUsed ? "bg-emerald-600 text-white" : "bg-slate-100 text-slate-600"
-                        }`}
-                      >
-                        3 Öğün Dahil
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setFormData({ ...formData, mealUsed: false })}
-                        className={`flex-1 py-1.5 rounded-lg font-bold text-[11px] transition-all ${
-                          !formData.mealUsed ? "bg-slate-400 text-white" : "bg-slate-100 text-slate-600"
-                        }`}
-                      >
-                        Hariç
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="p-3 bg-white rounded-xl border border-amber-200">
-                    <label className="block font-semibold text-slate-700 mb-1.5 text-[11px]">Servis Ulaşımı</label>
-                    <div className="flex gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setFormData({ ...formData, serviceUsed: true })}
-                        className={`flex-1 py-1.5 rounded-lg font-bold text-[11px] transition-all ${
-                          formData.serviceUsed ? "bg-blue-600 text-white" : "bg-slate-100 text-slate-600"
-                        }`}
-                      >
-                        Okul Servisi
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setFormData({ ...formData, serviceUsed: false })}
-                        className={`flex-1 py-1.5 rounded-lg font-bold text-[11px] transition-all ${
-                          !formData.serviceUsed ? "bg-slate-400 text-white" : "bg-slate-100 text-slate-600"
-                        }`}
-                      >
-                        Ailesi Alır
-                      </button>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
-                  <div>
-                    <label className="block font-semibold text-slate-700 mb-1">
-                      Özel Diyet, Gıda Alerjisi & Beslenme Hassasiyetleri
-                    </label>
-                    <input
-                      type="text"
-                      value={formData.dietNotes}
-                      onChange={(e) => setFormData({ ...formData, dietNotes: e.target.value })}
-                      placeholder="Örn: Laktozsuz süt, yumurta alerjisi, çilek hassasiyeti..."
-                      className="w-full px-3 py-2 rounded-xl border border-amber-200 bg-white text-xs focus:ring-2 focus:ring-amber-500 focus:outline-none"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block font-semibold text-slate-700 mb-1">
-                      Kronik Rahatsızlık, İlaç & Sağlık Notları
-                    </label>
-                    <input
-                      type="text"
-                      value={formData.healthNotes}
-                      onChange={(e) => setFormData({ ...formData, healthNotes: e.target.value })}
-                      placeholder="Örn: Astım spreyi var, ateşlendiğinde derhal aransın..."
-                      className="w-full px-3 py-2 rounded-xl border border-amber-200 bg-white text-xs focus:ring-2 focus:ring-amber-500 focus:outline-none"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* BÖLÜM 4: VELİ & AİLE İLETİŞİM BİLGİLERİ */}
+              {/* BÖLÜM 3: VELİ & AİLE İLETİŞİM BİLGİLERİ */}
               <div className="space-y-3 pt-2 border-t border-slate-100">
                 <div className="flex items-center justify-between">
                   <span className="font-bold text-slate-800 flex items-center gap-1.5 text-xs uppercase tracking-wide">
-                    <Phone className="w-4 h-4 text-slate-600" /> 4. Veli & Aile İletişim Bilgileri
+                    <Phone className="w-4 h-4 text-slate-600" /> 3. Veli & Aile İletişim Bilgileri
                   </span>
                   <div className="flex items-center gap-2">
                     <label className="text-[11px] text-slate-500 font-semibold">Resmî Veli / Vasi:</label>
@@ -2222,12 +2715,12 @@ export default function OgrencilerPage() {
                 </div>
               </div>
 
-              {/* BÖLÜM 5: OKULDAN TESLİM ALMAYA YETKİLİ KİŞİLER (ANNE & BABA HARİCİ) */}
+              {/* BÖLÜM 4: OKULDAN TESLİM ALMAYA YETKİLİ KİŞİLER (ANNE & BABA HARİCİ) */}
               <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-3">
                 <div className="flex items-center justify-between">
                   <div>
                     <span className="font-bold text-slate-800 flex items-center gap-1.5 text-xs uppercase tracking-wide">
-                      <ShieldCheck className="w-4 h-4 text-teal-700" /> 5. Okuldan Teslim Almaya Yetkili Kişiler (Anne & Baba Harici)
+                      <ShieldCheck className="w-4 h-4 text-teal-700" /> 4. Okuldan Teslim Almaya Yetkili Kişiler (Anne & Baba Harici)
                     </span>
                     <p className="text-[10px] text-slate-500">Güvenlik gereği kimlik teyidi yapılmadan teslim edilmez.</p>
                   </div>
@@ -2307,10 +2800,10 @@ export default function OgrencilerPage() {
                 </div>
               </div>
 
-              {/* BÖLÜM 6: VELİ BİLGİLENDİRME PORTALI & KVKK / MEDYA İZİNLERİ */}
+              {/* BÖLÜM 5: VELİ BİLGİLENDİRME PORTALI & KVKK / MEDYA İZİNLERİ */}
               <div className="p-4 rounded-2xl bg-indigo-50/70 border border-indigo-200 space-y-3">
                 <span className="font-bold text-indigo-950 flex items-center gap-1.5 text-xs uppercase tracking-wide">
-                  <Key className="w-4 h-4 text-indigo-700" /> 6. Veli Bilgilendirme Portalı & KVKK Muvafakatnameleri
+                  <Key className="w-4 h-4 text-indigo-700" /> 5. Veli Bilgilendirme Portalı & KVKK Muvafakatnameleri
                 </span>
 
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
@@ -2369,110 +2862,232 @@ export default function OgrencilerPage() {
                 </div>
               </div>
 
-              {/* BÖLÜM 7: FİNANS, SÖZLEŞME TARİFESİ & TAKSİT PLANLAMA SİHİRBAZI */}
-              <div className="p-4 rounded-2xl bg-emerald-50/60 border border-emerald-200 space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-emerald-950 flex items-center gap-1.5 text-xs uppercase tracking-wide">
-                    <DollarSign className="w-4 h-4 text-emerald-700" /> 7. Eğitim Ücreti, İndirim & Taksit Planı
-                  </span>
-                  <span className="text-[11px] font-bold font-mono text-emerald-800">
-                    Net Tutar:{" "}
-                    {(
-                      Math.max(0, (parseFloat(formData.contractAmount) || 0) - (parseFloat(formData.discountAmount) || 0))
-                    ).toLocaleString("tr-TR")}{" "}
-                    ₺
-                  </span>
-                </div>
+              {/* BÖLÜM 6: SÖZLEŞME SATIŞ KALEMLERİ, İNDİRİM & TAKSİT PLANI */}
+<div className="p-4 rounded-2xl bg-emerald-50/70 border border-emerald-200 space-y-4">
+  {/* Başlık ve Net Tutar */}
+  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 border-b border-emerald-200/80 pb-3">
+    <div>
+      <span className="font-bold text-emerald-950 flex items-center gap-1.5 text-xs uppercase tracking-wide">
+        <DollarSign className="w-4 h-4 text-emerald-700" /> 6. Sözleşme Satış Kalemleri, İndirim & Taksit Planı
+      </span>
+      <p className="text-[11px] text-emerald-800 mt-0.5">
+        Sözleşmeye dahil edilen eğitim, yemek, kırtasiye, kıyafet vb. satış kalemlerini yönetin.
+      </p>
+    </div>
+    <div className="flex items-center gap-2 self-start sm:self-auto">
+      <div className="px-3 py-1.5 rounded-xl bg-white border border-emerald-300 shadow-2xs text-right">
+        <span className="text-[10px] text-slate-500 font-semibold block">Net Sözleşme Tutarı</span>
+        <span className="text-sm font-black text-emerald-900 font-mono">
+          {(
+            Math.max(0, (parseFloat(formData.contractAmount) || 0) - (parseFloat(formData.discountAmount) || 0))
+          ).toLocaleString("tr-TR")}{" "}₺
+        </span>
+      </div>
+    </div>
+  </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-                  <div>
-                    <label className="block font-semibold text-slate-700 mb-1">Brüt Eğitim Ücreti (TL) *</label>
-                    <input
-                      type="number"
-                      required
-                      value={formData.contractAmount}
-                      onChange={(e) => setFormData({ ...formData, contractAmount: e.target.value })}
-                      placeholder="Örn: 90000"
-                      className="w-full px-3 py-2 rounded-xl border border-emerald-200 bg-white font-mono font-bold text-xs"
-                    />
-                  </div>
+  {/* 📦 SATIŞ VE HİZMET KALEMLERİ LİSTESİ */}
+  <div className="space-y-2.5">
+    <div className="flex flex-wrap items-center justify-between gap-2">
+      <label className="font-bold text-emerald-950 text-xs flex items-center gap-1.5">
+        <ShoppingBag className="w-3.5 h-3.5 text-emerald-700" /> Sözleşmeye Dahil Satış Kalemleri ({formData.contractItems.length})
+      </label>
+      {/* Hızlı Kalem Ekleme Butonları */}
+      <div className="flex flex-wrap items-center gap-1">
+        {CONTRACT_ITEM_PRESETS.map((preset) => (
+          <button
+            key={preset.type}
+            type="button"
+            onClick={() => addContractItem(preset.type)}
+            className="px-2 py-1 rounded-lg bg-white border border-emerald-300 hover:bg-emerald-100/60 text-emerald-900 text-[10px] font-bold flex items-center gap-1 transition-all shadow-2xs"
+            title={`${preset.defaultTitle} ekle`}
+          >
+            <span>{preset.icon}</span>
+            <span>+{preset.label}</span>
+          </button>
+        ))}
+      </div>
+    </div>
 
-                  <div>
-                    <label className="block font-semibold text-slate-700 mb-1">İndirim Türü</label>
-                    <select
-                      value={formData.contractDiscountType}
-                      onChange={(e) => setFormData({ ...formData, contractDiscountType: e.target.value })}
-                      className="w-full px-3 py-2 rounded-xl border border-emerald-200 bg-white text-xs font-semibold"
-                    >
-                      {DISCOUNT_TYPES.map((d) => (
-                        <option key={d.id} value={d.id}>
-                          {d.label}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
+    {/* Kalemler Tablosu */}
+    <div className="space-y-2">
+      {formData.contractItems.map((item, idx) => (
+        <div
+          key={item.id}
+          className="p-2.5 bg-white rounded-xl border border-emerald-200 flex flex-wrap items-center gap-2 text-xs shadow-2xs hover:border-emerald-300 transition-colors"
+        >
+          <div className="w-5 text-slate-400 font-bold text-center font-mono text-[11px]">{idx + 1}.</div>
 
-                  <div>
-                    <label className="block font-semibold text-slate-700 mb-1">İndirim Tutarı (TL)</label>
-                    <input
-                      type="number"
-                      value={formData.discountAmount}
-                      onChange={(e) => setFormData({ ...formData, discountAmount: e.target.value })}
-                      className="w-full px-3 py-2 rounded-xl border border-emerald-200 bg-white font-mono text-xs"
-                    />
-                  </div>
+          {/* Tür Seçimi */}
+          <div className="w-32">
+            <select
+              value={item.type}
+              onChange={(e) => updateContractItem(item.id, "type", e.target.value)}
+              className="w-full px-2 py-1.5 rounded-lg border border-slate-200 bg-slate-50 text-[11px] font-bold text-slate-800 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+            >
+              <option value="EDUCATION">🎓 Eğitim</option>
+              <option value="MEAL">🍽️ Yemek</option>
+              <option value="STATIONERY">📚 Kırtasiye/Kitap</option>
+              <option value="CLOTHING">👕 Kıyafet/Üniforma</option>
+              <option value="SERVICE">🚌 Servis</option>
+              <option value="OTHER">✨ Özel/Diğer</option>
+            </select>
+          </div>
 
-                  <div>
-                    <label className="block font-semibold text-slate-700 mb-1">Taksit Sayısı</label>
-                    <select
-                      value={formData.installmentCount}
-                      onChange={(e) => setFormData({ ...formData, installmentCount: e.target.value })}
-                      className="w-full px-3 py-2 rounded-xl border border-emerald-200 bg-white text-xs font-semibold"
-                    >
-                      <option value="1">1 (Peşin)</option>
-                      <option value="3">3 Taksit</option>
-                      <option value="6">6 Taksit</option>
-                      <option value="8">8 Taksit</option>
-                      <option value="9">9 Taksit (Eğitim Dönemi)</option>
-                      <option value="10">10 Taksit (Standart)</option>
-                      <option value="12">12 Taksit</option>
-                    </select>
-                  </div>
-                </div>
+          {/* Başlık / Tanım */}
+          <div className="flex-1 min-w-[160px]">
+            <input
+              type="text"
+              value={item.title}
+              onChange={(e) => updateContractItem(item.id, "title", e.target.value)}
+              placeholder="Kalem başlığı (Örn: Eğitim, 3 Öğün Yemek vb.)"
+              className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white text-xs font-semibold text-slate-800 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+            />
+          </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
-                  <div>
-                    <label className="block font-semibold text-slate-700 mb-1">İlk Taksit / Peşinat Vade Tarihi</label>
-                    <input
-                      type="date"
-                      value={formData.firstInstallmentDate}
-                      onChange={(e) => setFormData({ ...formData, firstInstallmentDate: e.target.value })}
-                      className="w-full px-3 py-2 rounded-xl border border-emerald-200 bg-white text-xs"
-                    />
-                  </div>
+          {/* Tutar */}
+          <div className="w-36 flex items-center gap-1">
+            <input
+              type="number"
+              min="0"
+              step="100"
+              value={item.amount}
+              onChange={(e) => updateContractItem(item.id, "amount", e.target.value)}
+              className="w-full px-2.5 py-1.5 rounded-lg border border-emerald-300 bg-emerald-50/50 text-xs font-mono font-black text-emerald-950 text-right focus:bg-white focus:outline-none focus:ring-1 focus:ring-emerald-500"
+            />
+            <span className="font-bold text-slate-500 text-[11px]">₺</span>
+          </div>
 
-                  <div className="p-3 bg-white rounded-xl border border-emerald-200 flex items-center justify-between">
-                    <div>
-                      <span className="text-slate-400 block text-[10px] font-bold uppercase">Hesaplanan Aylık Taksit</span>
-                      <span className="text-base font-extrabold text-emerald-900 font-mono">
-                        {(
-                          Math.round(
-                            (Math.max(0, (parseFloat(formData.contractAmount) || 0) - (parseFloat(formData.discountAmount) || 0)) /
-                              Math.max(1, parseInt(formData.installmentCount) || 1)) *
-                              100
-                          ) / 100
-                        ).toLocaleString("tr-TR")}{" "}
-                        ₺ / ay
-                      </span>
-                    </div>
-                    <span className="text-[10px] px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-800 font-bold">
-                      {formData.installmentCount} Ay Eşit Taksit
-                    </span>
-                  </div>
-                </div>
+          {/* Sil Butonu */}
+          <button
+            type="button"
+            onClick={() => removeContractItem(item.id)}
+            className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
+            title="Bu satışı sözleşmeden çıkar"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      ))}
+    </div>
+
+    {/* Brüt Toplam Satırı */}
+    <div className="flex items-center justify-between p-2.5 bg-emerald-100/60 rounded-xl border border-emerald-200/80 text-xs font-bold text-emerald-950">
+      <span>Kalemler Toplamı (Brüt Sözleşme Tutarı):</span>
+      <span className="font-mono text-sm font-black">
+        {(parseFloat(formData.contractAmount) || 0).toLocaleString("tr-TR")} ₺
+      </span>
+    </div>
+  </div>
+
+  {/* 🏷️ İNDİRİM & TARİFE BÖLÜMÜ */}
+  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
+    <div>
+      <label className="block font-semibold text-slate-700 mb-1">İndirim Türü / Tarife</label>
+      <select
+        value={formData.contractDiscountType}
+        onChange={(e) => setFormData({ ...formData, contractDiscountType: e.target.value })}
+        className="w-full px-3 py-2 rounded-xl border border-emerald-200 bg-white text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-500"
+      >
+        {DISCOUNT_TYPES.map((d) => (
+          <option key={d.id} value={d.id}>
+            {d.label}
+          </option>
+        ))}
+      </select>
+    </div>
+
+    <div>
+      <label className="block font-semibold text-slate-700 mb-1">İndirim Tutarı (TL)</label>
+      <input
+        type="number"
+        min="0"
+        value={formData.discountAmount}
+        onChange={(e) => setFormData({ ...formData, discountAmount: e.target.value })}
+        placeholder="0"
+        className="w-full px-3 py-2 rounded-xl border border-emerald-200 bg-white font-mono font-bold text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500"
+      />
+    </div>
+  </div>
+
+  {/* 💳 TAKSİT VE ÖDEME PLANI */}
+  <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-1">
+    <div>
+      <label className="block font-semibold text-slate-700 mb-1">Taksit Sayısı</label>
+      <select
+        value={formData.installmentCount}
+        onChange={(e) => setFormData({ ...formData, installmentCount: e.target.value })}
+        className="w-full px-3 py-2 rounded-xl border border-emerald-200 bg-white text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-500"
+      >
+        <option value="1">1 (Peşin Tek Ödeme)</option>
+        <option value="2">2 Taksit</option>
+        <option value="3">3 Taksit</option>
+        <option value="4">4 Taksit</option>
+        <option value="5">5 Taksit</option>
+        <option value="6">6 Taksit</option>
+        <option value="8">8 Taksit</option>
+        <option value="9">9 Taksit (Eğitim Dönemi)</option>
+        <option value="10">10 Taksit (Standart)</option>
+        <option value="12">12 Taksit (Yıllık)</option>
+      </select>
+    </div>
+
+    <div>
+      <label className="block font-semibold text-slate-700 mb-1">İlk Taksit / Peşinat Vade Tarihi</label>
+      <input
+        type="date"
+        value={formData.firstInstallmentDate}
+        onChange={(e) => setFormData({ ...formData, firstInstallmentDate: e.target.value })}
+        className="w-full px-3 py-2 rounded-xl border border-emerald-200 bg-white text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500"
+      />
+    </div>
+
+    <div className="p-3 bg-white rounded-xl border border-emerald-200 flex flex-col justify-center">
+      <span className="text-slate-400 block text-[10px] font-bold uppercase">Hesaplanan Aylık Taksit</span>
+      <span className="text-base font-extrabold text-emerald-900 font-mono">
+        {(
+          Math.round(
+            (Math.max(0, (parseFloat(formData.contractAmount) || 0) - (parseFloat(formData.discountAmount) || 0)) /
+              Math.max(1, parseInt(formData.installmentCount) || 1)) *
+              100
+          ) / 100
+        ).toLocaleString("tr-TR")}{" "}₺ / ay
+      </span>
+    </div>
+  </div>
+
+  {/* Taksit Vade Planı Çizelgesi Önizlemesi */}
+  {parseInt(formData.installmentCount) > 1 && (
+    <div className="bg-white/80 rounded-xl p-3 border border-emerald-200/80 space-y-2">
+      <div className="flex items-center justify-between text-[11px]">
+        <span className="font-bold text-emerald-950 flex items-center gap-1">
+          <Calendar className="w-3.5 h-3.5 text-emerald-700" /> Taksit Vade Planı Dağılımı ({formData.installmentCount} Ay Eşit)
+        </span>
+      </div>
+      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2 max-h-36 overflow-y-auto pr-1">
+        {(() => {
+          const count = Math.max(1, parseInt(formData.installmentCount) || 1);
+          const netVal = Math.max(0, (parseFloat(formData.contractAmount) || 0) - (parseFloat(formData.discountAmount) || 0));
+          const perMonth = Math.round((netVal / count) * 100) / 100;
+          return Array.from({ length: count }).map((_, idx) => {
+            const d = new Date(formData.firstInstallmentDate || new Date());
+            d.setMonth(d.getMonth() + idx);
+            const isLast = idx === count - 1;
+            const thisVal = isLast ? Math.round((netVal - (perMonth * (count - 1))) * 100) / 100 : perMonth;
+            return (
+              <div key={idx} className="p-2 bg-emerald-50/50 rounded-lg border border-emerald-100 text-[10px]">
+                <div className="text-slate-400 font-semibold">{idx === 0 ? "1. Taksit (Peşinat)" : `${idx + 1}. Taksit`}</div>
+                <div className="font-mono text-slate-700 font-bold">{d.toLocaleDateString("tr-TR")}</div>
+                <div className="font-mono font-black text-emerald-800 text-xs mt-0.5">{thisVal.toLocaleString("tr-TR")} ₺</div>
               </div>
-
-              {/* Form Butonları */}
+            );
+          });
+        })()}
+      </div>
+    </div>
+  )}
+</div>
+{/* Form Butonları */}
               <div className="pt-4 flex items-center justify-end gap-2.5 border-t border-slate-100">
                 <button
                   type="button"
@@ -2529,6 +3144,7 @@ export default function OgrencilerPage() {
                   <option value="CASH">Nakit / Elden</option>
                   <option value="BANK_TRANSFER">Banka Havalesi / EFT</option>
                   <option value="CREDIT_CARD">Kredi Kartı / POS</option>
+                  <option value="VINOV">Vinov (Otomatik Ödeme / Vakıfbank)</option>
                   <option value="CHEQUE">Çek</option>
                 </select>
               </div>
@@ -2562,6 +3178,254 @@ export default function OgrencilerPage() {
           </div>
         </div>
       )}
+
+      {/* ================= MODAL 4: ÖĞRENCİ KAYDI SİLME & İADE FORMU ================= */}
+      {dropModalOpen && droppingStudent && (() => {
+        const paidTotal = (droppingStudent.payments || []).reduce(
+          (sum, p) => sum + (p.paidAmount || (p.isPaid ? p.amount : 0)),
+          0
+        );
+
+        return (
+          <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+            <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden border border-rose-100">
+              {/* Header */}
+              <div className="p-5 border-b border-rose-100 bg-rose-50/70 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 rounded-xl bg-rose-600 text-white shadow-sm">
+                    <UserMinus className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-slate-800 text-base">Öğrenci Kaydı Silme & İade</h3>
+                    <p className="text-xs text-rose-700 font-medium">
+                      Öğrenci sınıftan düşürülecek, özlük ve finans geçmişi korunacaktır.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDropModalOpen(false);
+                    setDroppingStudent(null);
+                  }}
+                  className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-200/50"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Form */}
+              <form onSubmit={handleDropSubmit} className="p-6 space-y-4 text-xs">
+                {/* Öğrenci Özet Kutusu */}
+                <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200/80 space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-slate-800 text-sm">{droppingStudent.fullName}</span>
+                    <span className="text-[11px] font-mono text-slate-500">TC: {droppingStudent.tcNo}</span>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-3 text-[11px] text-slate-600 pt-1 border-t border-slate-200">
+                    <span>Sınıf: <strong className="text-slate-800">{droppingStudent.classroom?.name || "Atanmadı"}</strong></span>
+                    <span>Sözleşme: <strong className="text-slate-800">{(droppingStudent.netAmount || 0).toLocaleString("tr-TR")} ₺</strong></span>
+                    <span>Tahsil Edilen: <strong className="text-emerald-700">{paidTotal.toLocaleString("tr-TR")} ₺</strong></span>
+                  </div>
+                </div>
+
+                {/* Ayrılış Nedeni */}
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">
+                    Kayıt Silme / Ayrılış Nedeni <span className="text-rose-500">*</span>
+                  </label>
+                  <select
+                    value={dropForm.reason}
+                    onChange={(e) => setDropForm({ ...dropForm, reason: e.target.value })}
+                    className="w-full px-3 py-2.5 rounded-xl border border-slate-200 bg-white font-medium text-xs focus:ring-2 focus:ring-rose-500 focus:outline-none"
+                  >
+                    <option value="Başka Okula Nakil">Başka Okula Nakil</option>
+                    <option value="Şehir / İkamet Değişikliği">Şehir / İkamet Değişikliği</option>
+                    <option value="Veli Kendi İsteğiyle Ayrılma">Veli Kendi İsteğiyle Ayrılma</option>
+                    <option value="Maddi / Finansal Nedenler">Maddi / Finansal Nedenler</option>
+                    <option value="Sağlık / Özel Durum">Sağlık / Özel Durum</option>
+                    <option value="Kurum Disiplin / Yönetim Kararı">Kurum Disiplin / Yönetim Kararı</option>
+                    <option value="DİĞER">Diğer (Manuel Açıklama)</option>
+                  </select>
+                </div>
+
+                {dropForm.reason === "DİĞER" && (
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">Özel Neden Belirtiniz</label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="Örn: Yurt dışına taşınma..."
+                      value={dropForm.customReason}
+                      onChange={(e) => setDropForm({ ...dropForm, customReason: e.target.value })}
+                      className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs"
+                    />
+                  </div>
+                )}
+
+                {/* Kayıt Silme Tarihi */}
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">
+                    Kayıt Silme / Ayrılış Tarihi <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    type="date"
+                    required
+                    value={dropForm.cancellationDate}
+                    onChange={(e) => setDropForm({ ...dropForm, cancellationDate: e.target.value })}
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white font-semibold text-xs"
+                  />
+                </div>
+
+                {/* İade Seçeneği Toggle */}
+                <div className="pt-2 border-t border-slate-100">
+                  <label className="flex items-center gap-3 p-3 rounded-xl bg-amber-50/60 border border-amber-200/80 cursor-pointer hover:bg-amber-50 transition-colors">
+                    <input
+                      type="checkbox"
+                      checked={dropForm.hasRefund}
+                      onChange={(e) => setDropForm({ ...dropForm, hasRefund: e.target.checked })}
+                      className="w-4 h-4 text-rose-600 rounded border-slate-300 focus:ring-rose-500"
+                    />
+                    <div>
+                      <span className="font-bold text-slate-800 text-xs block">
+                        Veliye Para İadesi Yapılacak mı?
+                      </span>
+                      <span className="text-[11px] text-slate-500">
+                        İade seçilirse tutar ve taksitler 'Kayıt Silme İadeleri' ve 'Günlük Kasa Planı'na yansıtılır.
+                      </span>
+                    </div>
+                  </label>
+                </div>
+
+                {/* İade Detayları Alanı */}
+                {dropForm.hasRefund && (
+                  <div className="p-4 rounded-xl bg-rose-50/40 border border-rose-200 space-y-3">
+                    <div className="flex items-center gap-2 text-rose-800 font-bold text-xs pb-1 border-b border-rose-200/60">
+                      <Receipt className="w-4 h-4 text-rose-600" />
+                      <span>İade Tutarı & Taksit Planı</span>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block font-semibold text-slate-700 mb-1">
+                          İade Edilecek Tutar (TL) <span className="text-rose-500">*</span>
+                        </label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          required={dropForm.hasRefund}
+                          placeholder={paidTotal > 0 ? String(paidTotal) : "0"}
+                          value={dropForm.refundAmount}
+                          onChange={(e) => setDropForm({ ...dropForm, refundAmount: e.target.value })}
+                          className="w-full px-3 py-2 rounded-xl border border-rose-300 bg-white font-bold font-mono text-sm text-rose-700 focus:ring-2 focus:ring-rose-500 focus:outline-none"
+                        />
+                        <span className="text-[10px] text-slate-500 mt-0.5 block">
+                          Tahsil edilen toplam: {paidTotal.toLocaleString("tr-TR")} ₺
+                        </span>
+                      </div>
+
+                      <div>
+                        <label className="block font-semibold text-slate-700 mb-1">
+                          Geri Ödeme Taksit Sayısı
+                        </label>
+                        <select
+                          value={dropForm.refundInstallments}
+                          onChange={(e) => setDropForm({ ...dropForm, refundInstallments: e.target.value })}
+                          className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white font-semibold text-xs"
+                        >
+                          <option value="1">1 Taksit (Tek Seferde İade)</option>
+                          <option value="2">2 Taksit (Aylık)</option>
+                          <option value="3">3 Taksit (Aylık)</option>
+                          <option value="4">4 Taksit (Aylık)</option>
+                          <option value="5">5 Taksit (Aylık)</option>
+                          <option value="6">6 Taksit (Aylık)</option>
+                          <option value="8">8 Taksit (Aylık)</option>
+                          <option value="10">10 Taksit (Aylık)</option>
+                          <option value="12">12 Taksit (Aylık)</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block font-semibold text-slate-700 mb-1">
+                          İlk İade Vade Tarihi <span className="text-rose-500">*</span>
+                        </label>
+                        <input
+                          type="date"
+                          required={dropForm.hasRefund}
+                          value={dropForm.refundStartDate}
+                          onChange={(e) => setDropForm({ ...dropForm, refundStartDate: e.target.value })}
+                          className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white font-semibold text-xs"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block font-semibold text-slate-700 mb-1">
+                          Veli IBAN No (İsteğe Bağlı)
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="TR00 0000 0000..."
+                          value={dropForm.refundIban}
+                          onChange={(e) => setDropForm({ ...dropForm, refundIban: e.target.value })}
+                          className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white font-mono text-xs"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block font-semibold text-slate-700 mb-1">İade Açıklaması / Muhasebe Notu</label>
+                      <input
+                        type="text"
+                        placeholder="Örn: 2025-2026 Dönemi erken ayrılış iadesi"
+                        value={dropForm.refundNotes}
+                        onChange={(e) => setDropForm({ ...dropForm, refundNotes: e.target.value })}
+                        className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {/* Bilgilendirme Notu */}
+                <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 text-[11px] text-slate-600 space-y-1">
+                  <div className="flex items-center gap-1.5 font-bold text-slate-700">
+                    <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+                    <span>Önemli Hatırlatma</span>
+                  </div>
+                  <ul className="list-disc list-inside space-y-0.5 text-slate-500">
+                    <li>Öğrenci sınıftan düşürülür, sınıf mevcudu 1 kişi eksilir.</li>
+                    <li>Öğrencinin tüm özlük, veli ve finansal kayıtları arşivde korunur.</li>
+                    <li>İstendiğinde 'Kayıt Sildiren Öğrenciler' sekmesinden kaydı geri alınabilir.</li>
+                  </ul>
+                </div>
+
+                {/* Form Butonları */}
+                <div className="pt-3 flex items-center justify-end gap-2 border-t border-slate-100">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDropModalOpen(false);
+                      setDroppingStudent(null);
+                    }}
+                    className="px-4 py-2.5 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50 font-semibold text-xs transition-colors"
+                  >
+                    Vazgeç
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={dropSubmitting}
+                    className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs shadow-md shadow-rose-600/20 transition-all disabled:opacity-50"
+                  >
+                    <UserMinus className="w-4 h-4" />
+                    <span>{dropSubmitting ? "İşleniyor..." : "Kaydı Sil ve Sınıftan Düşür"}</span>
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

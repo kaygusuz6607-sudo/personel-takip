@@ -48,11 +48,22 @@ export async function PUT(
       } catch (e) {}
 
       const payDateStr = body.date || new Date().toISOString().split("T")[0];
-      history.push({
+      const historyItem: any = {
         date: payDateStr,
         amount: payAmount,
         note: body.note || "Parçalı Ödeme",
-      });
+        paymentMethod: body.paymentMethod || "CASH",
+      };
+      if (body.cardId) {
+        historyItem.cardId = body.cardId;
+      }
+      if (body.cardHolder) {
+        historyItem.cardHolder = body.cardHolder;
+      }
+      if (body.cardBank) {
+        historyItem.cardBank = body.cardBank;
+      }
+      history.push(historyItem);
 
       let newDescription = existing.description;
       if (newAmountRemaining <= 0) {
@@ -77,6 +88,88 @@ export async function PUT(
           ...(newDescription !== existing.description ? { description: newDescription } : {}),
         },
       });
+
+      // Eğer ödeme Kredi Kartı ile yapıldıysa, karta otomatik borç/harcama kaydı ekle (Tanımlı veya Farklı Kart)
+      if (body.paymentMethod === "CREDIT_CARD" && existing.category !== "CREDIT_CARD" && body.createCardExpense !== false) {
+        try {
+          const installmentCount = Math.max(1, Number(body.cardInstallmentCount) || 1);
+          const basePayDate = new Date(payDateStr);
+          const startMonthIndex = basePayDate.getMonth() + 1;
+          const cardBankName = (body.cardBank || "").trim() || "Kredi Kartı";
+          const cardHolderName = (body.cardHolder || "").trim() || (body.cardId === "OTHER" ? "Diğer Kart Sahibi" : "Kart Sahibi");
+          const cardIdTag = body.cardId && body.cardId !== "OTHER" ? `[${body.cardId}] ` : `[${cardBankName}] `;
+          const cardTitle = `${existing.title} (${cardBankName} KK)`;
+
+          if (installmentCount <= 1) {
+            await prisma.schoolExpense.create({
+              data: {
+                title: cardTitle,
+                category: "CREDIT_CARD",
+                subCategory: "Kredi Kartı (Tek Çekim)",
+                amountDue: payAmount,
+                amountPaid: 0,
+                amountRemaining: payAmount,
+                status: "PENDING",
+                paymentMethod: "CASH",
+                dueDate: basePayDate,
+                dueDateStr: payDateStr,
+                monthIndex: startMonthIndex,
+                cardHolder: cardHolderName,
+                cardBank: cardBankName,
+                description: `${cardIdTag}${existing.title} faturası kartla ödendi (Gider Ref: ${existing.id})`,
+                isCommitment: false,
+              },
+            });
+          } else {
+            const installmentAmount = Number((payAmount / installmentCount).toFixed(2));
+            const trMonths = [
+              "",
+              "Ocak",
+              "Şubat",
+              "Mart",
+              "Nisan",
+              "Mayıs",
+              "Haziran",
+              "Temmuz",
+              "Ağustos",
+              "Eylül",
+              "Ekim",
+              "Kasım",
+              "Aralık",
+            ];
+            for (let i = 1; i <= installmentCount; i++) {
+              const instDate = new Date(basePayDate.getTime());
+              instDate.setMonth(instDate.getMonth() + (i - 1));
+              const instMonthIdx = ((startMonthIndex - 1 + (i - 1)) % 12) + 1;
+              const instDateStr = `${instDate.getDate()} ${trMonths[instMonthIdx] || ""} ${instDate.getFullYear()}`;
+
+              await prisma.schoolExpense.create({
+                data: {
+                  title: cardTitle,
+                  category: "CREDIT_CARD",
+                  subCategory: `Kredi Kartı (${installmentCount} Taksit)`,
+                  period: `${i}t/${installmentCount}t`,
+                  installmentInfo: `${i}t/${installmentCount}t`,
+                  amountDue: installmentAmount,
+                  amountPaid: 0,
+                  amountRemaining: installmentAmount,
+                  status: "PENDING",
+                  paymentMethod: "CASH",
+                  dueDate: instDate,
+                  dueDateStr: instDateStr,
+                  monthIndex: instMonthIdx,
+                  cardHolder: cardHolderName,
+                  cardBank: cardBankName,
+                  description: `${cardIdTag}${existing.title} kartla ${installmentCount} taksit ödendi (${i}/${installmentCount}) (Gider Ref: ${existing.id})`,
+                  isCommitment: false,
+                },
+              });
+            }
+          }
+        } catch (cardErr) {
+          console.error("Kart işlemi oluşturulurken hata:", cardErr);
+        }
+      }
 
       if (supMatch) {
         try {

@@ -33,6 +33,10 @@ import {
   ScrollText,
   PhoneCall,
   Scale,
+  Landmark,
+  Car,
+  BarChart3,
+  BrainCircuit,
 } from "lucide-react";
 import { PWAInstallButton } from "@/components/PWAInstallButton";
 import { ThemeToggle } from "@/components/ThemeToggle";
@@ -171,16 +175,47 @@ export function Sidebar() {
         subItems: { href: string; label: string; icon: any }[];
       };
 
-  const [personnelOpen, setPersonnelOpen] = useState(true);
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({
+    "personel-islemleri": true,
+    "muhasebe": true,
+  });
+
+  const toggleGroup = (groupId: string) => {
+    setOpenGroups((prev) => ({
+      ...prev,
+      [groupId]: prev[groupId] !== undefined ? !prev[groupId] : false,
+    }));
+  };
+
+  const isGroupOpen = (groupId: string) => {
+    return openGroups[groupId] ?? true;
+  };
 
   useEffect(() => {
     const isPersonnelRoute = ["/personeller", "/maas", "/odeme", "/cari", "/izin"].some((p) =>
       pathname.startsWith(p)
     );
     if (isPersonnelRoute) {
-      setPersonnelOpen(true);
+      setOpenGroups((prev) => ({ ...prev, "personel-islemleri": true }));
     }
-  }, [pathname]);
+
+    const isMuhasebeRoute =
+      [
+        "/finansal-analiz",
+        "/gunluk-kasa-plan",
+        "/kredi-kartlari",
+        "/cekler",
+        "/kurumsal-hatlar",
+        "/tedarikci-cariler",
+        "/sahis-carileri",
+        "/kayit-silme-iadeleri",
+        "/arac-mulk-takip",
+      ].some((p) => pathname.startsWith(p)) || currentQuery.includes("tab=GOLD_DAYS");
+
+    if (isMuhasebeRoute) {
+      setOpenGroups((prev) => ({ ...prev, "muhasebe": true }));
+    }
+  }, [pathname, currentQuery]);
 
   const navItems: NavItem[] = isTeklifOnly
     ? [
@@ -207,13 +242,24 @@ export function Sidebar() {
         },
         { type: "link", href: "/departmanlar", label: "Departmanlar", icon: Building2 },
         { type: "link", href: "/giderler", label: "Okul Gider & Taksit", icon: Coins },
-        { type: "link", href: "/kredi-kartlari", label: "Kredi Kartları Takip", icon: CreditCard },
-        { type: "link", href: "/cekler", label: "Çek Takibi", icon: ScrollText },
-        { type: "link", href: "/kurumsal-hatlar", label: "Telefon & Taahhüt Takibi", icon: PhoneCall },
-        { type: "link", href: "/tedarikci-cariler", label: "Tedarikçi & Ürün Carileri", icon: Building2 },
-        { type: "link", href: "/sahis-carileri", label: "Şahıs & 3. Kişi Carileri", icon: Scale },
-        { type: "link", href: "/kayit-silme-iadeleri", label: "Kayıt Silme İadeleri", icon: UserMinus },
-        { type: "link", href: "/giderler?tab=GOLD_DAYS", label: "Altın Günleri Takibi", icon: Coins },
+        {
+          type: "group",
+          id: "muhasebe",
+          label: "Muhasebe",
+          icon: Landmark,
+          subItems: [
+            { href: "/finansal-analiz", label: "Finansal Analiz & AI Paneli", icon: BrainCircuit },
+            { href: "/gunluk-kasa-plan", label: "Günlük Kasa & Gider Planı", icon: BarChart3 },
+            { href: "/kredi-kartlari", label: "Kredi Kartları Takip", icon: CreditCard },
+            { href: "/cekler", label: "Çek Takibi", icon: ScrollText },
+            { href: "/kurumsal-hatlar", label: "Telefon & Taahhüt Takibi", icon: PhoneCall },
+            { href: "/tedarikci-cariler", label: "Tedarikçi & Ürün Carileri", icon: Building2 },
+            { href: "/sahis-carileri", label: "Şahıs & 3. Kişi Carileri", icon: Scale },
+            { href: "/kayit-silme-iadeleri", label: "Kayıt Silme İadeleri", icon: UserMinus },
+            { href: "/arac-mulk-takip", label: "Araç & Mülk Takibi", icon: Car },
+            { href: "/giderler?tab=GOLD_DAYS", label: "Altın Günleri Takibi", icon: Coins },
+          ],
+        },
         { type: "link", href: "/raporlar", label: "Raporlar & Excel", icon: FileSpreadsheet },
         { type: "link", href: "/kullanicilar", label: "Yetkili Kullanıcılar", icon: ShieldCheck },
         { type: "link", href: "/yedekleme", label: "Yedek & Senkronizasyon", icon: HardDrive },
@@ -306,7 +352,7 @@ export function Sidebar() {
                     <div key={item.id} className="space-y-1">
                       <button
                         type="button"
-                        onClick={() => setPersonnelOpen((prev) => !prev)}
+                        onClick={() => toggleGroup(item.id)}
                         className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-lg text-sm font-medium transition-all ${
                           hasActiveChild
                             ? "bg-teal-50 text-teal-900 font-bold"
@@ -325,7 +371,7 @@ export function Sidebar() {
                           <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-teal-100 text-teal-800">
                             {item.subItems.length}
                           </span>
-                          {personnelOpen ? (
+                          {isGroupOpen(item.id) ? (
                             <ChevronDown className="w-4 h-4 text-slate-400" />
                           ) : (
                             <ChevronRight className="w-4 h-4 text-slate-400" />
@@ -333,7 +379,7 @@ export function Sidebar() {
                         </div>
                       </button>
 
-                      {personnelOpen && (
+                      {isGroupOpen(item.id) && (
                         <div className="ml-3.5 pl-3 border-l-2 border-teal-200/80 space-y-1 py-1">
                           {item.subItems.map((sub) => {
                             const SubIcon = sub.icon;
@@ -451,7 +497,7 @@ export function Sidebar() {
                 <div key={item.id} className="space-y-1">
                   <button
                     type="button"
-                    onClick={() => setPersonnelOpen((prev) => !prev)}
+                    onClick={() => toggleGroup(item.id)}
                     className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${
                       hasActiveChild
                         ? "bg-teal-50/90 text-teal-900 font-bold"
@@ -470,7 +516,7 @@ export function Sidebar() {
                       <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-teal-100 text-teal-800">
                         {item.subItems.length}
                       </span>
-                      {personnelOpen ? (
+                      {isGroupOpen(item.id) ? (
                         <ChevronDown className="w-4 h-4 text-slate-400" />
                       ) : (
                         <ChevronRight className="w-4 h-4 text-slate-400" />
@@ -478,7 +524,7 @@ export function Sidebar() {
                     </div>
                   </button>
 
-                  {personnelOpen && (
+                  {isGroupOpen(item.id) && (
                     <div className="ml-3 pl-3 border-l-2 border-teal-200/80 space-y-1 py-1">
                       {item.subItems.map((sub) => {
                         const SubIcon = sub.icon;

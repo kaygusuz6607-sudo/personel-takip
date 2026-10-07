@@ -182,6 +182,7 @@ export async function POST(request: NextRequest) {
       photoConsent,
       tags,
       notes,
+      contractItems,
     } = body;
 
     if (!tcNo?.trim() || !fullName?.trim() || !primaryPhone?.trim()) {
@@ -214,11 +215,29 @@ export async function POST(request: NextRequest) {
     const generatedUsername = portalUsername?.trim() || `veli.${tcNo.trim().slice(-6)}`;
     const generatedPassword = portalPassword?.trim() || Math.floor(100000 + Math.random() * 900000).toString();
 
-    const totalContract = parseFloat(contractAmount || 0);
+    let totalContract = parseFloat(contractAmount || 0);
+    if (Array.isArray(contractItems) && contractItems.length > 0) {
+      totalContract = contractItems.reduce((s: number, i: any) => s + (Number(i.amount) || 0), 0);
+    }
     const totalDiscount = parseFloat(discountAmount || 0);
     const finalNet = netAmount !== undefined ? parseFloat(netAmount) : Math.max(0, totalContract - totalDiscount);
     const instCount = Math.max(1, parseInt(installmentCount || 1));
     const singleAmount = Math.round((finalNet / instCount) * 100) / 100;
+
+    const hasMeal = Array.isArray(contractItems)
+      ? contractItems.some((i: any) => i.type === "MEAL")
+      : mealUsed !== undefined ? Boolean(mealUsed) : true;
+    const hasService = Array.isArray(contractItems)
+      ? contractItems.some((i: any) => i.type === "SERVICE")
+      : Boolean(serviceUsed);
+
+    let finalNotes = notes?.trim() || null;
+    if (Array.isArray(contractItems) && contractItems.length > 0) {
+      finalNotes = JSON.stringify({
+        contractItems,
+        userNote: notes?.trim() || "",
+      });
+    }
 
     const student = await prisma.$transaction(async (tx) => {
       const created = await tx.student.create({
@@ -253,8 +272,8 @@ export async function POST(request: NextRequest) {
           classroomId: classroomId || null,
           academicYear: academicYear || "2025-2026",
           previousSchool: previousSchool?.trim() || null,
-          serviceUsed: Boolean(serviceUsed),
-          mealUsed: mealUsed !== undefined ? Boolean(mealUsed) : true,
+          serviceUsed: hasService,
+          mealUsed: hasMeal,
           contractAmount: totalContract,
           discountAmount: totalDiscount,
           contractDiscountType: contractDiscountType || null,
@@ -265,7 +284,7 @@ export async function POST(request: NextRequest) {
           kvkkConsent: kvkkConsent !== undefined ? Boolean(kvkkConsent) : true,
           photoConsent: photoConsent !== undefined ? Boolean(photoConsent) : true,
           tags: tags ? (Array.isArray(tags) ? JSON.stringify(tags) : tags) : null,
-          notes: notes?.trim() || null,
+          notes: finalNotes,
         },
       });
 

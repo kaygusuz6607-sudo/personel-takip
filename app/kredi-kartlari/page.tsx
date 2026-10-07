@@ -29,6 +29,7 @@ import {
   History,
   Coins,
   FileText,
+  Save,
 } from "lucide-react";
 import {
   DefinedCreditCard,
@@ -522,6 +523,14 @@ function KrediKartlariPageContent() {
   // Kart Düzenleme Modalı
   const [editCardModalOpen, setEditCardModalOpen] = useState(false);
   const [editingCard, setEditingCard] = useState<DefinedCreditCard | null>(null);
+  const [editingCardSlot, setEditingCardSlot] = useState<string | null>(null);
+  const [tempCardHolder, setTempCardHolder] = useState("");
+  const [tempCardBankName, setTempCardBankName] = useState("");
+  const [tempCardLabel, setTempCardLabel] = useState("");
+  const [tempCardLimit, setTempCardLimit] = useState("");
+  const [tempCardMinPayment, setTempCardMinPayment] = useState("");
+  const [tempCardCutoff, setTempCardCutoff] = useState("");
+  const [selectedDueDateFilter, setSelectedDueDateFilter] = useState<string>("");
   const [editCardForm, setEditCardForm] = useState({
     holder: "",
     bankName: "",
@@ -1060,6 +1069,71 @@ function KrediKartlariPageContent() {
     }
   };
 
+  const handleCardLimitChange = (cardId: string, newLimitVal: number) => {
+    const safeLimit = Math.max(0, Number(newLimitVal) || 0);
+    const updated = cards.map((c) => (c.id === cardId ? { ...c, cardLimit: safeLimit } : c));
+    saveCardsState(updated);
+  };
+
+  const handleCardStatementDateChange = (cardId: string, newStatementDateISO: string) => {
+    if (!newStatementDateISO) return;
+    const dayNum = parseInt(newStatementDateISO.split("-")[2], 10);
+    const updatedCards = cards.map((c) =>
+      c.id === cardId
+        ? {
+            ...c,
+            statementDateISO: newStatementDateISO,
+            ...(dayNum >= 1 && dayNum <= 31 ? { statementDay: dayNum } : {}),
+          }
+        : c
+    );
+    saveCardsState(updatedCards);
+  };
+
+  const handleCardDueDateChange = async (cardId: string, newDateISO: string) => {
+    if (!newDateISO) return;
+    const formattedShort = formatSafeDate(newDateISO);
+    const dayNum = parseInt(newDateISO.split("-")[2], 10);
+
+    if (selectedDueDateFilter) {
+      setSelectedDueDateFilter(newDateISO);
+    }
+
+    const updatedCards = cards.map((c) =>
+      c.id === cardId
+        ? {
+            ...c,
+            dueDateISO: newDateISO,
+            cutoffDay: formattedShort,
+            ...(dayNum >= 1 && dayNum <= 31 ? { dueDay: dayNum } : {}),
+          }
+        : c
+    );
+    saveCardsState(updatedCards);
+
+    try {
+      await fetch("/api/giderler", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "SYNC_CARD_DUE_DATE",
+          cardId,
+          newDueDateISO: newDateISO,
+        }),
+      });
+    } catch (err) {
+      console.error("Kart son ödeme tarihi senkronize edilemedi:", err);
+    }
+  };
+
+  const handleCardMinPaymentChange = (cardId: string, valStr: string) => {
+    setAsgariDrafts((prev) => ({ ...prev, [cardId]: valStr }));
+  };
+
+  const handleSaveCardMinPayment = (cardId: string) => {
+    handleSaveMonthlyMinPayment(cardId);
+  };
+
   // Asgari Tutarı Kaydet
   const handleSaveMonthlyMinPayment = (cardId: string) => {
     const activeMonthKey =
@@ -1384,6 +1458,12 @@ function KrediKartlariPageContent() {
         })) || [];
 
     let filtered = listRaw;
+    if (selectedDueDateFilter) {
+      filtered = filtered.filter((tx) => {
+        const d = tx.dueDate || tx.dueDateStr || "";
+        return d.includes(selectedDueDateFilter);
+      });
+    }
     if (search.trim()) {
       const q = search.toLowerCase();
       filtered = filtered.filter(
@@ -1400,7 +1480,7 @@ function KrediKartlariPageContent() {
       const bDate = b.dueDate || b.dueDateStr || "";
       return aDate.localeCompare(bDate);
     });
-  }, [isAllCardsActive, filteredCardsForStatement, activeCardComputed, search]);
+  }, [isAllCardsActive, filteredCardsForStatement, activeCardComputed, search, selectedDueDateFilter]);
 
   return (
     <div className="min-h-screen bg-slate-50/70 p-3 sm:p-6 space-y-5 animate-in fade-in duration-200">
@@ -2050,93 +2130,538 @@ function KrediKartlariPageContent() {
           );
         })()}
 
-        {/* 💳 İNTERAKTİF GÖRSEL KARTLAR CAROUSEL / GRID */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3">
-          {filteredCardsForStatement.map((card) => {
-            const theme = getBankTheme(card.bankName);
-            const isSelected = selectedVisualCardId === card.id;
+        {/* 1. BÖLÜM: HERKESİN VEYA ŞİRKETİN KREDİ KARTLARI BİR ÇATI ALTINDA GRUPLANDIRILMIŞ GÖRÜNÜM */}
+        {(() => {
+          const visibleCards = filteredCardsForStatement;
 
-            return (
-              <div
-                key={card.id}
-                onClick={() => setSelectedVisualCardId(isSelected ? "ALL_5" : card.id)}
-                className={`p-3 rounded-2xl border transition-all cursor-pointer relative flex flex-col justify-between gap-2 shadow-xs ${
-                  isSelected ? `${theme.selectedBg} ring-2` : `${theme.cardBg}`
-                }`}
-              >
-                <div>
-                  <div className="flex items-center justify-between gap-1 mb-1">
-                    <span className={`px-2 py-0.5 rounded text-[10px] font-black border ${theme.badge}`}>
-                      {card.bankName}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        openEditCardModal(card);
-                      }}
-                      className="p-1 text-slate-400 hover:text-slate-800 rounded-lg hover:bg-white/80"
-                      title="Kartı Düzenle"
-                    >
-                      <Edit2 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
+          const groupedByHolder = Array.from(
+            new Set(visibleCards.map((c) => c.holder || "Diğer"))
+          ).map((holderName) => {
+            const cardsOfHolder = visibleCards.filter((c) => (c.holder || "Diğer") === holderName);
+            const totalLimit = cardsOfHolder.reduce((s, c) => s + c.cardLimit, 0);
+            const totalUsed = cardsOfHolder.reduce((s, c) => s + c.usedLimit, 0);
+            const totalAvailable = cardsOfHolder.reduce((s, c) => s + c.availableLimit, 0);
+            const monthRemaining = cardsOfHolder.reduce((s, c) => s + c.monthStatementRemaining, 0);
+            const monthMinRemaining = cardsOfHolder.reduce((s, c) => s + ((c as any).remainingMinPayment || 0), 0);
+            return {
+              holderName,
+              cards: cardsOfHolder,
+              totalLimit,
+              totalUsed,
+              totalAvailable,
+              monthRemaining,
+              monthMinRemaining,
+            };
+          });
 
-                  <p className="font-black text-slate-900 text-xs truncate">
-                    {card.cardLabel || card.bankName}
-                  </p>
-                  <p className="text-[10px] text-slate-600 font-semibold">{card.holder}</p>
-                </div>
+          return (
+            <div className="space-y-3">
+              {groupedByHolder.map((group) => {
+                const isCompany =
+                  group.holderName.toLowerCase().includes("şirket") ||
+                  group.holderName.toLowerCase().includes("simcu");
 
-                <div className="space-y-1 text-[11px] pt-1.5 border-t border-slate-200/80">
-                  <div className="flex items-center justify-between">
-                    <span className="text-slate-600">Kart Limiti:</span>
-                    <span className="font-extrabold text-slate-900">{formatCurrency(card.cardLimit)}</span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-slate-600">Bu Ay Ekstre:</span>
-                    <span className="font-extrabold text-indigo-900">{formatCurrency(card.monthStatementTotal)}</span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-slate-600">Kalan Borç:</span>
-                    <span className="font-black text-rose-600">{formatCurrency(card.monthStatementRemaining)}</span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-slate-600">Kullanılabilir:</span>
-                    <span className="font-bold text-emerald-700">{formatCurrency(card.availableLimit)}</span>
-                  </div>
-                  <div className="flex items-center justify-between pt-1 border-t border-slate-200/60 text-[10px]">
-                    <span className="text-slate-500">Son Ödeme:</span>
-                    <span className="font-black text-slate-900">{formatSafeDate(card.dueDateISO)}</span>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-1 pt-1 border-t border-slate-200/80">
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      openCardTxModal(card.id);
-                    }}
-                    className="flex-1 py-1 rounded-lg bg-white hover:bg-slate-100 text-slate-800 text-[10px] font-bold border border-slate-300"
+                return (
+                  <div
+                    key={group.holderName}
+                    className="bg-white rounded-xl border border-slate-200/90 shadow-2xs overflow-hidden"
                   >
-                    + Harcama
-                  </button>
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      openCardPayModal(card.id, "FULL");
-                    }}
-                    className="flex-1 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-bold shadow-2xs"
-                  >
-                    Ekstre Öde
-                  </button>
-                </div>
-              </div>
-            );
-          })}
-        </div>
+                    {/* Çatı (Grup) Üst Başlığı & Grup Toplam Limit / Kullanılabilir Özeti */}
+                    <div className="px-3 py-2 bg-slate-100/90 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <span className="px-2 py-0.5 rounded-md bg-slate-900 text-white font-extrabold text-[11px]">
+                          {isCompany ? "🏢" : "👤"} {group.holderName} Kredi Kartları Çatısı
+                        </span>
+                        <span className="text-[10px] font-bold text-slate-600 bg-white px-2 py-0.5 rounded border border-slate-200">
+                          {group.cards.length} Kart
+                        </span>
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-2 text-[11px]">
+                        <span className="px-2 py-0.5 rounded bg-white border border-slate-200 text-slate-700">
+                          Toplam Limit: <strong className="text-slate-900">{formatCurrency(group.totalLimit)}</strong>
+                        </span>
+                        <span className="px-2 py-0.5 rounded bg-rose-50 border border-rose-200 text-rose-800">
+                          Kullanılan: <strong>{formatCurrency(group.totalUsed)}</strong>
+                        </span>
+                        <span className="px-2 py-0.5 rounded bg-emerald-50 border border-emerald-200 text-emerald-800">
+                          Kullanılabilir: <strong>{formatCurrency(group.totalAvailable)}</strong>
+                        </span>
+                        <span className="px-2 py-0.5 rounded bg-amber-50 border border-amber-200 text-amber-900">
+                          {selectedMonth === "ALL"
+                            ? "Ekstre Kalan:"
+                            : `${parseSelectedPeriod(selectedMonth).label} Kalan:`}{" "}
+                          <strong>{formatCurrency(group.monthRemaining)}</strong>
+                        </span>
+                        {group.monthRemaining > 0 && (
+                          <span className="px-2 py-0.5 rounded bg-amber-100 border border-amber-300 text-amber-950 font-bold flex items-center gap-1">
+                            <Zap className="w-3 h-3 text-amber-700 fill-current" />
+                            <span>Min. Asgari:</span>
+                            <strong>{formatCurrency(group.monthMinRemaining)}</strong>
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Bu Çatı Altındaki Banka Renkli Kart Kutucukları */}
+                    <div className="p-2.5 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-2.5">
+                      {group.cards.map((card) => {
+                        const isSelected = selectedVisualCardId === card.id;
+                        const isEditingName = editingCardSlot === card.id;
+                        const theme = getBankTheme(card.bankName);
+                        const usagePct =
+                          card.cardLimit > 0
+                            ? Math.min(100, Math.round((card.usedLimit / card.cardLimit) * 100))
+                            : 0;
+
+                        return (
+                          <div
+                            key={card.id}
+                            onClick={() => setSelectedVisualCardId(isSelected ? "ALL_5" : card.id)}
+                            className={`rounded-xl overflow-hidden cursor-pointer transition-all flex flex-col justify-between border text-xs ${
+                              isSelected ? theme.selectedBg : theme.cardBg
+                            }`}
+                          >
+                            {/* Bankanın Kendi Renginde Üst Şerit */}
+                            <div className={`h-1.5 w-full ${theme.topBar}`} />
+
+                            <div className="p-2.5 flex-1 flex flex-col justify-between">
+                              {/* Üst Satır: Banka Rozeti + Kart Sahibi + Düzenle/Sil */}
+                              <div>
+                                <div className="flex items-start justify-between gap-1">
+                                  <div className="min-w-0 flex-1">
+                                    {isEditingName ? (
+                                      <div
+                                        className="space-y-1 bg-white p-1.5 rounded border border-slate-300"
+                                        onClick={(e) => e.stopPropagation()}
+                                      >
+                                        <input
+                                          type="text"
+                                          value={tempCardHolder}
+                                          onChange={(e) => setTempCardHolder(e.target.value)}
+                                          placeholder="Kart Sahibi"
+                                          className="w-full px-1.5 py-0.5 text-[10px] font-bold text-slate-800 border border-slate-200 rounded"
+                                        />
+                                        <input
+                                          type="text"
+                                          value={tempCardBankName}
+                                          onChange={(e) => setTempCardBankName(e.target.value)}
+                                          placeholder="Banka Adı"
+                                          className="w-full px-1.5 py-0.5 text-[11px] font-bold text-slate-900 border border-slate-200 rounded"
+                                        />
+                                        <input
+                                          type="text"
+                                          value={tempCardLabel}
+                                          onChange={(e) => setTempCardLabel(e.target.value)}
+                                          placeholder="Kart Notu"
+                                          className="w-full px-1.5 py-0.5 text-[10px] text-slate-700 border border-slate-200 rounded"
+                                        />
+                                        <input
+                                          type="number"
+                                          min="0"
+                                          step="1000"
+                                          value={tempCardLimit}
+                                          onChange={(e) => setTempCardLimit(e.target.value)}
+                                          placeholder="Kart Limiti (₺)"
+                                          className="w-full px-1.5 py-0.5 text-[10px] font-extrabold text-slate-900 border border-slate-200 rounded"
+                                        />
+                                        <input
+                                          type="number"
+                                          min="0"
+                                          step="100"
+                                          value={tempCardMinPayment}
+                                          onChange={(e) => setTempCardMinPayment(e.target.value)}
+                                          placeholder="Varsayılan Asgari Tutar (₺)"
+                                          className="w-full px-1.5 py-0.5 text-[10px] font-extrabold text-amber-900 border border-amber-300 rounded"
+                                        />
+                                        <div className="flex justify-end gap-1">
+                                          <button
+                                            type="button"
+                                            onClick={() => setEditingCardSlot(null)}
+                                            className="px-1.5 py-0.5 text-[10px] bg-slate-200 text-slate-700 rounded"
+                                          >
+                                            İptal
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              if (tempCardBankName.trim()) {
+                                                const updated = cards.map((c) =>
+                                                  c.id === card.id
+                                                    ? {
+                                                        ...c,
+                                                        holder: tempCardHolder.trim() || c.holder,
+                                                        bankName: tempCardBankName.trim(),
+                                                        cardLabel:
+                                                          tempCardLabel.trim() || `${tempCardBankName.trim()} KK`,
+                                                        cardLimit:
+                                                          Math.max(0, Number(tempCardLimit)) || c.cardLimit || 750000,
+                                                        minPaymentAmount: Math.max(0, Number(tempCardMinPayment)) || undefined,
+                                                      }
+                                                    : c
+                                                );
+                                                saveCardsState(updated);
+                                              }
+                                              setEditingCardSlot(null);
+                                            }}
+                                            className="px-2 py-0.5 text-[10px] bg-indigo-700 text-white font-bold rounded"
+                                          >
+                                            Kaydet
+                                          </button>
+                                        </div>
+                                      </div>
+                                    ) : (
+                                      <>
+                                        <div className="flex items-center gap-1 flex-wrap">
+                                          <span
+                                            className={`px-1.5 py-0.5 rounded text-[10px] font-extrabold border ${theme.badge}`}
+                                          >
+                                            {card.bankName}
+                                          </span>
+                                        </div>
+                                        <p className="font-extrabold text-slate-900 text-[11px] mt-1 truncate">
+                                          {isCompany ? "🏢" : "👤"} {card.holder}
+                                        </p>
+                                        {card.cardLabel && card.cardLabel !== `${card.bankName} KK` && (
+                                          <p className="text-[10px] text-slate-500 truncate">{card.cardLabel}</p>
+                                        )}
+                                      </>
+                                    )}
+                                  </div>
+
+                                  {!isEditingName && (
+                                    <div
+                                      className="flex items-center gap-0.5 shrink-0"
+                                      onClick={(e) => e.stopPropagation()}
+                                    >
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setEditingCardSlot(card.id);
+                                          setTempCardHolder(card.holder || "");
+                                          setTempCardBankName(card.bankName);
+                                          setTempCardLabel(card.cardLabel || "");
+                                          setTempCardCutoff(card.cutoffDay);
+                                          setTempCardLimit(String(card.cardLimit || 750000));
+                                          setTempCardMinPayment(String((card as any).minPaymentAmount || ""));
+                                        }}
+                                        className="p-1 text-slate-400 hover:text-slate-700 rounded hover:bg-white/70"
+                                        title="Kartı düzenle"
+                                      >
+                                        <Edit2 className="w-3 h-3" />
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleDeleteCard(card.id)}
+                                        className="p-1 text-rose-400 hover:text-rose-700 rounded hover:bg-white/70"
+                                        title="Kartı sil"
+                                      >
+                                        <Trash2 className="w-3 h-3" />
+                                      </button>
+                                    </div>
+                                  )}
+                                </div>
+
+                                {/* Manuel Hesap Kesim Tarihi */}
+                                <div
+                                  className="mt-1.5 flex items-center justify-between gap-1 bg-white/90 px-2 py-1 rounded-lg border border-slate-200"
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  <span className="text-[10px] font-bold text-indigo-700 shrink-0">Hesap Kesim:</span>
+                                  <input
+                                    type="date"
+                                    value={(card as any).statementDateISO || ""}
+                                    onChange={(e) => handleCardStatementDateChange(card.id, e.target.value)}
+                                    className="bg-transparent text-slate-900 font-extrabold text-[11px] focus:outline-none cursor-pointer w-[102px]"
+                                    title="Kartın hesap kesim tarihini girin"
+                                  />
+                                </div>
+
+                                {/* Manuel Son Ödeme Tarihi (Değiştirildiğinde Tüm Ödemelere Yansır) */}
+                                <div
+                                  className="mt-1 flex items-center justify-between gap-1 bg-white/90 px-2 py-1 rounded-lg border border-slate-200"
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  <span className="text-[10px] font-bold text-slate-600 shrink-0">Son Ödeme:</span>
+                                  <input
+                                    type="date"
+                                    value={card.dueDateISO || ""}
+                                    onChange={(e) => handleCardDueDateChange(card.id, e.target.value)}
+                                    className="bg-transparent text-slate-900 font-extrabold text-[11px] focus:outline-none cursor-pointer w-[102px]"
+                                  />
+                                  {card.dueDateISO && (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        if (selectedDueDateFilter === card.dueDateISO) {
+                                          setSelectedDueDateFilter("");
+                                        } else {
+                                          setSelectedDueDateFilter(card.dueDateISO);
+                                        }
+                                      }}
+                                      className={`text-[9px] font-bold px-1.5 py-0.5 rounded shrink-0 ${
+                                        selectedDueDateFilter === card.dueDateISO
+                                          ? "bg-amber-500 text-slate-950"
+                                          : "bg-slate-100 hover:bg-slate-200 text-slate-700"
+                                      }`}
+                                      title="O tarihteki ödemeleri listede göster"
+                                    >
+                                      {selectedDueDateFilter === card.dueDateISO ? "Seçili" : "Listele"}
+                                    </button>
+                                  )}
+                                </div>
+
+                                {/* Manuel Asgari Ödeme Tutarı (Ekstre Kesildiğinde Bankanın Belirlediği Tutar) */}
+                                <div
+                                  className="mt-1 flex flex-col gap-1 bg-amber-50/90 p-1.5 rounded-lg border border-amber-300"
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  <div className="flex items-center justify-between gap-1">
+                                    <div className="flex items-center gap-1 shrink-0">
+                                      <Zap className="w-3 h-3 text-amber-700 fill-current" />
+                                      <span className="text-[10px] font-extrabold text-amber-950">Asgari:</span>
+                                    </div>
+                                    <div className="flex items-center gap-1">
+                                      <input
+                                        type="number"
+                                        min="0"
+                                        step="100"
+                                        value={
+                                          asgariDrafts[card.id] !== undefined
+                                            ? asgariDrafts[card.id]
+                                            : ((card as any).monthlyMinPayments?.[
+                                                parseSelectedPeriod(selectedMonth).mode === "YM"
+                                                  ? parseSelectedPeriod(selectedMonth).ym
+                                                  : "DEFAULT"
+                                              ] ?? "")
+                                        }
+                                        onChange={(e) => handleCardMinPaymentChange(card.id, e.target.value)}
+                                        placeholder={
+                                          (card as any).autoCalculatedMin > 0
+                                            ? String((card as any).autoCalculatedMin)
+                                            : "0"
+                                        }
+                                        className="bg-white px-1.5 py-0.5 text-right text-slate-900 font-black text-[11px] rounded border border-amber-300 focus:outline-none focus:ring-1 focus:ring-amber-500 w-[72px]"
+                                        title={`${parseSelectedPeriod(selectedMonth).label} ekstresi için gelen asgari tutarı yazıp [Kaydet]'e tıklayın`}
+                                      />
+                                      <span className="text-[10px] font-black text-amber-900">₺</span>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleSaveCardMinPayment(card.id)}
+                                        className="px-1.5 py-0.5 rounded bg-amber-600 hover:bg-amber-700 text-white font-black text-[10px] shadow-2xs flex items-center gap-0.5 shrink-0 transition-all cursor-pointer"
+                                        title="Bu ayın asgari tutarını kaydet"
+                                      >
+                                        <Save className="w-2.5 h-2.5" />
+                                        <span>Kaydet</span>
+                                      </button>
+                                    </div>
+                                  </div>
+                                  {asgariSavedFeedback[card.id] && (
+                                    <div className="text-[9px] font-bold text-emerald-800 bg-emerald-100/90 px-1 py-0.5 rounded border border-emerald-300 text-center animate-in fade-in">
+                                      ✓ Bu ay için asgari tutar kaydedildi!
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+
+                              {/* Kart Limiti, Kullanılan & Kullanılabilir Limit Alanı */}
+                              <div
+                                className="my-1.5 p-1.5 rounded-lg bg-white/90 border border-slate-200/80 space-y-1 text-[10px]"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <div className="flex items-center justify-between gap-1">
+                                  <span className="text-slate-600 font-semibold">Kart Limiti:</span>
+                                  <div className="flex items-center gap-0.5">
+                                    <input
+                                      type="number"
+                                      min="0"
+                                      step="10000"
+                                      value={card.cardLimit}
+                                      onChange={(e) =>
+                                        handleCardLimitChange(card.id, Number(e.target.value) || 0)
+                                      }
+                                      className="w-20 px-1 py-0.5 text-right font-extrabold text-slate-900 bg-slate-50 border border-slate-300 rounded text-[10px] focus:outline-none focus:border-indigo-600"
+                                      title="Kart limitini doğrudan değiştirebilirsiniz"
+                                    />
+                                    <span className="font-bold text-slate-700">₺</span>
+                                  </div>
+                                </div>
+
+                                <div className="flex items-center justify-between">
+                                  <span className="text-slate-600">Kullanılan Borç:</span>
+                                  <span className="font-extrabold text-rose-600">
+                                    {formatCurrency(card.usedLimit)}
+                                  </span>
+                                </div>
+
+                                <div className="flex items-center justify-between">
+                                  <span className="text-emerald-800 font-bold">Kullanılabilir:</span>
+                                  <span className="font-extrabold text-emerald-700">
+                                    {formatCurrency(card.availableLimit)}
+                                  </span>
+                                </div>
+
+                                {/* Doluluk Çubuğu */}
+                                <div className="w-full h-1.5 bg-slate-200 rounded-full overflow-hidden">
+                                  <div
+                                    className={`h-full transition-all ${
+                                      usagePct > 85
+                                        ? "bg-rose-600"
+                                        : usagePct > 60
+                                        ? "bg-amber-500"
+                                        : "bg-emerald-600"
+                                    }`}
+                                    style={{ width: `${usagePct}%` }}
+                                  />
+                                </div>
+                              </div>
+
+                              {/* Bu Ayki Taksitler / Ekstre & Taksitli Aylar Dağılımı */}
+                              <div className="mb-1.5 space-y-1 text-[10px]">
+                                <div className="flex items-center justify-between px-1">
+                                  <span className="text-slate-700 font-bold">
+                                    {selectedMonth === "ALL"
+                                      ? "Ekstre Kalan:"
+                                      : `${parseSelectedPeriod(selectedMonth).label}:`}
+                                  </span>
+                                  <span className="font-extrabold text-slate-950">
+                                    {formatCurrency(card.monthStatementRemaining)}
+                                  </span>
+                                </div>
+                                {card.monthStatementRemaining > 0 && (
+                                  <div className="flex items-center justify-between px-1 bg-amber-50/90 rounded py-0.5 border border-amber-200 text-[10px]">
+                                    <span className="text-amber-950 font-extrabold flex items-center gap-0.5">
+                                      <Zap className="w-2.5 h-2.5 text-amber-700 fill-current" />
+                                      Min. Asgari:
+                                    </span>
+                                    <span className="font-black text-amber-950">
+                                      {formatCurrency((card as any).effectiveMinPayment)}
+                                      {(card as any).isMinPaymentMet && (
+                                        <span className="ml-1 text-[9px] text-emerald-700 bg-emerald-100 px-1 py-0.2 rounded font-bold">
+                                          ✓ Ödendi
+                                        </span>
+                                      )}
+                                    </span>
+                                  </div>
+                                )}
+
+                                {/* Taksitlerin Bulunduğu Aylar (Tıklayınca O Aya Geçer) */}
+                                {card.monthlyBreakdown.length > 0 && (
+                                  <div
+                                    className="flex flex-wrap gap-1 pt-0.5"
+                                    onClick={(e) => e.stopPropagation()}
+                                  >
+                                    {card.monthlyBreakdown.map((mb) => {
+                                      const mbYear = Number(mb.monthIndex) >= 7 ? 2026 : 2027;
+                                      const mbYM = `${mbYear}-${mb.monthIndex}`;
+                                      const isActiveM = parseSelectedPeriod(selectedMonth).ym === mbYM;
+                                      return (
+                                        <button
+                                          key={mb.monthIndex}
+                                          type="button"
+                                          onClick={() => {
+                                            setSelectedMonth(mbYM);
+                                            setSelectedVisualCardId(card.id);
+                                          }}
+                                          className={`px-1.5 py-0.5 rounded text-[9px] font-bold border transition-all ${
+                                            isActiveM
+                                              ? "bg-indigo-700 text-white border-indigo-700"
+                                              : mb.remaining > 0
+                                              ? "bg-white text-slate-700 border-slate-300 hover:bg-slate-100"
+                                              : "bg-emerald-50 text-emerald-700 border-emerald-200"
+                                          }`}
+                                          title={`${mb.monthIndex}. Ay (${mbYear}) taksitlerini ve harcamalarını listele`}
+                                        >
+                                          {mb.monthIndex}.Ay ({mbYear}): {formatCurrency(mb.remaining > 0 ? mb.remaining : mb.totalDue)}
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
+                                )}
+                              </div>
+
+                              {/* Alt Kısım: Harcama Gir | Kart Borcu Öde | Ekstre */}
+                              <div className="space-y-1" onClick={(e) => e.stopPropagation()}>
+                                {card.monthStatementRemaining > 0 ? (
+                                  <div className="space-y-1">
+                                    <button
+                                      type="button"
+                                      onClick={() => openCardPayModal(card.id, "FULL")}
+                                      className="w-full py-1.5 px-2 rounded-lg font-extrabold text-[10px] bg-emerald-600 hover:bg-emerald-700 text-white flex items-center justify-center gap-1 shadow-2xs transition-all"
+                                    >
+                                      <CheckCircle2 className="w-3 h-3 shrink-0" />
+                                      <span className="truncate">
+                                        {(card as any).isMinPaymentMet
+                                          ? `Kalan Ekstreyi Öde (${formatCurrency(card.monthStatementRemaining)})`
+                                          : `Tamamını Öde (${formatCurrency(card.monthStatementRemaining)})`}
+                                      </span>
+                                    </button>
+                                    {(card as any).isMinPaymentMet ? (
+                                      <div className="w-full py-1 px-1.5 rounded-lg font-black text-[9px] bg-emerald-100 text-emerald-900 border border-emerald-300 flex items-center justify-center gap-1">
+                                        <CheckCircle2 className="w-3 h-3 text-emerald-700 shrink-0" />
+                                        <span className="truncate">✓ Bu Ayki Asgari Ödendi (Kredi Notu Güvende)</span>
+                                      </div>
+                                    ) : (
+                                      <button
+                                        type="button"
+                                        onClick={() => openCardPayModal(card.id, "MIN")}
+                                        className="w-full py-1 px-2 rounded-lg font-black text-[10px] bg-amber-500 hover:bg-amber-600 text-white flex items-center justify-center gap-1 shadow-2xs transition-all"
+                                        title="Kredi notunun olumsuz etkilenmemesi adına en az bu asgari tutarı ödeyin"
+                                      >
+                                        <Zap className="w-3 h-3 fill-amber-100 shrink-0" />
+                                        <span className="truncate">
+                                          ⚡ Asgariyi Öde ({formatCurrency((card as any).remainingMinPayment)})
+                                        </span>
+                                      </button>
+                                    )}
+                                  </div>
+                                ) : card.allTimeTotalRemaining > 0 ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => openCardPayModal(card.id)}
+                                    className="w-full py-1 px-2 rounded-lg font-bold text-[10px] bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 flex items-center justify-center gap-1"
+                                  >
+                                    <span>💳 Kart Borcu Öde</span>
+                                  </button>
+                                ) : (
+                                  <div className="w-full py-1 px-2 rounded-lg font-bold text-[10px] bg-slate-100 text-slate-500 text-center">
+                                    ✓ Bu Ay Borcu Yok
+                                  </div>
+                                )}
+
+                                <div className="grid grid-cols-2 gap-1">
+                                  <button
+                                    type="button"
+                                    onClick={() => openCardTxModal(card.id)}
+                                    className={`py-1 px-1.5 rounded-md font-bold text-[10px] flex items-center justify-center gap-0.5 ${theme.btn}`}
+                                  >
+                                    <Plus className="w-3 h-3" />
+                                    <span>Harcama Gir</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setSelectedVisualCardId(isSelected ? "ALL_5" : card.id)}
+                                    className={`py-1 px-1.5 rounded-md font-bold text-[10px] flex items-center justify-center gap-0.5 border ${
+                                      isSelected
+                                        ? "bg-slate-900 text-white border-slate-900"
+                                        : "bg-white hover:bg-slate-100 text-slate-700 border-slate-200"
+                                    }`}
+                                  >
+                                    <span>Ekstre ({card.monthTx.length})</span>
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          );
+        })()}
 
         {/* 📄 SEÇİLİ KARTIN (VEYA TÜMÜNÜN) AY BAZLI EKSTRE HARCAMALARI TABLOSU */}
         <div className="bg-slate-50/60 rounded-2xl border border-slate-200 p-4 space-y-3">

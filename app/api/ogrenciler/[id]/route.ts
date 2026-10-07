@@ -82,6 +82,196 @@ export async function PUT(
     const { id } = await params;
     const body = await request.json();
 
+    // Kayıt Silme İşlemi (DROPPED & Sınıftan Düşür & İade Oluştur)
+    if (body.action === "DROP_STUDENT") {
+      const {
+        reason = "Kayıt Silindi",
+        cancellationDate,
+        hasRefund,
+        refundAmount,
+        refundStartDate,
+        refundInstallments = 1,
+        refundIban,
+        refundNotes,
+      } = body;
+
+      const student = await prisma.student.findUnique({
+        where: { id },
+        include: { classroom: true },
+      });
+      if (!student) {
+        return NextResponse.json({ error: "Öğrenci bulunamadı." }, { status: 404 });
+      }
+
+      let refundRecordId: string | null = null;
+      const cDate = cancellationDate ? new Date(cancellationDate) : new Date();
+      const sDate = refundStartDate ? new Date(refundStartDate) : new Date();
+
+      // Para iadesi yapılacaksa StudentRefund oluştur ve okul giderlerine senkronize et
+      if (hasRefund && Number(refundAmount) > 0) {
+        const totAmt = Number(refundAmount);
+        const instCount = Math.max(1, parseInt(String(refundInstallments), 10) || 1);
+
+        const refund = await prisma.studentRefund.create({
+          data: {
+            studentName: student.fullName,
+            parentName: student.fatherName || student.motherName || "Veli",
+            phone: student.primaryPhone,
+            iban: refundIban ? refundIban.trim() : null,
+            reason: reason || "Kayıt Silme İadesi",
+            cancellationDate: cDate,
+            startDate: sDate,
+            totalAmount: totAmt,
+            installmentCount: instCount,
+            notes: refundNotes ? refundNotes.trim() : `Öğrenci Kayıt Silme İadesi (${student.fullName} - Ref: ${student.id})`,
+            status: "ACTIVE",
+          },
+        });
+        refundRecordId = refund.id;
+
+        // Taksitleri oluştur
+        const basePerInst = Number((totAmt / instCount).toFixed(2));
+        let currentRemainder = totAmt;
+        const sYear = sDate.getFullYear();
+        const sMonth = sDate.getMonth() + 1;
+        const targetDay = sDate.getDate();
+
+        const TR_MONTHS = [
+          "",
+          "Ocak",
+          "Şubat",
+          "Mart",
+          "Nisan",
+          "Mayıs",
+          "Haziran",
+          "Temmuz",
+          "Ağustos",
+          "Eylül",
+          "Ekim",
+          "Kasım",
+          "Aralık",
+        ];
+
+        for (let i = 0; i < instCount; i++) {
+          const isLast = i === instCount - 1;
+          const instAmt = isLast ? Number(currentRemainder.toFixed(2)) : basePerInst;
+          currentRemainder -= instAmt;
+
+          const targetMonthOffset = sMonth - 1 + i;
+          const rYear = sYear + Math.floor(targetMonthOffset / 12);
+          const rMonth = (targetMonthOffset % 12) + 1;
+          const lastDayOfMonth = new Date(rYear, rMonth, 0).getDate();
+          const safeDay = Math.min(targetDay, lastDayOfMonth);
+          const instDueDate = new Date(rYear, rMonth - 1, safeDay, 12, 0, 0);
+          const dStr = `${safeDay} ${TR_MONTHS[rMonth] || rMonth} ${rYear}`;
+
+          await prisma.refundInstallment.create({
+            data: {
+              refundId: refund.id,
+              installmentNo: i + 1,
+              dueDate: instDueDate,
+              dueDateStr: dStr,
+              amount: instAmt,
+              paidAmount: 0,
+              remainingAmount: instAmt,
+              status: "PENDING",
+              paymentMethod: "BANK_TRANSFER",
+            },
+          });
+        }
+
+        // Okul giderlerine ve kasa planına senkronize et
+        try {
+          const { syncRefundToSchoolExpenses } = await import("@/lib/student-refund-sync");
+          await syncRefundToSchoolExpenses(refund.id);
+        } catch (syncErr) {
+          console.error("Gider senkronizasyonu hatası:", syncErr);
+        }
+      }
+
+      // Bilgileri asla kaybetme: iptal detayını ve eski sınıfı JSON formatında notes içine kaydet
+      let currentNotes = student.notes || "";
+      const cancelInfo = {
+        droppedAt: cDate.toISOString().split("T")[0],
+        reason: reason || "Kayıt Silindi",
+        hasRefund: Boolean(hasRefund),
+        refundAmount: Number(refundAmount) || 0,
+        refundId: refundRecordId,
+        previousClassroomId: student.classroomId,
+        previousClassroomName: student.classroom?.name || null,
+      };
+
+      let finalNotes = currentNotes;
+      try {
+        if (currentNotes.startsWith("{")) {
+          const parsed = JSON.parse(currentNotes);
+          parsed.cancellationInfo = cancelInfo;
+          finalNotes = JSON.stringify(parsed);
+        } else {
+          finalNotes = JSON.stringify({
+            userNote: currentNotes,
+            cancellationInfo: cancelInfo,
+          });
+        }
+      } catch {
+        finalNotes = `${currentNotes}\n[KAYIT_SILINDI: ${JSON.stringify(cancelInfo)}]`;
+      }
+
+      // Öğrenciyi DROPPED yap ve sınıftan düşür (classroomId: null)
+      const updated = await prisma.student.update({
+        where: { id },
+        data: {
+          status: "DROPPED",
+          classroomId: null,
+          notes: finalNotes,
+        },
+        include: {
+          classroom: true,
+          payments: true,
+        },
+      });
+
+      return NextResponse.json({
+        success: true,
+        student: updated,
+        refundId: refundRecordId,
+      });
+    }
+
+    // Kaydı Yeniden Aktif Etme İşlemi (Geri Al)
+    if (body.action === "REINSTATE_STUDENT") {
+      const student = await prisma.student.findUnique({ where: { id } });
+      if (!student) {
+        return NextResponse.json({ error: "Öğrenci bulunamadı." }, { status: 404 });
+      }
+
+      let restoredClassroomId: string | null = body.classroomId || null;
+      if (!restoredClassroomId && student.notes) {
+        try {
+          if (student.notes.startsWith("{")) {
+            const parsed = JSON.parse(student.notes);
+            if (parsed.cancellationInfo?.previousClassroomId) {
+              restoredClassroomId = parsed.cancellationInfo.previousClassroomId;
+            }
+          }
+        } catch {}
+      }
+
+      const updated = await prisma.student.update({
+        where: { id },
+        data: {
+          status: "ACTIVE",
+          classroomId: restoredClassroomId,
+        },
+        include: {
+          classroom: true,
+          payments: true,
+        },
+      });
+
+      return NextResponse.json({ success: true, student: updated });
+    }
+
     const {
       studentNo,
       tcNo,
@@ -116,7 +306,12 @@ export async function PUT(
       graduationDate,
       serviceUsed,
       mealUsed,
+      contractAmount,
+      discountAmount,
       contractDiscountType,
+      netAmount,
+      installmentCount,
+      contractItems,
       portalUsername,
       portalPassword,
       kvkkConsent,
@@ -124,6 +319,19 @@ export async function PUT(
       tags,
       notes,
     } = body;
+
+    let finalNotes = notes !== undefined ? notes : undefined;
+    if (contractItems !== undefined) {
+      finalNotes = JSON.stringify({
+        contractItems: Array.isArray(contractItems) ? contractItems : [],
+        userNote: typeof notes === "string" ? notes : "",
+      });
+    }
+
+    let calculatedContractAmount = contractAmount !== undefined ? parseFloat(contractAmount) : undefined;
+    if (Array.isArray(contractItems) && contractItems.length > 0) {
+      calculatedContractAmount = contractItems.reduce((s: number, i: any) => s + (Number(i.amount) || 0), 0);
+    }
 
     const updated = await prisma.student.update({
       where: { id },
@@ -159,15 +367,19 @@ export async function PUT(
         academicYear: academicYear !== undefined ? academicYear : undefined,
         previousSchool: previousSchool !== undefined ? previousSchool : undefined,
         graduationDate: graduationDate !== undefined ? (graduationDate ? new Date(graduationDate) : null) : undefined,
-        serviceUsed: serviceUsed !== undefined ? Boolean(serviceUsed) : undefined,
-        mealUsed: mealUsed !== undefined ? Boolean(mealUsed) : undefined,
+        serviceUsed: serviceUsed !== undefined ? Boolean(serviceUsed) : (Array.isArray(contractItems) ? contractItems.some((i: any) => i.type === "SERVICE") : undefined),
+        mealUsed: mealUsed !== undefined ? Boolean(mealUsed) : (Array.isArray(contractItems) ? contractItems.some((i: any) => i.type === "MEAL") : undefined),
+        contractAmount: calculatedContractAmount,
+        discountAmount: discountAmount !== undefined ? parseFloat(discountAmount) : undefined,
         contractDiscountType: contractDiscountType !== undefined ? contractDiscountType : undefined,
+        netAmount: netAmount !== undefined ? parseFloat(netAmount) : undefined,
+        installmentCount: installmentCount !== undefined ? parseInt(installmentCount) : undefined,
         portalUsername: portalUsername !== undefined ? portalUsername : undefined,
         portalPassword: portalPassword !== undefined ? portalPassword : undefined,
         kvkkConsent: kvkkConsent !== undefined ? Boolean(kvkkConsent) : undefined,
         photoConsent: photoConsent !== undefined ? Boolean(photoConsent) : undefined,
         tags: tags !== undefined ? (Array.isArray(tags) ? JSON.stringify(tags) : tags) : undefined,
-        notes: notes !== undefined ? notes : undefined,
+        notes: finalNotes,
       },
       include: {
         classroom: true,
