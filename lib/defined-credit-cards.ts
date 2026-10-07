@@ -9,6 +9,9 @@ export interface DefinedCreditCard {
   statementDateISO?: string;
   dueDateISO?: string;
   cardLimit: number;
+  minPaymentAmount?: number;
+  minPaymentRate?: number;
+  monthlyMinPayments?: Record<string, number>;
 }
 
 export const DEFAULT_DEFINED_CARDS: DefinedCreditCard[] = [

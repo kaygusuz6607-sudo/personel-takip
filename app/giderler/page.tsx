@@ -45,6 +45,7 @@ import {
   Upload,
   UserMinus,
   RotateCcw,
+  Zap,
 } from "lucide-react";
 import QRCode from "qrcode";
 import SupplierCariPanel from "./components/SupplierCariPanel";
@@ -716,6 +717,7 @@ function GiderlerPageContent() {
   const [tempCardLabel, setTempCardLabel] = useState("");
   const [tempCardCutoff, setTempCardCutoff] = useState("");
   const [tempCardLimit, setTempCardLimit] = useState("");
+  const [tempCardMinPayment, setTempCardMinPayment] = useState("");
   const [selectedDueDateFilter, setSelectedDueDateFilter] = useState<string>("");
 
   // Yeni Kart Ekleme Kutusu
@@ -727,6 +729,7 @@ function GiderlerPageContent() {
     statementDateISO: "2026-09-15",
     dueDateISO: "2026-09-25",
     cardLimit: "750000",
+    minPaymentAmount: "",
   });
 
   // Kart Borcu / Ekstre Ödeme Modalı
@@ -880,6 +883,7 @@ function GiderlerPageContent() {
       statementDateISO: statementISO,
       dueDateISO: dueISO,
       cardLimit: limitNum,
+      minPaymentAmount: Math.max(0, Number(newCardForm.minPaymentAmount)) || undefined,
     };
     const updated = [...ahmetCards, newCard];
     saveAhmetCards(updated);
@@ -2505,6 +2509,38 @@ function GiderlerPageContent() {
         (card as any).dueDay
       );
 
+      // Asgari Ödeme Tutarı Hesabı
+      const activeMonthKey = selectedMonth === "ALL" ? "DEFAULT" : selectedMonth;
+      const manualMonthlyMin = (card as any).monthlyMinPayments?.[activeMonthKey];
+      const manualGeneralMin = (card as any).minPaymentAmount;
+      const hasManualMonthly =
+        manualMonthlyMin !== undefined && manualMonthlyMin !== null && Number(manualMonthlyMin) > 0;
+      const hasManualGeneral =
+        manualGeneralMin !== undefined && manualGeneralMin !== null && Number(manualGeneralMin) > 0;
+
+      const manualMinNum = hasManualMonthly
+        ? Number(manualMonthlyMin)
+        : hasManualGeneral
+        ? Number(manualGeneralMin)
+        : null;
+
+      // Standart BDDK Asgari Oranı (50.000 TL altı %20, 50.000 TL ve üstü %40)
+      const defaultRate = (card as any).minPaymentRate || (cardLimit > 50000 ? 40 : 20);
+      const autoCalculatedMin =
+        monthStatementRemaining > 0
+          ? Number(((monthStatementRemaining * defaultRate) / 100).toFixed(2))
+          : 0;
+
+      const effectiveMinPayment =
+        manualMinNum !== null
+          ? Math.min(monthStatementRemaining, manualMinNum)
+          : autoCalculatedMin;
+
+      const isMinPaymentMet = effectiveMinPayment > 0 && monthStatementPaid >= effectiveMinPayment;
+      const remainingMinPayment = isMinPaymentMet
+        ? 0
+        : Math.max(0, Number((effectiveMinPayment - monthStatementPaid).toFixed(2)));
+
       return {
         ...card,
         statementDateISO: effectiveStatementDateISO,
@@ -2522,26 +2558,46 @@ function GiderlerPageContent() {
         usedLimit,
         availableLimit,
         monthlyBreakdown,
+        minPaymentAmount: manualMonthlyMin ?? (card as any).minPaymentAmount,
+        minPaymentRate: defaultRate,
+        autoCalculatedMin,
+        effectiveMinPayment,
+        remainingMinPayment,
+        isMinPaymentMet,
+        isMinManual: manualMinNum !== null,
       };
     });
   }, [ahmetCards, allCardExpenses, selectedMonth]);
 
-  const openCardPayModal = (cardId: string) => {
+  const totalAllCardsMinDue = useMemo(() => {
+    return ahmetCardsComputed.reduce((s, c) => s + (c.remainingMinPayment || 0), 0);
+  }, [ahmetCardsComputed]);
+
+  const openCardPayModal = (cardId: string, prefillMode: "FULL" | "MIN" = "FULL") => {
     const todayStr = new Date().toISOString().split("T")[0];
     const targetCard = ahmetCardsComputed.find((c) => c.id === cardId) || ahmetCardsComputed[0];
     if (!targetCard) return;
     setSelectedVisualCardId(targetCard.id);
-    const defaultPayAmount =
+    const fullPayAmount =
       targetCard.monthStatementRemaining > 0
         ? targetCard.monthStatementRemaining
         : targetCard.allTimeTotalRemaining;
+    const minPayAmount =
+      (targetCard as any).remainingMinPayment > 0
+        ? (targetCard as any).remainingMinPayment
+        : (targetCard as any).effectiveMinPayment > 0
+        ? (targetCard as any).effectiveMinPayment
+        : fullPayAmount;
 
+    const chosenAmount = prefillMode === "MIN" ? minPayAmount : fullPayAmount;
     const parsedSel = parseSelectedPeriod(selectedMonth);
+    const noteSuffix = prefillMode === "MIN" ? "Asgari Tutar Ödemesi" : "Ekstre Ödemesi";
+
     setCardPayForm({
       cardId: targetCard.id,
-      amount: defaultPayAmount > 0 ? String(Number(defaultPayAmount.toFixed(2))) : "",
+      amount: chosenAmount > 0 ? String(Number(chosenAmount.toFixed(2))) : "",
       date: todayStr,
-      note: `${selectedMonth === "ALL" ? "Tüm Dönem" : parsedSel.label} Kart Borcu / Ekstre Ödemesi (${targetCard.bankName})`,
+      note: `${selectedMonth === "ALL" ? "Tüm Dönem" : parsedSel.label} Kart Borcu / ${noteSuffix} (${targetCard.bankName})`,
     });
     setCardPayModalOpen(true);
   };
@@ -2609,6 +2665,24 @@ function GiderlerPageContent() {
         : c
     );
     saveAhmetCards(updatedCards);
+  };
+
+  const handleCardMinPaymentChange = (cardId: string, valStr: string) => {
+    const num = Math.max(0, parseFloat(valStr) || 0);
+    const activeMonthKey = selectedMonth === "ALL" ? "DEFAULT" : selectedMonth;
+    const updatedCards = ahmetCards.map((c) => {
+      if (c.id !== cardId) return c;
+      const prevMonthly = (c as any).monthlyMinPayments || {};
+      return {
+        ...c,
+        minPaymentAmount: num > 0 ? num : undefined,
+        monthlyMinPayments: {
+          ...prevMonthly,
+          [activeMonthKey]: num > 0 ? num : undefined,
+        },
+      };
+    });
+    saveAhmetCards(updatedCards as any);
   };
 
   const handleCardDueDateChange = async (cardId: string, newDateISO: string) => {
@@ -3583,6 +3657,15 @@ function GiderlerPageContent() {
                   <span className="font-semibold">💳 Kartla:</span>
                   <span className="font-extrabold">{formatCurrency(stats.cardDue)}</span>
                 </div>
+                {totalAllCardsMinDue > 0 && (
+                  <div className="flex items-center justify-between text-amber-900 bg-amber-50/90 px-1 py-0.5 rounded border border-amber-200 mt-0.5 text-[10px]">
+                    <span className="font-bold flex items-center gap-0.5">
+                      <Zap className="w-2.5 h-2.5 text-amber-700 fill-current" />
+                      Min. Asgari:
+                    </span>
+                    <span className="font-black">{formatCurrency(totalAllCardsMinDue)}</span>
+                  </div>
+                )}
               </div>
             </button>
 
@@ -3653,6 +3736,15 @@ function GiderlerPageContent() {
                   <span className="font-semibold">💳 Kartla:</span>
                   <span className="font-extrabold">{formatCurrency(stats.cardRemaining)}</span>
                 </div>
+                {totalAllCardsMinDue > 0 && (
+                  <div className="flex items-center justify-between text-amber-900 bg-amber-50/90 px-1 py-0.5 rounded border border-amber-200 mt-0.5 text-[10px]">
+                    <span className="font-bold flex items-center gap-0.5">
+                      <Zap className="w-2.5 h-2.5 text-amber-700 fill-current" />
+                      Min. Asgari:
+                    </span>
+                    <span className="font-black">{formatCurrency(totalAllCardsMinDue)}</span>
+                  </div>
+                )}
               </div>
             </button>
 
@@ -3947,6 +4039,7 @@ function GiderlerPageContent() {
                     const totalUsed = cardsOfHolder.reduce((s, c) => s + c.usedLimit, 0);
                     const totalAvailable = cardsOfHolder.reduce((s, c) => s + c.availableLimit, 0);
                     const monthRemaining = cardsOfHolder.reduce((s, c) => s + c.monthStatementRemaining, 0);
+                    const monthMinRemaining = cardsOfHolder.reduce((s, c) => s + ((c as any).remainingMinPayment || 0), 0);
                     return {
                       holderName,
                       cards: cardsOfHolder,
@@ -3954,6 +4047,7 @@ function GiderlerPageContent() {
                       totalUsed,
                       totalAvailable,
                       monthRemaining,
+                      monthMinRemaining,
                     };
                   });
 
@@ -3996,6 +4090,13 @@ function GiderlerPageContent() {
                                     : `${parseSelectedPeriod(selectedMonth).label} Kalan:`}{" "}
                                   <strong>{formatCurrency(group.monthRemaining)}</strong>
                                 </span>
+                                {group.monthRemaining > 0 && (
+                                  <span className="px-2 py-0.5 rounded bg-amber-100 border border-amber-300 text-amber-950 font-bold flex items-center gap-1">
+                                    <Zap className="w-3 h-3 text-amber-700 fill-current" />
+                                    <span>Min. Asgari:</span>
+                                    <strong>{formatCurrency(group.monthMinRemaining)}</strong>
+                                  </span>
+                                )}
                               </div>
                             </div>
 
@@ -4061,6 +4162,15 @@ function GiderlerPageContent() {
                                                   placeholder="Kart Limiti (₺)"
                                                   className="w-full px-1.5 py-0.5 text-[10px] font-extrabold text-slate-900 border border-slate-200 rounded"
                                                 />
+                                                <input
+                                                  type="number"
+                                                  min="0"
+                                                  step="100"
+                                                  value={tempCardMinPayment}
+                                                  onChange={(e) => setTempCardMinPayment(e.target.value)}
+                                                  placeholder="Varsayılan Asgari Tutar (₺)"
+                                                  className="w-full px-1.5 py-0.5 text-[10px] font-extrabold text-amber-900 border border-amber-300 rounded"
+                                                />
                                                 <div className="flex justify-end gap-1">
                                                   <button
                                                     type="button"
@@ -4083,6 +4193,7 @@ function GiderlerPageContent() {
                                                                   tempCardLabel.trim() || `${tempCardBankName.trim()} KK`,
                                                                 cardLimit:
                                                                   Math.max(0, Number(tempCardLimit)) || c.cardLimit || 750000,
+                                                                minPaymentAmount: Math.max(0, Number(tempCardMinPayment)) || undefined,
                                                               }
                                                             : c
                                                         );
@@ -4129,6 +4240,7 @@ function GiderlerPageContent() {
                                                   setTempCardLabel(card.cardLabel || "");
                                                   setTempCardCutoff(card.cutoffDay);
                                                   setTempCardLimit(String(card.cardLimit || 750000));
+                                                  setTempCardMinPayment(String((card as any).minPaymentAmount || ""));
                                                 }}
                                                 className="p-1 text-slate-400 hover:text-slate-700 rounded hover:bg-white/70"
                                                 title="Kartı düzenle"
@@ -4198,6 +4310,30 @@ function GiderlerPageContent() {
                                             </button>
                                           )}
                                         </div>
+
+                                        {/* Manuel Asgari Ödeme Tutarı (Ekstre Kesildiğinde Bankanın Belirlediği Tutar) */}
+                                        <div
+                                          className="mt-1 flex items-center justify-between gap-1 bg-amber-50/90 px-2 py-1 rounded-lg border border-amber-300"
+                                          onClick={(e) => e.stopPropagation()}
+                                        >
+                                          <div className="flex items-center gap-1 shrink-0">
+                                            <Zap className="w-3 h-3 text-amber-700 fill-current" />
+                                            <span className="text-[10px] font-extrabold text-amber-950">Asgari:</span>
+                                          </div>
+                                          <div className="flex items-center gap-0.5">
+                                            <input
+                                              type="number"
+                                              min="0"
+                                              step="100"
+                                              value={(card as any).monthlyMinPayments?.[selectedMonth] ?? ((card as any).minPaymentAmount || "")}
+                                              onChange={(e) => handleCardMinPaymentChange(card.id, e.target.value)}
+                                              placeholder={(card as any).autoCalculatedMin > 0 ? String((card as any).autoCalculatedMin) : "0"}
+                                              className="bg-white px-1.5 py-0.5 text-right text-slate-900 font-black text-[11px] rounded border border-amber-300 focus:outline-none focus:ring-1 focus:ring-amber-500 w-[88px]"
+                                              title="Bu ayın ekstresi kesildiğinde bankanın belirlediği asgari ödeme tutarını girin (Örn: 15000)"
+                                            />
+                                            <span className="text-[10px] font-black text-amber-900">₺</span>
+                                          </div>
+                                        </div>
                                       </div>
 
                                       {/* Kart Limiti, Kullanılan & Kullanılabilir Limit Alanı */}
@@ -4264,6 +4400,22 @@ function GiderlerPageContent() {
                                             {formatCurrency(card.monthStatementRemaining)}
                                           </span>
                                         </div>
+                                        {card.monthStatementRemaining > 0 && (
+                                          <div className="flex items-center justify-between px-1 bg-amber-50/90 rounded py-0.5 border border-amber-200 text-[10px]">
+                                            <span className="text-amber-950 font-extrabold flex items-center gap-0.5">
+                                              <Zap className="w-2.5 h-2.5 text-amber-700 fill-current" />
+                                              Min. Asgari:
+                                            </span>
+                                            <span className="font-black text-amber-950">
+                                              {formatCurrency((card as any).effectiveMinPayment)}
+                                              {(card as any).isMinPaymentMet && (
+                                                <span className="ml-1 text-[9px] text-emerald-700 bg-emerald-100 px-1 py-0.2 rounded font-bold">
+                                                  ✓ Ödendi
+                                                </span>
+                                              )}
+                                            </span>
+                                          </div>
+                                        )}
 
                                         {/* Taksitlerin Bulunduğu Aylar (Tıklayınca O Aya Geçer) */}
                                         {card.monthlyBreakdown.length > 0 && (
@@ -4303,16 +4455,29 @@ function GiderlerPageContent() {
                                       {/* Alt Kısım: Harcama Gir | Kart Borcu Öde | Ekstre */}
                                       <div className="space-y-1" onClick={(e) => e.stopPropagation()}>
                                         {card.monthStatementRemaining > 0 ? (
-                                          <button
-                                            type="button"
-                                            onClick={() => openCardPayModal(card.id)}
-                                            className="w-full py-1.5 px-2 rounded-lg font-extrabold text-[10px] bg-emerald-600 hover:bg-emerald-700 text-white flex items-center justify-center gap-1 shadow-2xs transition-all"
-                                          >
-                                            <CheckCircle2 className="w-3 h-3 shrink-0" />
-                                            <span className="truncate">
-                                              Kart Borcu Öde ({formatCurrency(card.monthStatementRemaining)})
-                                            </span>
-                                          </button>
+                                          <div className="space-y-1">
+                                            <button
+                                              type="button"
+                                              onClick={() => openCardPayModal(card.id, "FULL")}
+                                              className="w-full py-1.5 px-2 rounded-lg font-extrabold text-[10px] bg-emerald-600 hover:bg-emerald-700 text-white flex items-center justify-center gap-1 shadow-2xs transition-all"
+                                            >
+                                              <CheckCircle2 className="w-3 h-3 shrink-0" />
+                                              <span className="truncate">
+                                                Tamamını Öde ({formatCurrency(card.monthStatementRemaining)})
+                                              </span>
+                                            </button>
+                                            <button
+                                              type="button"
+                                              onClick={() => openCardPayModal(card.id, "MIN")}
+                                              className="w-full py-1 px-2 rounded-lg font-black text-[10px] bg-amber-100 hover:bg-amber-200 text-amber-950 border border-amber-300 flex items-center justify-center gap-1 transition-all"
+                                              title="Banka asgari ödeme tutarını öde"
+                                            >
+                                              <Zap className="w-3 h-3 text-amber-800 shrink-0 fill-current" />
+                                              <span className="truncate">
+                                                ⚡ Asgariyi Öde ({formatCurrency((card as any).effectiveMinPayment)})
+                                              </span>
+                                            </button>
+                                          </div>
                                         ) : card.allTimeTotalRemaining > 0 ? (
                                           <button
                                             type="button"
@@ -4440,16 +4605,31 @@ function GiderlerPageContent() {
                             </button>
                           )}
                           {!isAll5 && statementMonthRemaining > 0 && (
-                            <button
-                              type="button"
-                              onClick={() => openCardPayModal(activeCard.id)}
-                              className="px-2.5 py-1 rounded-lg text-[11px] font-extrabold bg-emerald-600 hover:bg-emerald-700 text-white flex items-center gap-1 shadow-2xs"
-                            >
-                              <CheckCircle2 className="w-3.5 h-3.5" />
-                              <span>
-                                Bu Ayki Kart Borcunu Öde ({formatCurrency(statementMonthRemaining)})
-                              </span>
-                            </button>
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <button
+                                type="button"
+                                onClick={() => openCardPayModal(activeCard.id, "FULL")}
+                                className="px-2.5 py-1 rounded-lg text-[11px] font-extrabold bg-emerald-600 hover:bg-emerald-700 text-white flex items-center gap-1 shadow-2xs"
+                              >
+                                <CheckCircle2 className="w-3.5 h-3.5" />
+                                <span>
+                                  Bu Ayki Kart Borcunu Öde ({formatCurrency(statementMonthRemaining)})
+                                </span>
+                              </button>
+                              {activeCard.remainingMinPayment > 0 && (
+                                <button
+                                  type="button"
+                                  onClick={() => openCardPayModal(activeCard.id, "MIN")}
+                                  className="px-2.5 py-1 rounded-lg text-[11px] font-extrabold bg-amber-500 hover:bg-amber-600 text-white flex items-center gap-1 shadow-2xs"
+                                  title={`Asgari Tutar: ${formatCurrency(activeCard.effectiveMinPayment)} (${activeCard.isMinManual ? "Manuel Girildi" : "Otomatik Hesaplandı"})`}
+                                >
+                                  <Zap className="w-3.5 h-3.5 fill-amber-100" />
+                                  <span>
+                                    ⚡ Asgariyi Öde ({formatCurrency(activeCard.remainingMinPayment)})
+                                  </span>
+                                </button>
+                              )}
+                            </div>
                           )}
                         </div>
 
@@ -4475,6 +4655,55 @@ function GiderlerPageContent() {
                             <span className="text-slate-500">Bu Ay Kalan: </span>
                             <strong className="text-rose-600">{formatCurrency(statementMonthRemaining)}</strong>
                           </div>
+                          {!isAll5 ? (
+                            <div className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-50 border border-amber-200">
+                              <Zap className="w-3 h-3 text-amber-600" />
+                              <span className="text-amber-800 font-semibold">Min. Asgari: </span>
+                              <strong className={activeCard.isMinPaymentMet ? "text-emerald-700" : "text-amber-700"}>
+                                {formatCurrency(activeCard.effectiveMinPayment)}
+                              </strong>
+                              {activeCard.remainingMinPayment > 0 && activeCard.remainingMinPayment < activeCard.effectiveMinPayment && (
+                                <span className="text-[10px] font-normal text-amber-700">
+                                  (kalan {formatCurrency(activeCard.remainingMinPayment)})
+                                </span>
+                              )}
+                              {activeCard.isMinPaymentMet && (
+                                <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 px-1 py-0.5 rounded">
+                                  ✓ ödendi
+                                </span>
+                              )}
+                            </div>
+                          ) : (
+                            (() => {
+                              const sumMinRemaining = filteredCardsForStatement.reduce(
+                                (s, c) => s + (c.remainingMinPayment || 0),
+                                0
+                              );
+                              const sumMinEffective = filteredCardsForStatement.reduce(
+                                (s, c) => s + (c.effectiveMinPayment || 0),
+                                0
+                              );
+                              return (
+                                <div className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-50 border border-amber-200">
+                                  <Zap className="w-3 h-3 text-amber-600" />
+                                  <span className="text-amber-800 font-semibold">Tüm Kartlar Min. Asgari: </span>
+                                  <strong className={sumMinRemaining <= 0 ? "text-emerald-700" : "text-amber-700"}>
+                                    {formatCurrency(sumMinEffective)}
+                                  </strong>
+                                  {sumMinRemaining > 0 && sumMinRemaining < sumMinEffective && (
+                                    <span className="text-[10px] font-normal text-amber-700">
+                                      (kalan {formatCurrency(sumMinRemaining)})
+                                    </span>
+                                  )}
+                                  {sumMinRemaining <= 0 && sumMinEffective > 0 && (
+                                    <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 px-1 py-0.5 rounded">
+                                      ✓ ödendi
+                                    </span>
+                                  )}
+                                </div>
+                              );
+                            })()
+                          )}
                           <div>
                             <span className="text-slate-500">Tüm Harcamalar: </span>
                             <strong className="text-purple-800">{formatCurrency(totalAllExpensesDue)}</strong>
@@ -7518,6 +7747,158 @@ function GiderlerPageContent() {
                           </span>
                         </div>
                       ))}
+                    </div>
+                  </div>
+
+                  {/* ⚡ Hızlı Tutar Seçimi: Tamamı vs Asgari Tutar */}
+                  <div className="p-3 rounded-2xl bg-gradient-to-r from-amber-50 to-emerald-50 border border-amber-200/80 space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <span className="font-extrabold text-slate-800 text-xs flex items-center gap-1.5">
+                        <span>💡 Hızlı Ödeme Tutarı Seçimi</span>
+                      </span>
+                      <span className="text-[10px] text-slate-500 font-semibold">
+                        {payCard.isMinManual ? "Manuel Girilmiş Asgari" : `Otomatik Asgari (%${payCard.minPaymentRate})`}
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      {/* Asgari Tutar Butonu */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const val =
+                            payCard.remainingMinPayment > 0
+                              ? payCard.remainingMinPayment
+                              : payCard.effectiveMinPayment;
+                          const baseNote = cardPayForm.note.replace(/\s*\(.*?\)$/, "");
+                          setCardPayForm({
+                            ...cardPayForm,
+                            amount: val > 0 ? String(Number(val.toFixed(2))) : cardPayForm.amount,
+                            note: `${baseNote} (Asgari Ödeme - ${formatCurrency(val)})`,
+                          });
+                        }}
+                        className={`p-2.5 rounded-xl border text-left transition-all ${
+                          Math.abs(enteredPayNum - payCard.remainingMinPayment) < 0.01 ||
+                          Math.abs(enteredPayNum - payCard.effectiveMinPayment) < 0.01
+                            ? "bg-amber-100/90 border-amber-500 ring-2 ring-amber-400/40"
+                            : "bg-white border-amber-200 hover:bg-amber-50/70"
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="font-extrabold text-amber-950 flex items-center gap-1 text-xs">
+                            <Zap className="w-3.5 h-3.5 text-amber-600 fill-amber-500" />
+                            ⚡ Asgari Tutar
+                          </span>
+                          {payCard.isMinPaymentMet ? (
+                            <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 px-1.5 py-0.5 rounded">
+                              ✓ Ödendi
+                            </span>
+                          ) : (
+                            <span className="text-[10px] font-bold text-amber-800 bg-amber-200/80 px-1.5 py-0.5 rounded">
+                              Seç
+                            </span>
+                          )}
+                        </div>
+                        <div className="mt-1 flex items-baseline justify-between">
+                          <span className="text-sm font-black text-amber-900">
+                            {formatCurrency(
+                              payCard.remainingMinPayment > 0
+                                ? payCard.remainingMinPayment
+                                : payCard.effectiveMinPayment
+                            )}
+                          </span>
+                          {payCard.remainingMinPayment > 0 &&
+                            payCard.remainingMinPayment < payCard.effectiveMinPayment && (
+                              <span className="text-[10px] text-slate-500">
+                                Toplam: {formatCurrency(payCard.effectiveMinPayment)}
+                              </span>
+                            )}
+                        </div>
+                        <p className="text-[10px] text-amber-800/80 mt-0.5">
+                          Min. ödenebilecek tutar.
+                        </p>
+                      </button>
+
+                      {/* Tam Borç Butonu */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const fullVal =
+                            payCard.monthStatementRemaining > 0
+                              ? payCard.monthStatementRemaining
+                              : payCard.allTimeTotalRemaining;
+                          const baseNote = cardPayForm.note.replace(/\s*\(.*?\)$/, "");
+                          setCardPayForm({
+                            ...cardPayForm,
+                            amount: fullVal > 0 ? String(Number(fullVal.toFixed(2))) : cardPayForm.amount,
+                            note: `${baseNote} (Dönem Borcunun Tamamı - ${formatCurrency(fullVal)})`,
+                          });
+                        }}
+                        className={`p-2.5 rounded-xl border text-left transition-all ${
+                          Math.abs(
+                            enteredPayNum -
+                              (payCard.monthStatementRemaining > 0
+                                ? payCard.monthStatementRemaining
+                                : payCard.allTimeTotalRemaining)
+                          ) < 0.01
+                            ? "bg-emerald-100/90 border-emerald-500 ring-2 ring-emerald-400/40"
+                            : "bg-white border-emerald-200 hover:bg-emerald-50/70"
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="font-extrabold text-emerald-950 flex items-center gap-1 text-xs">
+                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                            ✓ Dönem Borcunun Tamamı
+                          </span>
+                          <span className="text-[10px] font-bold text-emerald-800 bg-emerald-200/80 px-1.5 py-0.5 rounded">
+                            Seç
+                          </span>
+                        </div>
+                        <div className="mt-1">
+                          <span className="text-sm font-black text-emerald-900">
+                            {formatCurrency(
+                              payCard.monthStatementRemaining > 0
+                                ? payCard.monthStatementRemaining
+                                : payCard.allTimeTotalRemaining
+                            )}
+                          </span>
+                        </div>
+                        <p className="text-[10px] text-emerald-800/80 mt-0.5">
+                          Tüm ekstre kapanır.
+                        </p>
+                      </button>
+                    </div>
+
+                    {/* Ekstre Asgari Tutarını Değiştirme / Giriş Alanı */}
+                    <div className="pt-2 border-t border-amber-200/70 flex items-center justify-between gap-2 text-[11px]">
+                      <div className="flex items-center gap-1.5 text-slate-700">
+                        <Zap className="w-3.5 h-3.5 text-amber-600" />
+                        <span className="font-bold">Kartın Bu Ayki Asgari Tutarı:</span>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          placeholder={payCard.autoCalculatedMin ? String(payCard.autoCalculatedMin) : "0"}
+                          value={payCard.minPaymentAmount ? String(payCard.minPaymentAmount) : ""}
+                          onChange={(e) => {
+                            handleCardMinPaymentChange(payCard.id, e.target.value);
+                          }}
+                          className="w-24 px-2 py-1 bg-white border border-amber-300 rounded-lg text-xs font-bold text-slate-900 text-right focus:outline-none focus:ring-1 focus:ring-amber-500"
+                        />
+                        <span className="text-slate-600 text-xs font-bold">₺</span>
+                        {payCard.minPaymentAmount ? (
+                          <button
+                            type="button"
+                            onClick={() => handleCardMinPaymentChange(payCard.id, "")}
+                            title="Otomatik orana geri dön"
+                            className="text-[10px] text-slate-400 hover:text-rose-600 px-1 font-bold"
+                          >
+                            Sıfırla
+                          </button>
+                        ) : null}
+                      </div>
                     </div>
                   </div>
 
