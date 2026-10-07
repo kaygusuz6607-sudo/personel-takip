@@ -29,6 +29,7 @@ import {
   Receipt,
   Scale,
 } from "lucide-react";
+import { getClientLoadedCreditCards, DefinedCreditCard } from "@/lib/defined-credit-cards";
 
 export interface ThirdPartyAccount {
   id: string;
@@ -78,6 +79,7 @@ const TX_TYPES: Record<string, { label: string; defaultDir: "INFLOW" | "OUTFLOW"
   LEND: { label: "Borç Verildi", defaultDir: "INFLOW", icon: ArrowUpRight, color: "text-indigo-700 bg-indigo-50 border-indigo-200" },
   COLLECTION: { label: "Tahsilat Alındı", defaultDir: "OUTFLOW", icon: ArrowDownLeft, color: "text-teal-700 bg-teal-50 border-teal-200" },
   OFFSET: { label: "Mahsup / Düzeltme", defaultDir: "INFLOW", icon: Scale, color: "text-slate-700 bg-slate-50 border-slate-200" },
+  BARTER: { label: "Barter / Eğitim Mahsubu", defaultDir: "INFLOW", icon: Scale, color: "text-purple-700 bg-purple-50 border-purple-200" },
 };
 
 export default function ThirdPartyLedger() {
@@ -106,7 +108,11 @@ export default function ThirdPartyLedger() {
   });
   const [submittingAccount, setSubmittingAccount] = useState(false);
 
+  // Tanımlı Kredi Kartları
+  const [definedCards, setDefinedCards] = useState<DefinedCreditCard[]>([]);
+
   const [newTxModalOpen, setNewTxModalOpen] = useState(false);
+  const [editingTx, setEditingTx] = useState<ThirdPartyTransaction | null>(null);
   const [txSubmitting, setTxSubmitting] = useState(false);
   const [txForm, setTxForm] = useState({
     date: new Date().toISOString().split("T")[0],
@@ -114,6 +120,9 @@ export default function ThirdPartyLedger() {
     direction: "OUTFLOW" as "INFLOW" | "OUTFLOW",
     amount: "",
     paymentMethod: "BANK",
+    cardId: "",
+    cardHolder: "",
+    cardBank: "",
     category: "Nakit Borç",
     description: "",
   });
@@ -128,7 +137,11 @@ export default function ThirdPartyLedger() {
         if (data.stats) setStats(data.stats);
 
         const currentId = preserveSelectedId || selectedAccount?.id;
-        const target = data.accounts.find((a: ThirdPartyAccount) => a.id === currentId) || data.accounts[0] || null;
+        const target =
+          data.accounts.find((a: ThirdPartyAccount) => a.id === currentId) ||
+          data.selectedAccount ||
+          data.accounts[0] ||
+          null;
         setSelectedAccount(target);
       }
     } catch (e) {
@@ -140,6 +153,7 @@ export default function ThirdPartyLedger() {
 
   useEffect(() => {
     fetchAccounts();
+    setDefinedCards(getClientLoadedCreditCards());
   }, []);
 
   const formatCurrency = (val: number) => {
@@ -238,6 +252,7 @@ export default function ThirdPartyLedger() {
 
   // Yeni Hareket Açılışı
   const handleOpenNewTxModal = (presetType?: string) => {
+    setEditingTx(null);
     const selectedType = presetType || "BORROW";
     const defDir = TX_TYPES[selectedType]?.defaultDir || "OUTFLOW";
     setTxForm({
@@ -246,6 +261,9 @@ export default function ThirdPartyLedger() {
       direction: defDir,
       amount: "",
       paymentMethod: "BANK",
+      cardId: "",
+      cardHolder: "",
+      cardBank: "",
       category:
         selectedType === "EXPENSE_ON_BEHALF"
           ? "SGK Ödemesi"
@@ -253,6 +271,26 @@ export default function ThirdPartyLedger() {
           ? "Banka Havalesi"
           : "Nakit Borç",
       description: "",
+    });
+    setNewTxModalOpen(true);
+  };
+
+  // Mevcut Hareketi Düzenleme Açılışı
+  const handleOpenEditTxModal = (tx: ThirdPartyTransaction) => {
+    setEditingTx(tx);
+    const txDateStr = tx.date ? new Date(tx.date).toISOString().split("T")[0] : new Date().toISOString().split("T")[0];
+    const explicitTag = (tx.description || "").match(/\[(card-[^\]]+)\]/i)?.[1] || "";
+    setTxForm({
+      date: txDateStr,
+      type: tx.type,
+      direction: (tx.direction as "INFLOW" | "OUTFLOW") || "OUTFLOW",
+      amount: tx.amount.toString(),
+      paymentMethod: tx.paymentMethod || "BANK",
+      cardId: explicitTag,
+      cardHolder: "",
+      cardBank: "",
+      category: tx.category || "",
+      description: (tx.description || "").replace(/\[card-[^\]]+\]/g, "").trim(),
     });
     setNewTxModalOpen(true);
   };
@@ -265,6 +303,7 @@ export default function ThirdPartyLedger() {
     if (newType === "PAYMENT_SENT") defaultCat = "Banka Havalesi";
     if (newType === "COLLECTION") defaultCat = "Tahsilat";
     if (newType === "OFFSET") defaultCat = "Mahsup";
+    if (newType === "BARTER") defaultCat = "Barter";
 
     setTxForm({
       ...txForm,
@@ -285,10 +324,14 @@ export default function ThirdPartyLedger() {
 
     try {
       setTxSubmitting(true);
-      const res = await fetch(`/api/cari/sahis/${selectedAccount.id}/islem`, {
-        method: "POST",
+      const url = `/api/cari/sahis/${selectedAccount.id}/islem`;
+      const method = editingTx ? "PUT" : "POST";
+      const payload = editingTx ? { ...txForm, txId: editingTx.id } : txForm;
+
+      const res = await fetch(url, {
+        method,
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(txForm),
+        body: JSON.stringify(payload),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -296,6 +339,7 @@ export default function ThirdPartyLedger() {
         return;
       }
       setNewTxModalOpen(false);
+      setEditingTx(null);
       await fetchAccounts(selectedAccount.id);
     } catch (e: any) {
       alert("Hata oluştu: " + e.message);
@@ -327,12 +371,23 @@ export default function ThirdPartyLedger() {
   const simulatedNewBalance = useMemo(() => {
     if (!selectedAccount) return 0;
     const num = parseFloat(txForm.amount) || 0;
-    if (txForm.direction === "INFLOW") {
-      return selectedAccount.balance + num;
-    } else {
-      return selectedAccount.balance - num;
+    let baseBalance = selectedAccount.balance;
+
+    if (editingTx) {
+      // Düzenlenen eski işlemin etkisini geri al
+      if (editingTx.direction === "INFLOW") {
+        baseBalance -= editingTx.amount;
+      } else {
+        baseBalance += editingTx.amount;
+      }
     }
-  }, [selectedAccount, txForm.amount, txForm.direction]);
+
+    if (txForm.direction === "INFLOW") {
+      return baseBalance + num;
+    } else {
+      return baseBalance - num;
+    }
+  }, [selectedAccount, txForm.amount, txForm.direction, editingTx]);
 
   return (
     <div className="space-y-6">
@@ -458,6 +513,11 @@ export default function ThirdPartyLedger() {
                       <p className="text-[10px] text-slate-400 truncate mt-0.5">
                         {typeInfo.label} • {acc.transactions.length} İşlem
                       </p>
+                      {acc.phone && (
+                        <p className="text-[10px] text-slate-500 font-medium truncate mt-0.5">
+                          📞 {acc.phone}
+                        </p>
+                      )}
                     </div>
 
                     <div className="text-right shrink-0">
@@ -707,7 +767,11 @@ export default function ThirdPartyLedger() {
                               {/* Kanal */}
                               <td className="py-3 px-3.5 whitespace-nowrap">
                                 <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-slate-700 bg-slate-100 px-2 py-0.5 rounded">
-                                  {tx.paymentMethod === "CASH" ? "💵 Nakit / Elden" : "🏛️ Banka / Havale"}
+                                  {tx.paymentMethod === "CREDIT_CARD"
+                                    ? "💳 Kredi Kartı"
+                                    : tx.paymentMethod === "CASH"
+                                    ? "💵 Nakit / Elden"
+                                    : "🏛️ Banka / Havale"}
                                 </span>
                               </td>
 
@@ -736,16 +800,26 @@ export default function ThirdPartyLedger() {
                                 </span>
                               </td>
 
-                              {/* Silme */}
-                              <td className="py-3 px-3 text-center print:hidden">
-                                <button
-                                  type="button"
-                                  onClick={() => handleDeleteTx(tx.id)}
-                                  className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
-                                  title="Bu İşlemi Sil"
-                                >
-                                  <Trash2 className="w-3.5 h-3.5" />
-                                </button>
+                              {/* İşlemler (Düzenle & Sil) */}
+                              <td className="py-3 px-3 text-center print:hidden whitespace-nowrap">
+                                <div className="flex items-center justify-center gap-1">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleOpenEditTxModal(tx)}
+                                    className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+                                    title="Bu İşlemi Düzenle"
+                                  >
+                                    <Edit2 className="w-3.5 h-3.5" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDeleteTx(tx.id)}
+                                    className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
+                                    title="Bu İşlemi Sil"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
                               </td>
                             </tr>
                           );
@@ -891,14 +965,21 @@ export default function ThirdPartyLedger() {
                 </div>
                 <div>
                   <h3 className="font-extrabold text-slate-900 text-base">
-                    Yeni Cari Hareket: {selectedAccount.name}
+                    {editingTx ? "Cari İşlemi Düzenle" : `Yeni Cari Hareket: ${selectedAccount.name}`}
                   </h3>
-                  <p className="text-xs text-slate-500">Borç alma, SGK/masraf ödemesi veya ödeme gönderme</p>
+                  <p className="text-xs text-slate-500">
+                    {editingTx
+                      ? "İşlem detaylarını düzenleyin, bakiye otomatik güncellenecektir"
+                      : "Borç alma, SGK/masraf ödemesi veya ödeme gönderme"}
+                  </p>
                 </div>
               </div>
               <button
                 type="button"
-                onClick={() => setNewTxModalOpen(false)}
+                onClick={() => {
+                  setNewTxModalOpen(false);
+                  setEditingTx(null);
+                }}
                 className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100"
               >
                 <X className="w-5 h-5" />
@@ -920,6 +1001,7 @@ export default function ThirdPartyLedger() {
                   <option value="LEND">🔵 Şahsa Borç Para Verildi (Alacağımız Artar)</option>
                   <option value="COLLECTION">🟣 Şahıstan Borç Tahsil Edildi (Alacağımız Azalır)</option>
                   <option value="OFFSET">⚪ Özel Mahsup / Bakiye Düzeltmesi</option>
+                  <option value="BARTER">🟣 Barter / Eğitim Mahsubu</option>
                 </select>
               </div>
 
@@ -969,14 +1051,87 @@ export default function ThirdPartyLedger() {
                   <label className="block text-xs font-bold text-slate-800 mb-1">Ödeme Yöntemi</label>
                   <select
                     value={txForm.paymentMethod}
-                    onChange={(e) => setTxForm({ ...txForm, paymentMethod: e.target.value })}
+                    onChange={(e) => {
+                      const pm = e.target.value;
+                      setTxForm({
+                        ...txForm,
+                        paymentMethod: pm,
+                        cardId: pm === "CREDIT_CARD" ? txForm.cardId : "",
+                        cardHolder: pm === "CREDIT_CARD" ? txForm.cardHolder : "",
+                        cardBank: pm === "CREDIT_CARD" ? txForm.cardBank : "",
+                      });
+                    }}
                     className="w-full px-3 py-2 text-xs font-semibold border border-slate-200 rounded-xl focus:outline-none"
                   >
                     <option value="BANK">🏛️ Banka / Havale / EFT</option>
                     <option value="CASH">💵 Nakit / Elden</option>
+                    <option value="CREDIT_CARD">💳 Kredi Kartı</option>
                   </select>
                 </div>
               </div>
+
+              {/* Tanımlı Kredi Kartı Seçimi */}
+              {txForm.paymentMethod === "CREDIT_CARD" && (
+                <div className="p-3 bg-purple-50/80 border border-purple-200 rounded-2xl space-y-2 animate-in fade-in duration-150">
+                  <div className="flex items-center justify-between">
+                    <label className="block font-extrabold text-purple-950 text-[11px]">
+                      💳 Kredi Kartı Seçimi:
+                    </label>
+                    <span className="text-[10px] text-purple-700 font-bold">
+                      {txForm.cardId ? "✓ Tanımlı Kart Bağlı" : "Genel Kart"}
+                    </span>
+                  </div>
+
+                  <select
+                    value={txForm.cardId}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      if (!val) {
+                        setTxForm({
+                          ...txForm,
+                          cardId: "",
+                          cardHolder: "",
+                          cardBank: "",
+                        });
+                      } else {
+                        const target = definedCards.find((c) => c.id === val);
+                        setTxForm({
+                          ...txForm,
+                          cardId: val,
+                          cardHolder: target?.holder || "",
+                          cardBank: target?.bankName || "",
+                        });
+                      }
+                    }}
+                    className="w-full px-3 py-2 bg-white border border-purple-300 rounded-xl font-bold text-xs text-purple-950 focus:outline-none focus:ring-1 focus:ring-purple-500"
+                  >
+                    <option value="">💳 Tanımlı Olmayan Kredi Kartı (Genel Kredi Kartı)</option>
+                    {definedCards.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.holder} — {c.cardLabel || c.bankName} (Son 4: {c.last4})
+                      </option>
+                    ))}
+                  </select>
+
+                  {txForm.cardId ? (
+                    <div className="p-2 bg-white/90 rounded-xl border border-purple-200 text-[11px] text-purple-900 space-y-0.5">
+                      <div className="flex items-center gap-1.5 font-black text-purple-950">
+                        <Check className="w-3.5 h-3.5 text-purple-700" />
+                        <span>Seçilen Kart: {txForm.cardHolder} / {txForm.cardBank}</span>
+                      </div>
+                      <p className="text-[10px] text-purple-800 leading-relaxed">
+                        • Bu ödeme tutarı kartın <strong>kullanılabilir bakiyesinden düşülecek</strong>,
+                        <br />
+                        • İlgili kartın <strong>ekstresine yansıtılacak</strong> ve <strong>Okul Giderleri</strong> listesinde gösterilecektir.
+                      </p>
+                    </div>
+                  ) : (
+                    <p className="text-[10px] text-purple-700 italic">
+                      ℹ️ Tanımlı olmayan kredi kartı ile ödendi olarak kaydedilir. Belirli bir kart slotuna bağlanmaz.
+                    </p>
+                  )}
+                </div>
+              )}
 
               {/* Kategori ve Açıklama */}
               <div>
@@ -1028,7 +1183,10 @@ export default function ThirdPartyLedger() {
               <div className="pt-2 flex items-center justify-end gap-2">
                 <button
                   type="button"
-                  onClick={() => setNewTxModalOpen(false)}
+                  onClick={() => {
+                    setNewTxModalOpen(false);
+                    setEditingTx(null);
+                  }}
                   className="px-4 py-2 border border-slate-200 text-slate-600 rounded-xl text-xs font-bold hover:bg-slate-50"
                 >
                   İptal
@@ -1038,7 +1196,11 @@ export default function ThirdPartyLedger() {
                   disabled={txSubmitting}
                   className="px-5 py-2 bg-indigo-700 hover:bg-indigo-800 text-white rounded-xl text-xs font-bold shadow-xs transition-colors disabled:opacity-50"
                 >
-                  {txSubmitting ? "Kaydediliyor..." : "İşlemi Kaydet"}
+                  {txSubmitting
+                    ? "Kaydediliyor..."
+                    : editingTx
+                    ? "Güncellemeyi Kaydet"
+                    : "İşlemi Kaydet ve Bakiyeyi Güncelle"}
                 </button>
               </div>
             </form>

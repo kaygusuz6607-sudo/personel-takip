@@ -43,6 +43,18 @@ export async function GET(request: Request) {
       }
     });
 
+    // Aktif hareketi veya bakiyesi olan hesapları en üste al (Orhan Kayaalp vb.)
+    accounts.sort((a, b) => {
+      const aCount = a._count?.transactions || 0;
+      const bCount = b._count?.transactions || 0;
+      const aHasBal = Math.abs(a.balance) > 0 ? 1 : 0;
+      const bHasBal = Math.abs(b.balance) > 0 ? 1 : 0;
+
+      if (aHasBal !== bHasBal) return bHasBal - aHasBal;
+      if (bCount !== aCount) return bCount - aCount;
+      return a.name.localeCompare(b.name, "tr");
+    });
+
     let selectedAccount = null;
     if (accountId) {
       selectedAccount = accounts.find((a) => a.id === accountId) || null;

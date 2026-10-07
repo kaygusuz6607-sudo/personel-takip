@@ -222,6 +222,10 @@ export async function POST(request: Request) {
         const stepTitle =
           repeatMonths > 1 ? `${itemTitle} (${mo}. Ay ${yr})` : itemTitle;
 
+        const rawNotes = String(body.notes || "").trim();
+        const cardTag = body.cardId && !rawNotes.includes(`[${body.cardId}]`) ? ` [${body.cardId}]` : "";
+        const finalNotes = `${rawNotes}${cardTag}`.trim();
+
         await prisma.$executeRawUnsafe(
           `INSERT INTO SupplierCariTransaction (id, supplierId, txType, date, dueDate, itemTitle, quantity, unitPrice, amount, paymentMethod, cardHolder, cardBank, notes, createdAt)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -237,9 +241,46 @@ export async function POST(request: Request) {
           paymentMethod,
           body.cardHolder || null,
           body.cardBank || null,
-          body.notes || "",
+          finalNotes,
           now
         );
+
+        // Kredi kartı ile cari ödemesi yapıldıysa ve tanımlı kart seçildiyse:
+        // Kartın kullanılabilir limitinden düşmesi, ekstresine yansıması ve okul giderlerinde gözükmesi için SchoolExpense oluştur
+        if (txType === "PAYMENT" && paymentMethod === "CREDIT_CARD" && (body.cardId || body.cardHolder)) {
+          try {
+            const supRows = (await prisma.$queryRawUnsafe(
+              `SELECT name FROM SupplierCariAccount WHERE id = ?`,
+              supplierId
+            )) as any[];
+            const supName = supRows[0]?.name || "Tedarikçi";
+            const cHolder = body.cardHolder || "Kredi Kartı";
+            const cBank = body.cardBank || "Banka";
+            const cIdTag = body.cardId ? `[${body.cardId}]` : "";
+            const ccSyncTag = `[SUPPLIER_PAY_CC:${txId}]`;
+
+            await prisma.schoolExpense.create({
+              data: {
+                id: `exp-sup-pay-${txId}`,
+                title: `${cHolder} / ${cBank} KK / ${supName} Cari Ödemesi`,
+                category: "CREDIT_CARD",
+                subCategory: "Kredi Kartı (Cari Ödeme)",
+                dueDate: new Date(stepDueISO),
+                dueDateStr: stepDueISO,
+                amountDue: amount,
+                amountPaid: 0,
+                amountRemaining: amount,
+                status: "PENDING",
+                paymentMethod: "CREDIT_CARD",
+                cardHolder: cHolder,
+                cardBank: cBank,
+                description: `Tedarikçi cari ödemesi: ${supName} ${cIdTag} ${ccSyncTag}`.trim(),
+              },
+            });
+          } catch (ccExpErr) {
+            console.error("Kredi kartı cari ödemesi okul giderlerine eklenirken hata:", ccExpErr);
+          }
+        }
       }
 
       if (txType === "PURCHASE" && dueDate) {
@@ -268,6 +309,10 @@ export async function POST(request: Request) {
       const quantity = Math.max(0.01, Number(body.quantity) || 1);
       const unitPrice = Number(body.unitPrice) || Number((amount / quantity).toFixed(2));
 
+      const rawNotes = String(body.notes || "").trim();
+      const cardTag = body.cardId && !rawNotes.includes(`[${body.cardId}]`) ? ` [${body.cardId}]` : "";
+      const finalNotes = `${rawNotes}${cardTag}`.trim();
+
       await prisma.$executeRawUnsafe(
         `UPDATE SupplierCariTransaction
          SET date = ?, dueDate = ?, itemTitle = ?, quantity = ?, unitPrice = ?, amount = ?, paymentMethod = ?, cardHolder = ?, cardBank = ?, notes = ?
@@ -281,9 +326,50 @@ export async function POST(request: Request) {
         body.paymentMethod || "CASH",
         body.cardHolder || null,
         body.cardBank || null,
-        body.notes || "",
+        finalNotes,
         txId
       );
+
+      // Kart ödemesi varsa SchoolExpense güncelle veya sil
+      const ccSyncTag = `[SUPPLIER_PAY_CC:${txId}]`;
+      await prisma.schoolExpense.deleteMany({
+        where: { description: { contains: ccSyncTag } },
+      });
+
+      if (body.txType === "PAYMENT" && body.paymentMethod === "CREDIT_CARD" && (body.cardId || body.cardHolder)) {
+        try {
+          const supRows = (await prisma.$queryRawUnsafe(
+            `SELECT name FROM SupplierCariAccount WHERE id = ?`,
+            supplierId
+          )) as any[];
+          const supName = supRows[0]?.name || "Tedarikçi";
+          const cHolder = body.cardHolder || "Kredi Kartı";
+          const cBank = body.cardBank || "Banka";
+          const cIdTag = body.cardId ? `[${body.cardId}]` : "";
+          const dueISO = body.dueDate || body.date || new Date().toISOString().split("T")[0];
+
+          await prisma.schoolExpense.create({
+            data: {
+              id: `exp-sup-pay-${txId}`,
+              title: `${cHolder} / ${cBank} KK / ${supName} Cari Ödemesi`,
+              category: "CREDIT_CARD",
+              subCategory: "Kredi Kartı (Cari Ödeme)",
+              dueDate: new Date(dueISO),
+              dueDateStr: dueISO,
+              amountDue: amount,
+              amountPaid: 0,
+              amountRemaining: amount,
+              status: "PENDING",
+              paymentMethod: "CREDIT_CARD",
+              cardHolder: cHolder,
+              cardBank: cBank,
+              description: `Tedarikçi cari ödemesi: ${supName} ${cIdTag} ${ccSyncTag}`.trim(),
+            },
+          });
+        } catch (ccExpErr) {
+          console.error("Kredi kartı cari ödemesi güncellenirken hata:", ccExpErr);
+        }
+      }
 
       await syncSupplierToSchoolExpenses(supplierId);
       return NextResponse.json({ ok: true });
@@ -311,11 +397,27 @@ export async function DELETE(request: Request) {
         `DELETE FROM SupplierCariTransaction WHERE id = ?`,
         txId
       );
+      await prisma.schoolExpense.deleteMany({
+        where: { description: { contains: `[SUPPLIER_PAY_CC:${txId}]` } },
+      });
       await syncSupplierToSchoolExpenses(supplierId);
       return NextResponse.json({ ok: true });
     }
 
     if (supplierId && !txId) {
+      // Önce bu tedarikçiye ait tüm ödeme kart kayıtlarını temizle
+      const txRows = (await prisma.$queryRawUnsafe(
+        `SELECT id FROM SupplierCariTransaction WHERE supplierId = ?`,
+        supplierId
+      )) as any[];
+      for (const t of txRows) {
+        if (t.id) {
+          await prisma.schoolExpense.deleteMany({
+            where: { description: { contains: `[SUPPLIER_PAY_CC:${t.id}]` } },
+          });
+        }
+      }
+
       await prisma.$executeRawUnsafe(
         `DELETE FROM SupplierCariTransaction WHERE supplierId = ?`,
         supplierId

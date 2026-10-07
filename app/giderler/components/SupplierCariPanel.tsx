@@ -21,6 +21,7 @@ import {
   RefreshCw,
   Check,
 } from "lucide-react";
+import { getClientLoadedCreditCards, DefinedCreditCard } from "@/lib/defined-credit-cards";
 
 export interface SupplierTransaction {
   id: string;
@@ -155,6 +156,13 @@ export default function SupplierCariPanel({
   });
   const [savingSupplier, setSavingSupplier] = useState(false);
 
+  // Tanımlı Kredi Kartları
+  const [definedCards, setDefinedCards] = useState<DefinedCreditCard[]>([]);
+
+  useEffect(() => {
+    setDefinedCards(getClientLoadedCreditCards());
+  }, []);
+
   // Alım / Ödeme Ekle Modalı
   const [txModalOpen, setTxModalOpen] = useState(false);
   const [editingTx, setEditingTx] = useState<SupplierTransaction | null>(null);
@@ -168,6 +176,9 @@ export default function SupplierCariPanel({
     unitPrice: "",
     amount: "",
     paymentMethod: "CASH",
+    cardId: "",
+    cardHolder: "",
+    cardBank: "",
     repeatMonths: 1,
     notes: "",
   });
@@ -419,6 +430,9 @@ export default function SupplierCariPanel({
       unitPrice: sup.defaultUnitPrice > 0 ? String(sup.defaultUnitPrice) : "",
       amount: sup.defaultUnitPrice > 0 ? String(sup.defaultUnitPrice) : "",
       paymentMethod: sup.paymentMethod || "CASH",
+      cardId: "",
+      cardHolder: sup.cardHolder || "",
+      cardBank: sup.cardBank || "",
       repeatMonths: 1,
       notes: "",
     });
@@ -444,6 +458,9 @@ export default function SupplierCariPanel({
       unitPrice: payAmt > 0 ? String(payAmt) : "",
       amount: payAmt > 0 ? String(payAmt) : "",
       paymentMethod: sup.paymentMethod || "CASH",
+      cardId: "",
+      cardHolder: sup.cardHolder || "",
+      cardBank: sup.cardBank || "",
       repeatMonths: 1,
       notes: "",
     });
@@ -452,6 +469,7 @@ export default function SupplierCariPanel({
 
   const openEditTxModal = (tx: SupplierTransaction) => {
     setEditingTx(tx);
+    const explicitTag = (tx.notes || "").match(/\[(card-[^\]]+)\]/i)?.[1] || "";
     setTxForm({
       supplierId: tx.supplierId,
       txType: tx.txType,
@@ -462,8 +480,11 @@ export default function SupplierCariPanel({
       unitPrice: String(tx.unitPrice || tx.amount || ""),
       amount: String(tx.amount || ""),
       paymentMethod: tx.paymentMethod || "CASH",
+      cardId: explicitTag,
+      cardHolder: tx.cardHolder || "",
+      cardBank: tx.cardBank || "",
       repeatMonths: 1,
-      notes: tx.notes || "",
+      notes: (tx.notes || "").replace(/\[card-[^\]]+\]/g, "").trim(),
     });
     setTxModalOpen(true);
   };
@@ -1050,11 +1071,31 @@ export default function SupplierCariPanel({
                                     </span>
                                   </div>
                                 ) : (
-                                  <span className="text-[11px] text-slate-500">
-                                    {tx.paymentMethod === "CREDIT_CARD"
-                                      ? "💳 Kredi Kartı"
-                                      : "💵 Nakit / Havale"}
-                                  </span>
+                                  <div className="flex flex-col gap-0.5">
+                                    {tx.paymentMethod === "CREDIT_CARD" ? (
+                                      tx.cardHolder && tx.cardBank ? (
+                                        <span className="inline-flex items-center gap-1 font-extrabold text-purple-900 bg-purple-50 border border-purple-200 px-2 py-0.5 rounded-md text-[10px] w-fit">
+                                          <CreditCard className="w-3 h-3 text-purple-700" />
+                                          <span>{tx.cardHolder} ({tx.cardBank})</span>
+                                        </span>
+                                      ) : (
+                                        <span className="inline-flex items-center gap-1 font-bold text-purple-800 bg-purple-50/60 px-2 py-0.5 rounded-md text-[10px] w-fit">
+                                          <CreditCard className="w-3 h-3 text-purple-600" />
+                                          <span>Kredi Kartı</span>
+                                        </span>
+                                      )
+                                    ) : (
+                                      <span className="inline-flex items-center gap-1 font-bold text-slate-700 bg-slate-100 px-2 py-0.5 rounded-md text-[10px] w-fit">
+                                        <Banknote className="w-3 h-3 text-slate-600" />
+                                        <span>Nakit / Havale</span>
+                                      </span>
+                                    )}
+                                    {tx.dueDate && tx.dueDate !== tx.date && (
+                                      <span className="text-[9px] text-slate-400">
+                                        Dönem: {getDuePeriodLabel(tx.dueDate)}
+                                      </span>
+                                    )}
+                                  </div>
                                 )}
                               </td>
                               <td className="py-2.5 px-3 text-center text-slate-700 font-semibold">
@@ -1339,7 +1380,15 @@ export default function SupplierCariPanel({
                       type="radio"
                       name="supTxPm"
                       checked={txForm.paymentMethod === "CASH"}
-                      onChange={() => setTxForm({ ...txForm, paymentMethod: "CASH" })}
+                      onChange={() =>
+                        setTxForm({
+                          ...txForm,
+                          paymentMethod: "CASH",
+                          cardId: "",
+                          cardHolder: "",
+                          cardBank: "",
+                        })
+                      }
                     />
                     <span className="font-bold text-slate-800">💵 Nakit / Havale</span>
                   </label>
@@ -1348,12 +1397,80 @@ export default function SupplierCariPanel({
                       type="radio"
                       name="supTxPm"
                       checked={txForm.paymentMethod === "CREDIT_CARD"}
-                      onChange={() => setTxForm({ ...txForm, paymentMethod: "CREDIT_CARD" })}
+                      onChange={() =>
+                        setTxForm({
+                          ...txForm,
+                          paymentMethod: "CREDIT_CARD",
+                        })
+                      }
                     />
                     <span className="font-bold text-purple-900">💳 Kredi Kartı</span>
                   </label>
                 </div>
               </div>
+
+              {/* Tanımlı Kredi Kartı Seçimi */}
+              {txForm.paymentMethod === "CREDIT_CARD" && (
+                <div className="p-3 bg-purple-50/80 border border-purple-200 rounded-2xl space-y-2 animate-in fade-in duration-150">
+                  <div className="flex items-center justify-between">
+                    <label className="block font-extrabold text-purple-950 text-[11px]">
+                      💳 Kredi Kartı Seçimi:
+                    </label>
+                    <span className="text-[10px] text-purple-700 font-bold">
+                      {txForm.cardId ? "✓ Tanımlı Kart Bağlı" : "Genel Kart"}
+                    </span>
+                  </div>
+
+                  <select
+                    value={txForm.cardId}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      if (!val) {
+                        setTxForm({
+                          ...txForm,
+                          cardId: "",
+                          cardHolder: "",
+                          cardBank: "",
+                        });
+                      } else {
+                        const target = definedCards.find((c) => c.id === val);
+                        setTxForm({
+                          ...txForm,
+                          cardId: val,
+                          cardHolder: target?.holder || "",
+                          cardBank: target?.bankName || "",
+                        });
+                      }
+                    }}
+                    className="w-full px-3 py-2 bg-white border border-purple-300 rounded-xl font-bold text-xs text-purple-950 focus:outline-none focus:ring-1 focus:ring-purple-500"
+                  >
+                    <option value="">💳 Tanımlı Olmayan Kredi Kartı (Genel Kredi Kartı)</option>
+                    {definedCards.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.holder} — {c.cardLabel || c.bankName} (Son 4: {c.last4})
+                      </option>
+                    ))}
+                  </select>
+
+                  {txForm.cardId ? (
+                    <div className="p-2 bg-white/90 rounded-xl border border-purple-200 text-[11px] text-purple-900 space-y-0.5">
+                      <div className="flex items-center gap-1.5 font-black text-purple-950">
+                        <Check className="w-3.5 h-3.5 text-purple-700" />
+                        <span>Seçilen Kart: {txForm.cardHolder} / {txForm.cardBank}</span>
+                      </div>
+                      <p className="text-[10px] text-purple-800 leading-relaxed">
+                        • Bu ödeme tutarı kartın <strong>kullanılabilir bakiyesinden düşülecek</strong>,
+                        <br />
+                        • İlgili kartın <strong>ekstresine yansıtılacak</strong> ve <strong>Okul Giderleri</strong> listesinde gösterilecektir.
+                      </p>
+                    </div>
+                  ) : (
+                    <p className="text-[10px] text-purple-700 italic">
+                      ℹ️ Tanımlı olmayan kredi kartı ile ödendi olarak kaydedilir. Belirli bir karta bağlanmaz.
+                    </p>
+                  )}
+                </div>
+              )}
 
               <div>
                 <label className="block font-bold text-slate-700 mb-1">Not / Fiş / Açıklama</label>

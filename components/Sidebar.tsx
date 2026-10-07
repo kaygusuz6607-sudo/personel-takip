@@ -31,6 +31,8 @@ import {
   FileText,
   UserMinus,
   ScrollText,
+  PhoneCall,
+  Scale,
 } from "lucide-react";
 import { PWAInstallButton } from "@/components/PWAInstallButton";
 import { ThemeToggle } from "@/components/ThemeToggle";
@@ -206,7 +208,9 @@ export function Sidebar() {
         { type: "link", href: "/departmanlar", label: "Departmanlar", icon: Building2 },
         { type: "link", href: "/giderler", label: "Okul Gider & Taksit", icon: Coins },
         { type: "link", href: "/cekler", label: "Çek Takibi", icon: ScrollText },
+        { type: "link", href: "/kurumsal-hatlar", label: "Telefon & Taahhüt Takibi", icon: PhoneCall },
         { type: "link", href: "/tedarikci-cariler", label: "Tedarikçi & Ürün Carileri", icon: Building2 },
+        { type: "link", href: "/sahis-carileri", label: "Şahıs & 3. Kişi Carileri", icon: Scale },
         { type: "link", href: "/kayit-silme-iadeleri", label: "Kayıt Silme İadeleri", icon: UserMinus },
         { type: "link", href: "/giderler?tab=GOLD_DAYS", label: "Altın Günleri Takibi", icon: Coins },
         { type: "link", href: "/raporlar", label: "Raporlar & Excel", icon: FileSpreadsheet },

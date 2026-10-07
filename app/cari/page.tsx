@@ -35,7 +35,6 @@ import {
   UserMinus,
 } from "lucide-react";
 import { calculateDuration } from "@/lib/date-utils";
-import ThirdPartyLedger from "./components/ThirdPartyLedger";
 
 interface StaffSummary {
   id: string;
@@ -146,7 +145,11 @@ function CariContent() {
   const router = useRouter();
   const initialStaffId = searchParams.get("staffId") || "";
   const tabParam = searchParams.get("tab");
-  const [mainTab, setMainTab] = useState<"STAFF" | "THIRD_PARTY">(tabParam === "sahis" ? "THIRD_PARTY" : "STAFF");
+  useEffect(() => {
+    if (tabParam === "sahis") {
+      router.replace("/sahis-carileri");
+    }
+  }, [tabParam, router]);
 
   const [staffSummaries, setStaffSummaries] = useState<StaffSummary[]>([]);
   const [selectedStaff, setSelectedStaff] = useState<SelectedStaff | null>(null);
@@ -268,49 +271,32 @@ function CariContent() {
 
   return (
     <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto w-full space-y-6">
-      {/* Üst Sekmeler: Personel Cari & Şahıs Carileri & Okul Giderleri */}
+      {/* Üst Bilgi & Hızlı Bağlantılar */}
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-3 print:hidden">
         <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => setMainTab("STAFF")}
-            className={`px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2 transition-all ${
-              mainTab === "STAFF"
-                ? "bg-teal-700 text-white shadow-xs"
-                : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-            }`}
-          >
-            <Users className="w-4 h-4" />
-            <span>👨‍💼 Personel Cari & Ekstreler ({staffSummaries.length})</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setMainTab("THIRD_PARTY")}
-            className={`px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2 transition-all ${
-              mainTab === "THIRD_PARTY"
-                ? "bg-indigo-700 text-white shadow-xs"
-                : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-            }`}
-          >
-            <Building2 className="w-4 h-4" />
-            <span>👥 Şahıs & 3. Kişi Borç-Alacak Carileri (Orhan Kayaalp vb.)</span>
-          </button>
+          <div className="px-3.5 py-2 rounded-xl text-xs font-black bg-teal-50 text-teal-900 border border-teal-200 flex items-center gap-2">
+            <Users className="w-4 h-4 text-teal-700" />
+            <span>Personel Cari & Ekstreler ({staffSummaries.length} Personel)</span>
+          </div>
         </div>
 
-        <Link
-          href="/giderler"
-          className="px-4 py-2 rounded-xl text-sm font-semibold text-slate-600 hover:text-slate-900 hover:bg-slate-100 flex items-center gap-2 transition-colors border border-slate-200"
-        >
-          <ReceiptText className="w-4 h-4 text-slate-500" />
-          <span>Okul Giderleri & Taksit Takibi →</span>
-        </Link>
+        <div className="flex items-center gap-2">
+          <Link
+            href="/sahis-carileri"
+            className="px-3.5 py-2 rounded-xl text-xs font-bold text-indigo-700 hover:text-indigo-900 hover:bg-indigo-50 border border-indigo-200 flex items-center gap-1.5 transition-colors shadow-2xs"
+          >
+            <Building2 className="w-3.5 h-3.5" />
+            <span>Şahıs & 3. Kişi Carileri →</span>
+          </Link>
+          <Link
+            href="/giderler"
+            className="px-3.5 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:text-slate-900 hover:bg-slate-100 flex items-center gap-1.5 transition-colors border border-slate-200"
+          >
+            <ReceiptText className="w-3.5 h-3.5 text-slate-500" />
+            <span>Okul Giderleri & Taksit Takibi →</span>
+          </Link>
+        </div>
       </div>
-
-      {mainTab === "THIRD_PARTY" ? (
-        <ThirdPartyLedger />
-      ) : (
-        <>
 
       {/* 1. Üst Başlık & Çıktı Butonu (Yazdırmada gizlenmez) */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 print:hidden">
@@ -1097,8 +1083,6 @@ function CariContent() {
             </div>
           </div>
         </div>
-      )}
-        </>
       )}
     </div>
   );
