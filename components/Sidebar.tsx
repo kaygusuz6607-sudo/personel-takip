@@ -30,6 +30,7 @@ import {
   School,
   FileText,
   UserMinus,
+  ScrollText,
 } from "lucide-react";
 import { PWAInstallButton } from "@/components/PWAInstallButton";
 import { ThemeToggle } from "@/components/ThemeToggle";
@@ -204,6 +205,7 @@ export function Sidebar() {
         },
         { type: "link", href: "/departmanlar", label: "Departmanlar", icon: Building2 },
         { type: "link", href: "/giderler", label: "Okul Gider & Taksit", icon: Coins },
+        { type: "link", href: "/cekler", label: "Çek Takibi", icon: ScrollText },
         { type: "link", href: "/tedarikci-cariler", label: "Tedarikçi & Ürün Carileri", icon: Building2 },
         { type: "link", href: "/kayit-silme-iadeleri", label: "Kayıt Silme İadeleri", icon: UserMinus },
         { type: "link", href: "/giderler?tab=GOLD_DAYS", label: "Altın Günleri Takibi", icon: Coins },

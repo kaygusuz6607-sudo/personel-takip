@@ -47,6 +47,20 @@ export async function GET(
         title = exp.title;
         dueDateStr = exp.dueDateStr || "";
         amountDue = exp.amountDue || 0;
+      } else {
+        try {
+          const chkRows = (await prisma.$queryRawUnsafe(
+            `SELECT id, issuer, recipient, type, amount, dueDateStr, bank, chequeNo FROM ChequeRecord WHERE id = ? OR expenseId = ? LIMIT 1`,
+            id,
+            id
+          )) as any[];
+          if (chkRows && chkRows.length > 0) {
+            const chk = chkRows[0];
+            title = (chk.type === "GIVEN" ? chk.recipient : chk.issuer) || title;
+            dueDateStr = chk.dueDateStr || "";
+            amountDue = Number(chk.amount) || 0;
+          }
+        } catch {}
       }
     }
 
