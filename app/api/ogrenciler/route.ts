@@ -289,7 +289,23 @@ export async function POST(request: NextRequest) {
       });
 
       // Taksitleri oluştur
-      if (instCount > 0 && finalNet > 0) {
+      if (Array.isArray(body.installments) && body.installments.length > 0) {
+        for (let i = 0; i < body.installments.length; i++) {
+          const item = body.installments[i];
+          const instNo = item.installmentNo || (i + 1);
+          await tx.studentPayment.create({
+            data: {
+              studentId: created.id,
+              installmentNo: instNo,
+              title: item.title || (body.installments.length === 1 ? "Peşin Kayıt Tutarı" : `${instNo}. Taksit`),
+              dueDate: new Date(item.dueDate),
+              amount: parseFloat(item.amount) || 0,
+              paidAmount: 0,
+              isPaid: false,
+            },
+          });
+        }
+      } else if (instCount > 0 && finalNet > 0) {
         const startDate = firstInstallmentDate ? new Date(firstInstallmentDate) : new Date();
         for (let i = 1; i <= instCount; i++) {
           const dueDate = new Date(startDate);

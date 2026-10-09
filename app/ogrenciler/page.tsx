@@ -45,6 +45,8 @@ import {
   HeartHandshake,
   UserMinus,
   RotateCcw,
+  SlidersHorizontal,
+  RefreshCw,
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import {
@@ -60,6 +62,85 @@ interface ContractSaleItem {
   amount: number;
   paidAmount?: number;
   remainingAmount?: number;
+}
+
+export interface CustomInstallmentItem {
+  id?: string;
+  installmentNo: number;
+  title: string;
+  dueDate: string; // YYYY-MM-DD
+  amount: number;
+  paidAmount?: number;
+  isPaid?: boolean;
+  paymentMethod?: string | null;
+  receiptNo?: string | null;
+  notes?: string | null;
+}
+
+const INSTALLMENT_COUNT_OPTIONS = Array.from({ length: 20 }, (_, i) => ({
+  value: String(i + 1),
+  label: i === 0 ? "1 (Peşin Tek Ödeme)" : `${i + 1} Taksit`,
+}));
+
+function generateInstallmentPlan(params: {
+  netAmount: number;
+  count: number;
+  startDateStr: string;
+  existingInstallments?: CustomInstallmentItem[];
+}): CustomInstallmentItem[] {
+  const { netAmount, count, startDateStr, existingInstallments = [] } = params;
+  const safeCount = Math.max(1, Math.min(20, count || 1));
+
+  // Tahsil edilmiş olan taksitleri koru
+  const paidItems = existingInstallments.filter((p) => p.isPaid || (p.paidAmount && p.paidAmount > 0));
+  const paidTotal = paidItems.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+
+  const remainingNet = Math.max(0, netAmount - paidTotal);
+  const unpaidCount = Math.max(1, safeCount - paidItems.length);
+
+  const perMonth = Math.round((remainingNet / unpaidCount) * 100) / 100;
+  const startDate = startDateStr ? new Date(startDateStr) : new Date();
+
+  const result: CustomInstallmentItem[] = [];
+
+  // Ödenmiş olanları sırayla koru
+  paidItems.forEach((item, idx) => {
+    result.push({
+      ...item,
+      installmentNo: idx + 1,
+    });
+  });
+
+  // Kalan ödenmemişleri eşit dağıt
+  for (let i = 0; i < unpaidCount; i++) {
+    const overallIdx = result.length;
+    const isLast = i === unpaidCount - 1;
+    const thisAmount = isLast
+      ? Math.round((remainingNet - perMonth * (unpaidCount - 1)) * 100) / 100
+      : perMonth;
+
+    const d = new Date(startDate);
+    d.setMonth(d.getMonth() + overallIdx);
+    const dueDateStr = d.toISOString().split("T")[0];
+
+    const title =
+      safeCount === 1
+        ? "Peşin Kayıt Tutarı"
+        : overallIdx === 0
+        ? "1. Taksit (Peşinat)"
+        : `${overallIdx + 1}. Taksit`;
+
+    result.push({
+      installmentNo: overallIdx + 1,
+      title,
+      dueDate: dueDateStr,
+      amount: Math.max(0, thisAmount),
+      paidAmount: 0,
+      isPaid: false,
+    });
+  }
+
+  return result;
 }
 
 const CONTRACT_ITEM_PRESETS: {
@@ -374,9 +455,22 @@ export default function OgrencilerPage() {
     discountAmount: "0",
     installmentCount: "10",
     firstInstallmentDate: new Date().toISOString().split("T")[0],
+    installments: [] as CustomInstallmentItem[],
     tags: [] as string[],
     notes: "",
   });
+
+  // Sözleşme & Taksit Planı Düzenleme Modalı (Öğrenci Detayı İçin)
+  const [planEditModalOpen, setPlanEditModalOpen] = useState(false);
+  const [planEditStudent, setPlanEditStudent] = useState<Student | null>(null);
+  const [planEditContractItems, setPlanEditContractItems] = useState<ContractSaleItem[]>([]);
+  const [planEditContractAmount, setPlanEditContractAmount] = useState("0");
+  const [planEditDiscountAmount, setPlanEditDiscountAmount] = useState("0");
+  const [planEditDiscountType, setPlanEditDiscountType] = useState("STANDART");
+  const [planEditInstallmentCount, setPlanEditInstallmentCount] = useState("10");
+  const [planEditFirstDate, setPlanEditFirstDate] = useState(new Date().toISOString().split("T")[0]);
+  const [planEditInstallments, setPlanEditInstallments] = useState<CustomInstallmentItem[]>([]);
+  const [planEditSubmitting, setPlanEditSubmitting] = useState(false);
 
   useEffect(() => {
     if (!editingStudent) {
@@ -640,6 +734,11 @@ export default function OgrencilerPage() {
       discountAmount: "0",
       installmentCount: "10",
       firstInstallmentDate: new Date().toISOString().split("T")[0],
+      installments: generateInstallmentPlan({
+        netAmount: DEFAULT_CONTRACT_ITEMS.reduce((sum, i) => sum + i.amount, 0),
+        count: 10,
+        startDateStr: new Date().toISOString().split("T")[0],
+      }),
       tags: [],
       notes: "",
     });
@@ -668,6 +767,32 @@ export default function OgrencilerPage() {
     } else if (effectiveItems.length === 0) {
       effectiveItems = DEFAULT_CONTRACT_ITEMS;
     }
+
+    let initialInstallments: CustomInstallmentItem[] = [];
+    if (s.payments && s.payments.length > 0) {
+      initialInstallments = s.payments.map((p) => ({
+        id: p.id,
+        installmentNo: p.installmentNo,
+        title: p.title,
+        dueDate: p.dueDate ? p.dueDate.split("T")[0] : new Date().toISOString().split("T")[0],
+        amount: Number(p.amount) || 0,
+        paidAmount: Number(p.paidAmount) || 0,
+        isPaid: Boolean(p.isPaid),
+        paymentMethod: p.paymentMethod || null,
+        receiptNo: p.receiptNo || null,
+        notes: p.notes || null,
+      }));
+    } else {
+      const netVal = s.netAmount || Math.max(0, Number(s.contractAmount || 0) - Number(s.discountAmount || 0));
+      initialInstallments = generateInstallmentPlan({
+        netAmount: netVal,
+        count: s.installmentCount || 10,
+        startDateStr: new Date().toISOString().split("T")[0],
+      });
+    }
+
+    const finalInstCount = initialInstallments.length > 0 ? String(initialInstallments.length) : (s.installmentCount ? s.installmentCount.toString() : "10");
+    const finalFirstDate = initialInstallments[0]?.dueDate || new Date().toISOString().split("T")[0];
 
     setFormData({
       studentNo: s.studentNo || "",
@@ -708,12 +833,403 @@ export default function OgrencilerPage() {
       contractItems: effectiveItems,
       contractAmount: s.contractAmount ? s.contractAmount.toString() : String(effectiveItems.reduce((sum, i) => sum + i.amount, 0)),
       discountAmount: s.discountAmount ? s.discountAmount.toString() : "0",
-      installmentCount: s.installmentCount ? s.installmentCount.toString() : "10",
-      firstInstallmentDate: new Date().toISOString().split("T")[0],
+      installmentCount: finalInstCount,
+      firstInstallmentDate: finalFirstDate,
+      installments: initialInstallments,
       tags: s.tags ? (typeof s.tags === "string" ? (s.tags.startsWith("[") ? JSON.parse(s.tags) : s.tags.split(",")) : s.tags) : [],
       notes: parsedUserNote,
     });
     setIsAddModalOpen(true);
+  };
+
+  // Öğrenci Formu İçin Taksit Yönetim Fonksiyonları
+  const handleFormInstallmentCountChange = (newCountStr: string) => {
+    const count = Math.max(1, Math.min(20, parseInt(newCountStr, 10) || 1));
+    const netVal = Math.max(
+      0,
+      (parseFloat(formData.contractAmount) || 0) - (parseFloat(formData.discountAmount) || 0)
+    );
+    const updatedPlan = generateInstallmentPlan({
+      netAmount: netVal,
+      count,
+      startDateStr: formData.firstInstallmentDate,
+      existingInstallments: formData.installments,
+    });
+    setFormData((prev) => ({
+      ...prev,
+      installmentCount: String(count),
+      installments: updatedPlan,
+    }));
+  };
+
+  const handleFormAutoSplit = () => {
+    const count = Math.max(1, Math.min(20, parseInt(formData.installmentCount, 10) || formData.installments.length || 1));
+    const netVal = Math.max(
+      0,
+      (parseFloat(formData.contractAmount) || 0) - (parseFloat(formData.discountAmount) || 0)
+    );
+    const updatedPlan = generateInstallmentPlan({
+      netAmount: netVal,
+      count,
+      startDateStr: formData.firstInstallmentDate,
+      existingInstallments: formData.installments,
+    });
+    setFormData((prev) => ({
+      ...prev,
+      installmentCount: String(count),
+      installments: updatedPlan,
+    }));
+  };
+
+  const handleUpdateFormInstallment = (index: number, field: keyof CustomInstallmentItem, val: any) => {
+    setFormData((prev) => {
+      const list = [...prev.installments];
+      if (!list[index]) return prev;
+      list[index] = {
+        ...list[index],
+        [field]: field === "amount" ? (val === "" ? 0 : parseFloat(val) || 0) : val,
+      };
+      return { ...prev, installments: list };
+    });
+  };
+
+  const handleAddFormInstallment = () => {
+    setFormData((prev) => {
+      if (prev.installments.length >= 20) {
+        alert("En fazla 20 taksit eklenebilir.");
+        return prev;
+      }
+      const list = [...prev.installments];
+      const nextNo = list.length + 1;
+      const lastItem = list[list.length - 1];
+      const lastDate = lastItem?.dueDate ? new Date(lastItem.dueDate) : new Date();
+      const nextDate = new Date(lastDate);
+      nextDate.setMonth(nextDate.getMonth() + 1);
+
+      const netVal = Math.max(
+        0,
+        (parseFloat(prev.contractAmount) || 0) - (parseFloat(prev.discountAmount) || 0)
+      );
+      const currentSum = list.reduce((s, i) => s + (Number(i.amount) || 0), 0);
+      const remainingDiff = Math.max(0, Math.round((netVal - currentSum) * 100) / 100);
+
+      const newItem: CustomInstallmentItem = {
+        installmentNo: nextNo,
+        title: `${nextNo}. Taksit`,
+        dueDate: nextDate.toISOString().split("T")[0],
+        amount: remainingDiff,
+        paidAmount: 0,
+        isPaid: false,
+      };
+      const nextList = [...list, newItem];
+      return {
+        ...prev,
+        installmentCount: String(nextList.length),
+        installments: nextList,
+      };
+    });
+  };
+
+  const handleRemoveFormInstallment = (index: number) => {
+    const target = formData.installments[index];
+    if (target?.isPaid || (target?.paidAmount && target?.paidAmount > 0)) {
+      alert("Tahsilatı yapılmış bir taksit silinemez!");
+      return;
+    }
+    setFormData((prev) => {
+      const filtered = prev.installments.filter((_, idx) => idx !== index);
+      const renumbered = filtered.map((item, idx) => ({
+        ...item,
+        installmentNo: idx + 1,
+      }));
+      return {
+        ...prev,
+        installmentCount: String(renumbered.length),
+        installments: renumbered,
+      };
+    });
+  };
+
+  const handleAbsorbDifferenceForm = () => {
+    setFormData((prev) => {
+      if (prev.installments.length === 0) return prev;
+      const netVal = Math.max(
+        0,
+        (parseFloat(prev.contractAmount) || 0) - (parseFloat(prev.discountAmount) || 0)
+      );
+      const currentSum = prev.installments.reduce((s, i) => s + (Number(i.amount) || 0), 0);
+      const diff = Math.round((netVal - currentSum) * 100) / 100;
+      if (Math.abs(diff) < 0.01) return prev;
+
+      const list = [...prev.installments];
+      const lastIdx = list.length - 1;
+      list[lastIdx] = {
+        ...list[lastIdx],
+        amount: Math.max(0, Math.round((Number(list[lastIdx].amount) + diff) * 100) / 100),
+      };
+      return { ...prev, installments: list };
+    });
+  };
+
+  // Öğrenci Detay Modalı İçin Özel Sözleşme & Taksit Planı Düzenleme
+  const openPlanEditModal = (s: Student) => {
+    setPlanEditStudent(s);
+    const { contractItems: parsedSavedItems } = parseStudentContractNotes(s.notes);
+    let effectiveItems = parsedSavedItems;
+    if (effectiveItems.length === 0 && s.contractAmount && s.contractAmount > 0) {
+      effectiveItems = [
+        { id: "item-init", type: "EDUCATION", title: "Eğitim ve Okul Hizmetleri", amount: s.contractAmount },
+      ];
+    } else if (effectiveItems.length === 0) {
+      effectiveItems = DEFAULT_CONTRACT_ITEMS;
+    }
+    setPlanEditContractItems(effectiveItems);
+    setPlanEditContractAmount(String(effectiveItems.reduce((sum, i) => sum + i.amount, 0)));
+    setPlanEditDiscountAmount(s.discountAmount ? String(s.discountAmount) : "0");
+    setPlanEditDiscountType(s.contractDiscountType || "STANDART");
+
+    let initialInstallments: CustomInstallmentItem[] = [];
+    if (s.payments && s.payments.length > 0) {
+      initialInstallments = s.payments.map((p) => ({
+        id: p.id,
+        installmentNo: p.installmentNo,
+        title: p.title,
+        dueDate: p.dueDate ? p.dueDate.split("T")[0] : new Date().toISOString().split("T")[0],
+        amount: Number(p.amount) || 0,
+        paidAmount: Number(p.paidAmount) || 0,
+        isPaid: Boolean(p.isPaid),
+        paymentMethod: p.paymentMethod || null,
+        receiptNo: p.receiptNo || null,
+        notes: p.notes || null,
+      }));
+    } else {
+      const netVal = s.netAmount || Math.max(0, Number(s.contractAmount || 0) - Number(s.discountAmount || 0));
+      initialInstallments = generateInstallmentPlan({
+        netAmount: netVal,
+        count: s.installmentCount || 10,
+        startDateStr: new Date().toISOString().split("T")[0],
+      });
+    }
+
+    setPlanEditInstallments(initialInstallments);
+    setPlanEditInstallmentCount(
+      initialInstallments.length > 0 ? String(initialInstallments.length) : (s.installmentCount ? String(s.installmentCount) : "10")
+    );
+    setPlanEditFirstDate(initialInstallments[0]?.dueDate || new Date().toISOString().split("T")[0]);
+    setPlanEditModalOpen(true);
+  };
+
+  const handlePlanModalItemUpdate = (id: string, field: "title" | "amount" | "type", val: any) => {
+    setPlanEditContractItems((prev) => {
+      const updated = prev.map((item) => {
+        if (item.id !== id) return item;
+        if (field === "type") {
+          const preset = CONTRACT_ITEM_PRESETS.find((p) => p.type === val);
+          return {
+            ...item,
+            type: val,
+            title: preset ? preset.defaultTitle : item.title,
+          };
+        }
+        return {
+          ...item,
+          [field]: field === "amount" ? (val === "" ? 0 : parseFloat(val) || 0) : val,
+        };
+      });
+      const gross = updated.reduce((s, i) => s + (Number(i.amount) || 0), 0);
+      setPlanEditContractAmount(String(gross));
+      return updated;
+    });
+  };
+
+  const handlePlanModalItemAdd = (type: ContractSaleItem["type"] = "EDUCATION") => {
+    const preset = CONTRACT_ITEM_PRESETS.find((p) => p.type === type) || CONTRACT_ITEM_PRESETS[0];
+    const newItem: ContractSaleItem = {
+      id: `item-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      type,
+      title: preset.defaultTitle,
+      amount: preset.defaultAmount,
+    };
+    setPlanEditContractItems((prev) => {
+      const updated = [...prev, newItem];
+      const gross = updated.reduce((s, i) => s + (Number(i.amount) || 0), 0);
+      setPlanEditContractAmount(String(gross));
+      return updated;
+    });
+  };
+
+  const handlePlanModalItemRemove = (id: string) => {
+    setPlanEditContractItems((prev) => {
+      const updated = prev.filter((i) => i.id !== id);
+      const gross = updated.reduce((s, i) => s + (Number(i.amount) || 0), 0);
+      setPlanEditContractAmount(String(gross));
+      return updated;
+    });
+  };
+
+  const handlePlanModalInstallmentCountChange = (newCountStr: string) => {
+    const count = Math.max(1, Math.min(20, parseInt(newCountStr, 10) || 1));
+    const gross = planEditContractItems.reduce((s, i) => s + (Number(i.amount) || 0), 0);
+    const discount = parseFloat(planEditDiscountAmount) || 0;
+    const netVal = Math.max(0, gross - discount);
+
+    const updatedPlan = generateInstallmentPlan({
+      netAmount: netVal,
+      count,
+      startDateStr: planEditFirstDate,
+      existingInstallments: planEditInstallments,
+    });
+    setPlanEditInstallmentCount(String(count));
+    setPlanEditInstallments(updatedPlan);
+  };
+
+  const handlePlanModalAutoSplit = () => {
+    const count = Math.max(1, Math.min(20, parseInt(planEditInstallmentCount, 10) || planEditInstallments.length || 1));
+    const gross = planEditContractItems.reduce((s, i) => s + (Number(i.amount) || 0), 0);
+    const discount = parseFloat(planEditDiscountAmount) || 0;
+    const netVal = Math.max(0, gross - discount);
+
+    const updatedPlan = generateInstallmentPlan({
+      netAmount: netVal,
+      count,
+      startDateStr: planEditFirstDate,
+      existingInstallments: planEditInstallments,
+    });
+    setPlanEditInstallments(updatedPlan);
+  };
+
+  const handlePlanModalInstallmentUpdate = (index: number, field: keyof CustomInstallmentItem, val: any) => {
+    setPlanEditInstallments((prev) => {
+      const list = [...prev];
+      if (!list[index]) return prev;
+      list[index] = {
+        ...list[index],
+        [field]: field === "amount" ? (val === "" ? 0 : parseFloat(val) || 0) : val,
+      };
+      return list;
+    });
+  };
+
+  const handlePlanModalInstallmentAdd = () => {
+    if (planEditInstallments.length >= 20) {
+      alert("En fazla 20 taksit eklenebilir.");
+      return;
+    }
+    const list = [...planEditInstallments];
+    const nextNo = list.length + 1;
+    const lastItem = list[list.length - 1];
+    const lastDate = lastItem?.dueDate ? new Date(lastItem.dueDate) : new Date();
+    const nextDate = new Date(lastDate);
+    nextDate.setMonth(nextDate.getMonth() + 1);
+
+    const gross = planEditContractItems.reduce((s, i) => s + (Number(i.amount) || 0), 0);
+    const discount = parseFloat(planEditDiscountAmount) || 0;
+    const netVal = Math.max(0, gross - discount);
+    const currentSum = list.reduce((s, i) => s + (Number(i.amount) || 0), 0);
+    const remainingDiff = Math.max(0, Math.round((netVal - currentSum) * 100) / 100);
+
+    const newItem: CustomInstallmentItem = {
+      installmentNo: nextNo,
+      title: `${nextNo}. Taksit`,
+      dueDate: nextDate.toISOString().split("T")[0],
+      amount: remainingDiff,
+      paidAmount: 0,
+      isPaid: false,
+    };
+    const nextList = [...list, newItem];
+    setPlanEditInstallments(nextList);
+    setPlanEditInstallmentCount(String(nextList.length));
+  };
+
+  const handlePlanModalInstallmentRemove = (index: number) => {
+    const target = planEditInstallments[index];
+    if (target?.isPaid || (target?.paidAmount && target?.paidAmount > 0)) {
+      alert("Tahsilatı yapılmış bir taksit silinemez!");
+      return;
+    }
+    const filtered = planEditInstallments.filter((_, idx) => idx !== index);
+    const renumbered = filtered.map((item, idx) => ({
+      ...item,
+      installmentNo: idx + 1,
+    }));
+    setPlanEditInstallments(renumbered);
+    setPlanEditInstallmentCount(String(renumbered.length));
+  };
+
+  const handlePlanModalAbsorbDifference = () => {
+    if (planEditInstallments.length === 0) return;
+    const gross = planEditContractItems.reduce((s, i) => s + (Number(i.amount) || 0), 0);
+    const discount = parseFloat(planEditDiscountAmount) || 0;
+    const netVal = Math.max(0, gross - discount);
+    const currentSum = planEditInstallments.reduce((s, i) => s + (Number(i.amount) || 0), 0);
+    const diff = Math.round((netVal - currentSum) * 100) / 100;
+    if (Math.abs(diff) < 0.01) return;
+
+    const list = [...planEditInstallments];
+    const lastIdx = list.length - 1;
+    list[lastIdx] = {
+      ...list[lastIdx],
+      amount: Math.max(0, Math.round((Number(list[lastIdx].amount) + diff) * 100) / 100),
+    };
+    setPlanEditInstallments(list);
+  };
+
+  const handleSavePlanModal = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!planEditStudent) return;
+    try {
+      setPlanEditSubmitting(true);
+      const gross = planEditContractItems.reduce((s, i) => s + (Number(i.amount) || 0), 0);
+      const discount = parseFloat(planEditDiscountAmount) || 0;
+      const netVal = Math.max(0, gross - discount);
+
+      const res = await fetch(`/api/ogrenciler/${planEditStudent.id}/payments`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contractAmount: gross,
+          discountAmount: discount,
+          contractDiscountType: planEditDiscountType,
+          netAmount: netVal,
+          installmentCount: planEditInstallments.length,
+          contractItems: planEditContractItems,
+          installments: planEditInstallments,
+        }),
+      });
+
+      const updated = await res.json();
+      if (!res.ok) {
+        alert(updated.error || "Sözleşme ve taksitler kaydedilemedi.");
+        return;
+      }
+
+      setPlanEditModalOpen(false);
+      await openStudentDetail(planEditStudent.id, "payments");
+      fetchData();
+    } catch {
+      alert("Hata oluştu.");
+    } finally {
+      setPlanEditSubmitting(false);
+    }
+  };
+
+  const handleDeleteIndividualPayment = async (paymentId: string) => {
+    if (!selectedStudent) return;
+    if (!confirm("Bu taksiti silmek istediğinizden emin misiniz?")) return;
+    try {
+      const res = await fetch(`/api/ogrenciler/${selectedStudent.id}/payments?paymentId=${paymentId}`, {
+        method: "DELETE",
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || "Taksit silinemedi.");
+        return;
+      }
+      await openStudentDetail(selectedStudent.id, "payments");
+      fetchData();
+    } catch {
+      alert("Silme işlemi sırasında hata oluştu.");
+    }
   };
 
   // Taksit Tahsilatı Kaydet
@@ -1860,19 +2376,27 @@ export default function OgrencilerPage() {
                     );
                   })()}
 
-                  <div className="p-4 rounded-xl bg-teal-50 border border-teal-200 flex items-center justify-between text-xs">
+                  <div className="p-4 rounded-xl bg-teal-50 border border-teal-200 flex flex-wrap items-center justify-between gap-3 text-xs">
                     <div>
-                      <span className="text-teal-800 font-semibold block">Sözleşme Tutarı</span>
+                      <span className="text-teal-800 font-semibold block text-[11px]">Net Sözleşme Tutarı</span>
                       <span className="text-xl font-extrabold text-teal-900 font-mono">
                         {selectedStudent.netAmount.toLocaleString("tr-TR")} ₺
                       </span>
                     </div>
                     <div>
-                      <span className="text-teal-800 font-semibold block">Taksit Adedi</span>
+                      <span className="text-teal-800 font-semibold block text-[11px]">Taksit Adedi</span>
                       <span className="text-base font-bold text-teal-900">
-                        {selectedStudent.installmentCount} Taksit
+                        {selectedStudent.payments?.length || selectedStudent.installmentCount || 1} Taksit
                       </span>
                     </div>
+                    <button
+                      type="button"
+                      onClick={() => openPlanEditModal(selectedStudent)}
+                      className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-teal-700 hover:bg-teal-800 text-white font-bold text-xs shadow-md shadow-teal-700/20 transition-all cursor-pointer"
+                    >
+                      <SlidersHorizontal className="w-4 h-4" />
+                      <span>Sözleşme & Taksit Planını Düzenle</span>
+                    </button>
                   </div>
 
                   {/* Taksit Tablosu */}
@@ -1923,20 +2447,30 @@ export default function OgrencilerPage() {
                               </td>
                               <td className="py-2.5 px-3 text-right">
                                 {!p.isPaid ? (
-                                  <button
-                                    onClick={() => {
-                                      setPayingInstallment(p);
-                                      setPayFormData({
-                                        paidAmount: p.amount.toString(),
-                                        paymentMethod: "CASH",
-                                        receiptNo: `MAK-${new Date().getFullYear()}-${p.installmentNo}`,
-                                        notes: "",
-                                      });
-                                    }}
-                                    className="px-2.5 py-1 rounded-lg bg-teal-600 hover:bg-teal-700 text-white font-semibold text-[11px]"
-                                  >
-                                    Tahsil Et
-                                  </button>
+                                  <div className="flex items-center justify-end gap-1.5">
+                                    <button
+                                      onClick={() => {
+                                        setPayingInstallment(p);
+                                        setPayFormData({
+                                          paidAmount: p.amount.toString(),
+                                          paymentMethod: "CASH",
+                                          receiptNo: `MAK-${new Date().getFullYear()}-${p.installmentNo}`,
+                                          notes: "",
+                                        });
+                                      }}
+                                      className="px-2.5 py-1 rounded-lg bg-teal-600 hover:bg-teal-700 text-white font-semibold text-[11px]"
+                                    >
+                                      Tahsil Et
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleDeleteIndividualPayment(p.id)}
+                                      className="p-1 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
+                                      title="Taksiti Sil"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                    </button>
+                                  </div>
                                 ) : (
                                   <span className="text-slate-500 font-semibold text-[11px]">
                                     {p.paymentMethod === "VINOV" ? "Vinov (Oto. Ödeme)" :
@@ -3010,82 +3544,211 @@ export default function OgrencilerPage() {
     </div>
   </div>
 
-  {/* 💳 TAKSİT VE ÖDEME PLANI */}
-  <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-1">
-    <div>
-      <label className="block font-semibold text-slate-700 mb-1">Taksit Sayısı</label>
-      <select
-        value={formData.installmentCount}
-        onChange={(e) => setFormData({ ...formData, installmentCount: e.target.value })}
-        className="w-full px-3 py-2 rounded-xl border border-emerald-200 bg-white text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-500"
-      >
-        <option value="1">1 (Peşin Tek Ödeme)</option>
-        <option value="2">2 Taksit</option>
-        <option value="3">3 Taksit</option>
-        <option value="4">4 Taksit</option>
-        <option value="5">5 Taksit</option>
-        <option value="6">6 Taksit</option>
-        <option value="8">8 Taksit</option>
-        <option value="9">9 Taksit (Eğitim Dönemi)</option>
-        <option value="10">10 Taksit (Standart)</option>
-        <option value="12">12 Taksit (Yıllık)</option>
-      </select>
+  {/* 💳 TAKSİT VE ÖDEME PLANI (20 TAKSİTE KADAR) */}
+  <div className="space-y-3 pt-2 border-t border-emerald-200/60">
+    <div className="flex flex-wrap items-center justify-between gap-2">
+      <div className="flex items-center gap-2">
+        <CreditCard className="w-4 h-4 text-emerald-700" />
+        <span className="font-bold text-slate-800 text-xs">Taksitlendirme & Ödeme Planı (20 Taksite Kadar)</span>
+      </div>
+      <div className="flex items-center gap-1.5">
+        <button
+          type="button"
+          onClick={handleFormAutoSplit}
+          className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px] shadow-xs cursor-pointer transition-colors"
+          title="Seçili taksit adedine göre eşit dağıtır"
+        >
+          <RefreshCw className="w-3.5 h-3.5" />
+          <span>Otomatik Eşit Dağıt</span>
+        </button>
+        <button
+          type="button"
+          onClick={handleAddFormInstallment}
+          disabled={formData.installments.length >= 20}
+          className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-teal-800 hover:bg-teal-900 text-white font-bold text-[11px] shadow-xs cursor-pointer transition-colors disabled:opacity-50"
+        >
+          <Plus className="w-3.5 h-3.5" />
+          <span>+ Taksit Ekle</span>
+        </button>
+      </div>
     </div>
 
-    <div>
-      <label className="block font-semibold text-slate-700 mb-1">İlk Taksit / Peşinat Vade Tarihi</label>
-      <input
-        type="date"
-        value={formData.firstInstallmentDate}
-        onChange={(e) => setFormData({ ...formData, firstInstallmentDate: e.target.value })}
-        className="w-full px-3 py-2 rounded-xl border border-emerald-200 bg-white text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500"
-      />
-    </div>
+    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+      <div>
+        <label className="block font-semibold text-slate-700 mb-1">Taksit Sayısı (1 - 20 Taksit)</label>
+        <select
+          value={formData.installmentCount}
+          onChange={(e) => handleFormInstallmentCountChange(e.target.value)}
+          className="w-full px-3 py-2 rounded-xl border border-emerald-200 bg-white text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-500 cursor-pointer"
+        >
+          {INSTALLMENT_COUNT_OPTIONS.map((opt) => (
+            <option key={opt.value} value={opt.value}>
+              {opt.label}
+            </option>
+          ))}
+        </select>
+      </div>
 
-    <div className="p-3 bg-white rounded-xl border border-emerald-200 flex flex-col justify-center">
-      <span className="text-slate-400 block text-[10px] font-bold uppercase">Hesaplanan Aylık Taksit</span>
-      <span className="text-base font-extrabold text-emerald-900 font-mono">
-        {(
-          Math.round(
-            (Math.max(0, (parseFloat(formData.contractAmount) || 0) - (parseFloat(formData.discountAmount) || 0)) /
-              Math.max(1, parseInt(formData.installmentCount) || 1)) *
-              100
-          ) / 100
-        ).toLocaleString("tr-TR")}{" "}₺ / ay
-      </span>
-    </div>
-  </div>
+      <div>
+        <label className="block font-semibold text-slate-700 mb-1">İlk Taksit / Peşinat Vade Tarihi</label>
+        <input
+          type="date"
+          value={formData.firstInstallmentDate}
+          onChange={(e) => setFormData({ ...formData, firstInstallmentDate: e.target.value })}
+          className="w-full px-3 py-2 rounded-xl border border-emerald-200 bg-white text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500"
+        />
+      </div>
 
-  {/* Taksit Vade Planı Çizelgesi Önizlemesi */}
-  {parseInt(formData.installmentCount) > 1 && (
-    <div className="bg-white/80 rounded-xl p-3 border border-emerald-200/80 space-y-2">
-      <div className="flex items-center justify-between text-[11px]">
-        <span className="font-bold text-emerald-950 flex items-center gap-1">
-          <Calendar className="w-3.5 h-3.5 text-emerald-700" /> Taksit Vade Planı Dağılımı ({formData.installmentCount} Ay Eşit)
+      <div className="p-2.5 bg-white rounded-xl border border-emerald-200 flex flex-col justify-center">
+        <span className="text-slate-400 block text-[10px] font-bold uppercase">Hesaplanan Ortalama Taksit</span>
+        <span className="text-sm font-extrabold text-emerald-900 font-mono">
+          {(
+            Math.round(
+              (Math.max(0, (parseFloat(formData.contractAmount) || 0) - (parseFloat(formData.discountAmount) || 0)) /
+                Math.max(1, parseInt(formData.installmentCount) || 1)) *
+                100
+            ) / 100
+          ).toLocaleString("tr-TR")}{" "}₺ / ay
         </span>
       </div>
-      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2 max-h-36 overflow-y-auto pr-1">
-        {(() => {
-          const count = Math.max(1, parseInt(formData.installmentCount) || 1);
-          const netVal = Math.max(0, (parseFloat(formData.contractAmount) || 0) - (parseFloat(formData.discountAmount) || 0));
-          const perMonth = Math.round((netVal / count) * 100) / 100;
-          return Array.from({ length: count }).map((_, idx) => {
-            const d = new Date(formData.firstInstallmentDate || new Date());
-            d.setMonth(d.getMonth() + idx);
-            const isLast = idx === count - 1;
-            const thisVal = isLast ? Math.round((netVal - (perMonth * (count - 1))) * 100) / 100 : perMonth;
-            return (
-              <div key={idx} className="p-2 bg-emerald-50/50 rounded-lg border border-emerald-100 text-[10px]">
-                <div className="text-slate-400 font-semibold">{idx === 0 ? "1. Taksit (Peşinat)" : `${idx + 1}. Taksit`}</div>
-                <div className="font-mono text-slate-700 font-bold">{d.toLocaleDateString("tr-TR")}</div>
-                <div className="font-mono font-black text-emerald-800 text-xs mt-0.5">{thisVal.toLocaleString("tr-TR")} ₺</div>
-              </div>
-            );
-          });
-        })()}
+    </div>
+
+    {/* Canlı Eşleşme ve Doğrulama Durumu */}
+    {(() => {
+      const netVal = Math.max(
+        0,
+        (parseFloat(formData.contractAmount) || 0) - (parseFloat(formData.discountAmount) || 0)
+      );
+      const sumInst = formData.installments.reduce((s, i) => s + (Number(i.amount) || 0), 0);
+      const diff = Math.round((netVal - sumInst) * 100) / 100;
+      const isExact = Math.abs(diff) < 0.01;
+
+      return (
+        <div className={`p-3 rounded-xl border flex flex-wrap items-center justify-between gap-2 text-xs font-bold ${
+          isExact
+            ? "bg-emerald-50 border-emerald-200 text-emerald-950"
+            : "bg-amber-50 border-amber-300 text-amber-950"
+        }`}>
+          <div className="flex items-center gap-3">
+            <div>
+              <span className="text-slate-500 text-[10px] block font-semibold">Net Sözleşme Tutarı</span>
+              <span className="font-mono text-xs font-black">{netVal.toLocaleString("tr-TR")} ₺</span>
+            </div>
+            <span className="text-slate-300">|</span>
+            <div>
+              <span className="text-slate-500 text-[10px] block font-semibold">Taksitler Toplamı</span>
+              <span className="font-mono text-xs font-black">{sumInst.toLocaleString("tr-TR")} ₺</span>
+            </div>
+            <span className="text-slate-300">|</span>
+            <div>
+              <span className="text-slate-500 text-[10px] block font-semibold">Fark / Kalan</span>
+              <span className={`font-mono text-xs font-black ${isExact ? "text-emerald-700" : "text-amber-700"}`}>
+                {isExact ? "0,00 ₺ (Tam Eşit)" : `${diff.toLocaleString("tr-TR")} ₺`}
+              </span>
+            </div>
+          </div>
+
+          {!isExact && formData.installments.length > 0 && (
+            <button
+              type="button"
+              onClick={handleAbsorbDifferenceForm}
+              className="px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded-lg font-bold text-[11px] transition-colors cursor-pointer"
+            >
+              Farkı Son Taksite Ekle ({diff > 0 ? `+${diff}` : diff} ₺)
+            </button>
+          )}
+        </div>
+      );
+    })()}
+
+    {/* İnteraktif Taksit Tablosu */}
+    <div className="bg-white rounded-xl border border-emerald-200 overflow-hidden text-xs">
+      <div className="max-h-72 overflow-y-auto">
+        <table className="w-full text-left">
+          <thead className="bg-emerald-50/70 border-b border-emerald-200 text-emerald-950 text-[11px] font-bold sticky top-0 z-10">
+            <tr>
+              <th className="py-2 px-2.5 w-12 text-center">#</th>
+              <th className="py-2 px-2.5">Taksit Tanımı / Başlık *</th>
+              <th className="py-2 px-2.5 w-36">Vade Tarihi *</th>
+              <th className="py-2 px-2.5 w-36 text-right">Tutar (₺) *</th>
+              <th className="py-2 px-2.5 w-24 text-center">Durum</th>
+              <th className="py-2 px-2 text-center w-12">Sil</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-emerald-100/60 font-medium">
+            {formData.installments.length === 0 ? (
+              <tr>
+                <td colSpan={6} className="py-6 text-center text-slate-400">
+                  Henüz taksit eklenmedi. "Otomatik Eşit Dağıt" veya "+ Taksit Ekle" butonunu kullanın.
+                </td>
+              </tr>
+            ) : (
+              formData.installments.map((inst, idx) => (
+                <tr key={idx} className="hover:bg-emerald-50/30 transition-colors">
+                  <td className="py-2 px-2.5 text-center font-mono font-bold text-slate-500 text-[11px]">
+                    {idx + 1}
+                  </td>
+                  <td className="py-2 px-2.5">
+                    <input
+                      type="text"
+                      required
+                      value={inst.title}
+                      onChange={(e) => handleUpdateFormInstallment(idx, "title", e.target.value)}
+                      placeholder="Örn: 1. Taksit"
+                      className="w-full px-2 py-1 rounded-lg border border-slate-200 focus:border-emerald-500 focus:outline-none text-xs font-semibold"
+                    />
+                  </td>
+                  <td className="py-2 px-2.5">
+                    <input
+                      type="date"
+                      required
+                      value={inst.dueDate}
+                      onChange={(e) => handleUpdateFormInstallment(idx, "dueDate", e.target.value)}
+                      className="w-full px-2 py-1 rounded-lg border border-slate-200 focus:border-emerald-500 focus:outline-none text-xs font-mono"
+                    />
+                  </td>
+                  <td className="py-2 px-2.5 text-right">
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      required
+                      value={inst.amount === 0 ? "" : inst.amount}
+                      onChange={(e) => handleUpdateFormInstallment(idx, "amount", e.target.value)}
+                      placeholder="0.00"
+                      className="w-full px-2 py-1 rounded-lg border border-slate-200 focus:border-emerald-500 focus:outline-none text-xs font-mono font-bold text-right text-emerald-950"
+                    />
+                  </td>
+                  <td className="py-2 px-2.5 text-center">
+                    {inst.isPaid ? (
+                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-bold whitespace-nowrap">
+                        <Check className="w-3 h-3" /> Ödendi
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-600 text-[10px] font-bold whitespace-nowrap">
+                        Bekliyor
+                      </span>
+                    )}
+                  </td>
+                  <td className="py-2 px-2 text-center">
+                    <button
+                      type="button"
+                      disabled={inst.isPaid}
+                      onClick={() => handleRemoveFormInstallment(idx)}
+                      className="p-1 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 disabled:opacity-30 disabled:hover:text-slate-400 disabled:hover:bg-transparent transition-colors cursor-pointer"
+                      title={inst.isPaid ? "Tahsil edilmiş taksit silinemez" : "Taksiti Sil"}
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
       </div>
     </div>
-  )}
+  </div>
 </div>
 {/* Form Butonları */}
               <div className="pt-4 flex items-center justify-end gap-2.5 border-t border-slate-100">
@@ -3426,6 +4089,352 @@ export default function OgrencilerPage() {
           </div>
         );
       })()}
+
+      {/* ================= MODAL: SÖZLEŞME VE TAKSİT PLANI DÜZENLEME ================= */}
+      {planEditModalOpen && planEditStudent && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-3xl w-full p-6 shadow-2xl space-y-4 max-h-[92vh] overflow-y-auto animate-in fade-in zoom-in-95">
+            {/* Başlık */}
+            <div className="flex items-center justify-between border-b pb-3 border-slate-200">
+              <div className="flex items-center gap-2.5">
+                <div className="w-10 h-10 rounded-2xl bg-teal-100 flex items-center justify-center text-teal-800">
+                  <SlidersHorizontal className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-base text-slate-900">
+                    Sözleşme & Taksit Planını Düzenle
+                  </h3>
+                  <p className="text-xs text-slate-500 font-semibold">
+                    {planEditStudent.fullName} • No: {planEditStudent.studentNo || "—"} • T.C: {planEditStudent.tcNo}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPlanEditModalOpen(false)}
+                className="text-slate-400 hover:text-slate-700 p-1 rounded-xl hover:bg-slate-100 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSavePlanModal} className="space-y-4 text-xs">
+              {/* 1. SÖZLEŞME SATIŞ KALEMLERİ */}
+              <div className="space-y-2.5 p-3.5 bg-slate-50/80 rounded-2xl border border-slate-200">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-slate-800 flex items-center gap-1.5 text-xs">
+                    <ShoppingBag className="w-4 h-4 text-teal-700" />
+                    <span>Sözleşmeye Dahil Satış Kalemleri ({planEditContractItems.length})</span>
+                  </span>
+                  <div className="flex flex-wrap items-center gap-1">
+                    {CONTRACT_ITEM_PRESETS.map((p) => (
+                      <button
+                        key={p.type}
+                        type="button"
+                        onClick={() => handlePlanModalItemAdd(p.type)}
+                        className="px-2 py-1 rounded-lg bg-white hover:bg-teal-50 border border-slate-200 text-slate-700 text-[10px] font-bold transition-colors cursor-pointer"
+                      >
+                        +{p.icon} {p.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="space-y-1.5 max-h-44 overflow-y-auto pr-1">
+                  {planEditContractItems.map((item) => (
+                    <div
+                      key={item.id}
+                      className="flex items-center gap-2 p-2 bg-white rounded-xl border border-slate-200 text-xs"
+                    >
+                      <select
+                        value={item.type}
+                        onChange={(e) => handlePlanModalItemUpdate(item.id, "type", e.target.value)}
+                        className="w-28 px-2 py-1 rounded-lg border border-slate-200 text-xs font-semibold bg-slate-50"
+                      >
+                        {CONTRACT_ITEM_PRESETS.map((p) => (
+                          <option key={p.type} value={p.type}>
+                            {p.icon} {p.label}
+                          </option>
+                        ))}
+                      </select>
+
+                      <input
+                        type="text"
+                        value={item.title}
+                        onChange={(e) => handlePlanModalItemUpdate(item.id, "title", e.target.value)}
+                        className="flex-1 px-2.5 py-1 rounded-lg border border-slate-200 text-xs font-semibold focus:outline-none focus:border-teal-600"
+                      />
+
+                      <div className="flex items-center gap-1 w-32">
+                        <input
+                          type="number"
+                          min="0"
+                          step="100"
+                          value={item.amount}
+                          onChange={(e) => handlePlanModalItemUpdate(item.id, "amount", e.target.value)}
+                          className="w-full px-2 py-1 rounded-lg border border-slate-200 text-xs font-mono font-black text-right focus:outline-none focus:border-teal-600"
+                        />
+                        <span className="font-bold text-slate-400">₺</span>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => handlePlanModalItemRemove(item.id)}
+                        className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
+                        title="Kalemi Sil"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="flex items-center justify-between pt-1 border-t border-slate-200 text-xs font-bold text-slate-800">
+                  <span>Brüt Sözleşme Tutarı:</span>
+                  <span className="font-mono text-sm font-black text-teal-950">
+                    {(parseFloat(planEditContractAmount) || 0).toLocaleString("tr-TR")} ₺
+                  </span>
+                </div>
+              </div>
+
+              {/* 2. İNDİRİM & NET SÖZLEŞME */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3.5 bg-emerald-50/60 rounded-2xl border border-emerald-200">
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">İndirim Türü / Tarife</label>
+                  <select
+                    value={planEditDiscountType}
+                    onChange={(e) => setPlanEditDiscountType(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-emerald-200 bg-white text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  >
+                    {DISCOUNT_TYPES.map((d) => (
+                      <option key={d.id} value={d.id}>
+                        {d.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">İndirim Tutarı (TL)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={planEditDiscountAmount}
+                    onChange={(e) => setPlanEditDiscountAmount(e.target.value)}
+                    placeholder="0"
+                    className="w-full px-3 py-2 rounded-xl border border-emerald-200 bg-white font-mono font-bold text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  />
+                </div>
+              </div>
+
+              {/* 3. TAKSİTLER & ÖDEME PLANI (20 Taksite Kadar) */}
+              <div className="space-y-3 p-3.5 bg-white rounded-2xl border border-slate-200">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <CreditCard className="w-4 h-4 text-teal-700" />
+                    <span className="font-bold text-slate-900 text-xs">
+                      Taksit Dağılımı ({planEditInstallments.length} Taksit)
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={handlePlanModalAutoSplit}
+                      className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px] shadow-xs cursor-pointer transition-colors"
+                      title="Seçili taksit adedine göre eşit dağıtır"
+                    >
+                      <RefreshCw className="w-3.5 h-3.5" />
+                      <span>Otomatik Eşit Dağıt</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handlePlanModalInstallmentAdd}
+                      disabled={planEditInstallments.length >= 20}
+                      className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-teal-800 hover:bg-teal-900 text-white font-bold text-[11px] shadow-xs cursor-pointer transition-colors disabled:opacity-50"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>+ Taksit Ekle</span>
+                    </button>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">Taksit Sayısı (1 - 20 Taksit)</label>
+                    <select
+                      value={planEditInstallmentCount}
+                      onChange={(e) => handlePlanModalInstallmentCountChange(e.target.value)}
+                      className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-teal-500 cursor-pointer"
+                    >
+                      {INSTALLMENT_COUNT_OPTIONS.map((opt) => (
+                        <option key={opt.value} value={opt.value}>
+                          {opt.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">İlk Taksit / Peşinat Vade Tarihi</label>
+                    <input
+                      type="date"
+                      value={planEditFirstDate}
+                      onChange={(e) => setPlanEditFirstDate(e.target.value)}
+                      className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs focus:outline-none focus:ring-2 focus:ring-teal-500"
+                    />
+                  </div>
+                </div>
+
+                {/* Denge & Eşleşme Durumu */}
+                {(() => {
+                  const gross = planEditContractItems.reduce((s, i) => s + (Number(i.amount) || 0), 0);
+                  const discount = parseFloat(planEditDiscountAmount) || 0;
+                  const netVal = Math.max(0, gross - discount);
+                  const sumInst = planEditInstallments.reduce((s, i) => s + (Number(i.amount) || 0), 0);
+                  const diff = Math.round((netVal - sumInst) * 100) / 100;
+                  const isExact = Math.abs(diff) < 0.01;
+
+                  return (
+                    <div className={`p-3 rounded-xl border flex flex-wrap items-center justify-between gap-2 text-xs font-bold ${
+                      isExact
+                        ? "bg-emerald-50 border-emerald-200 text-emerald-950"
+                        : "bg-amber-50 border-amber-300 text-amber-950"
+                    }`}>
+                      <div className="flex items-center gap-3">
+                        <div>
+                          <span className="text-slate-500 text-[10px] block font-semibold">Net Sözleşme</span>
+                          <span className="font-mono text-xs font-black">{netVal.toLocaleString("tr-TR")} ₺</span>
+                        </div>
+                        <span className="text-slate-300">|</span>
+                        <div>
+                          <span className="text-slate-500 text-[10px] block font-semibold">Taksitler Toplamı</span>
+                          <span className="font-mono text-xs font-black">{sumInst.toLocaleString("tr-TR")} ₺</span>
+                        </div>
+                        <span className="text-slate-300">|</span>
+                        <div>
+                          <span className="text-slate-500 text-[10px] block font-semibold">Fark</span>
+                          <span className={`font-mono text-xs font-black ${isExact ? "text-emerald-700" : "text-amber-700"}`}>
+                            {isExact ? "0,00 ₺ (Tam Uyumlu)" : `${diff.toLocaleString("tr-TR")} ₺`}
+                          </span>
+                        </div>
+                      </div>
+
+                      {!isExact && planEditInstallments.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={handlePlanModalAbsorbDifference}
+                          className="px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded-lg font-bold text-[11px] transition-colors cursor-pointer"
+                        >
+                          Farkı Son Taksite Ekle ({diff > 0 ? `+${diff}` : diff} ₺)
+                        </button>
+                      )}
+                    </div>
+                  );
+                })()}
+
+                {/* İnteraktif Tablo */}
+                <div className="border border-slate-200 rounded-xl overflow-hidden text-xs">
+                  <div className="max-h-60 overflow-y-auto">
+                    <table className="w-full text-left">
+                      <thead className="bg-slate-50 border-b border-slate-200 text-slate-700 text-[11px] font-bold sticky top-0 z-10">
+                        <tr>
+                          <th className="py-2 px-2.5 w-12 text-center">#</th>
+                          <th className="py-2 px-2.5">Taksit Tanımı / Başlık *</th>
+                          <th className="py-2 px-2.5 w-36">Vade Tarihi *</th>
+                          <th className="py-2 px-2.5 w-36 text-right">Tutar (₺) *</th>
+                          <th className="py-2 px-2.5 w-24 text-center">Durum</th>
+                          <th className="py-2 px-2 text-center w-12">Sil</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 font-medium">
+                        {planEditInstallments.map((inst, idx) => (
+                          <tr key={idx} className="hover:bg-slate-50 transition-colors">
+                            <td className="py-2 px-2.5 text-center font-mono font-bold text-slate-500 text-[11px]">
+                              {idx + 1}
+                            </td>
+                            <td className="py-2 px-2.5">
+                              <input
+                                type="text"
+                                required
+                                value={inst.title}
+                                onChange={(e) => handlePlanModalInstallmentUpdate(idx, "title", e.target.value)}
+                                placeholder="Örn: 1. Taksit"
+                                className="w-full px-2 py-1 rounded-lg border border-slate-200 focus:border-teal-600 focus:outline-none text-xs font-semibold"
+                              />
+                            </td>
+                            <td className="py-2 px-2.5">
+                              <input
+                                type="date"
+                                required
+                                value={inst.dueDate}
+                                onChange={(e) => handlePlanModalInstallmentUpdate(idx, "dueDate", e.target.value)}
+                                className="w-full px-2 py-1 rounded-lg border border-slate-200 focus:border-teal-600 focus:outline-none text-xs font-mono"
+                              />
+                            </td>
+                            <td className="py-2 px-2.5 text-right">
+                              <input
+                                type="number"
+                                step="0.01"
+                                min="0"
+                                required
+                                value={inst.amount === 0 ? "" : inst.amount}
+                                onChange={(e) => handlePlanModalInstallmentUpdate(idx, "amount", e.target.value)}
+                                placeholder="0.00"
+                                className="w-full px-2 py-1 rounded-lg border border-slate-200 focus:border-teal-600 focus:outline-none text-xs font-mono font-bold text-right text-slate-900"
+                              />
+                            </td>
+                            <td className="py-2 px-2.5 text-center">
+                              {inst.isPaid ? (
+                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-bold whitespace-nowrap">
+                                  <Check className="w-3 h-3" /> Ödendi
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-600 text-[10px] font-bold whitespace-nowrap">
+                                  Bekliyor
+                                </span>
+                              )}
+                            </td>
+                            <td className="py-2 px-2 text-center">
+                              <button
+                                type="button"
+                                disabled={inst.isPaid}
+                                onClick={() => handlePlanModalInstallmentRemove(idx)}
+                                className="p-1 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 disabled:opacity-30 disabled:hover:text-slate-400 disabled:hover:bg-transparent transition-colors cursor-pointer"
+                                title={inst.isPaid ? "Tahsil edilmiş taksit silinemez" : "Taksiti Sil"}
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+
+              {/* Form Butonları */}
+              <div className="pt-3 border-t border-slate-200 flex items-center justify-end gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => setPlanEditModalOpen(false)}
+                  className="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-100 font-semibold text-xs transition-colors"
+                >
+                  Vazgeç
+                </button>
+                <button
+                  type="submit"
+                  disabled={planEditSubmitting}
+                  className="flex items-center gap-2 px-5 py-2 rounded-xl bg-teal-700 hover:bg-teal-800 text-white font-bold text-xs shadow-md shadow-teal-700/20 transition-all disabled:opacity-50 cursor-pointer"
+                >
+                  <Check className="w-4 h-4" />
+                  <span>{planEditSubmitting ? "Kaydediliyor..." : "Planı & Taksitleri Kaydet"}</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

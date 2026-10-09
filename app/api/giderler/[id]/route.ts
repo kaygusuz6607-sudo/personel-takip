@@ -490,14 +490,16 @@ export async function PUT(
         dueDateStr: computedDueDateStr,
         dueDate: dueDate ? new Date(dueDate) : existing.dueDate,
         amountDue: numAmountDue,
-        amountRemaining: numAmountRemaining,
-        status,
+        amountPaid: body.amountPaid !== undefined ? Number(body.amountPaid) : existing.amountPaid,
+        amountRemaining: body.amountPaid !== undefined ? Math.max(0, Number((numAmountDue - Number(body.amountPaid)).toFixed(2))) : numAmountRemaining,
+        status: body.status !== undefined ? body.status : ((body.amountPaid !== undefined ? Number(body.amountPaid) : existing.amountPaid) >= numAmountDue ? "PAID" : (body.amountPaid !== undefined ? Number(body.amountPaid) : existing.amountPaid) > 0 ? "PARTIAL" : "PENDING"),
         periodStatus: periodStatus ?? existing.periodStatus,
         description: description ?? existing.description,
+        paymentHistory: body.paymentHistory !== undefined ? (typeof body.paymentHistory === "object" ? JSON.stringify(body.paymentHistory) : body.paymentHistory) : existing.paymentHistory,
         isCommitment: isCommitment !== undefined ? Boolean(isCommitment) : existing.isCommitment,
         commitmentEndDate: commitmentEndDate ? new Date(commitmentEndDate) : existing.commitmentEndDate,
         commitmentMonths: commitmentMonths !== undefined ? Number(commitmentMonths) : existing.commitmentMonths,
-        paymentMethod: (category ?? existing.category) === "CREDIT_CARD" ? "CASH" : (paymentMethod ?? existing.paymentMethod),
+        paymentMethod: paymentMethod !== undefined ? paymentMethod : existing.paymentMethod,
         cardHolder: cardHolder !== undefined ? cardHolder : existing.cardHolder,
         cardBank: cardBank !== undefined ? cardBank : existing.cardBank,
         monthIndex: computedMonthIndex,
@@ -594,6 +596,10 @@ export async function DELETE(
       /\[STUDENT_REFUND:([^:\]]+):([^:\]]+)\]/
     );
 
+    const loanMatch = (existing.description || "").match(
+      /\[LOAN_ID:([^:\]]+)\]/
+    );
+
     // Eğer tüm seriyi silme isteği gelmişse
     if (deleteAllSeries) {
       if (refundMatch) {
@@ -603,6 +609,14 @@ export async function DELETE(
         } catch {}
         await prisma.schoolExpense.deleteMany({
           where: { description: { contains: `[STUDENT_REFUND:${refId}:` } },
+        });
+      } else if (loanMatch) {
+        const loanId = loanMatch[1];
+        await prisma.schoolExpense.deleteMany({
+          where: {
+            category: "LOAN",
+            description: { contains: `[LOAN_ID:${loanId}]` },
+          },
         });
       } else {
         await prisma.schoolExpense.deleteMany({

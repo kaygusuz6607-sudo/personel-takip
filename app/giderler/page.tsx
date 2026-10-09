@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo, Suspense } from "react";
+import { useState, useEffect, useMemo, Suspense, Fragment } from "react";
 import Link from "next/link";
 import {
   ReceiptText,
@@ -84,6 +84,8 @@ interface SchoolExpense {
   chequeNo?: string | null;
   chequeBank?: string | null;
   createdAt: string;
+  isConsolidatedStatement?: boolean;
+  cardSlips?: SchoolExpense[];
 }
 
 
@@ -282,6 +284,32 @@ const CARD_OWNER_PRESETS = [
   "Emre Helvacı",
 ];
 
+function cleanSlipDescription(desc?: string | null): string {
+  if (!desc) return "-";
+  return (
+    desc
+      .replace(/\[txDate:[^\]]+\]/g, "")
+      .replace(/\[CARD_SLIP[^\]]*\]/g, "")
+      .replace(/\[card-[^\]]+\]/g, "")
+      .replace(/\|\s*Toplam Harcama:[^|]+/g, "")
+      .trim() || "-"
+  );
+}
+
+function extractTxDate(exp: SchoolExpense): string {
+  if (exp.description) {
+    const m = exp.description.match(/\[txDate:(\d{4}-\d{2}-\d{2})\]/);
+    if (m) return m[1];
+  }
+  if (exp.createdAt) {
+    try {
+      const trD = new Date(new Date(exp.createdAt).getTime() + 3 * 3600 * 1000);
+      return trD.toISOString().split("T")[0];
+    } catch {}
+  }
+  return "";
+}
+
 function GiderlerPageContent() {
   // SSR Hydration koruması
   const [isMounted, setIsMounted] = useState(false);
@@ -331,6 +359,12 @@ function GiderlerPageContent() {
 
   const toggleAmountSort = () => {
     setSortBy((prev) => (prev === "AMOUNT_DESC" ? "AMOUNT_ASC" : "AMOUNT_DESC"));
+  };
+
+  // Konsolide Kredi Kartı Ekstreleri Açılır Fiş Listesi Durumu
+  const [expandedStatements, setExpandedStatements] = useState<string[]>([]);
+  const toggleStatementExpand = (id: string) => {
+    setExpandedStatements((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
   };
 
   const todayStr = useMemo(() => new Date().toISOString().slice(0, 10), []);
@@ -1497,7 +1531,100 @@ function GiderlerPageContent() {
       });
     }
 
-    return [...baseList].sort((a, b) => {
+    // ==============================================================
+    // KREDİ KARTI FİŞLERİNİ KONSOLİDE EKSTRE SATIRINDA BİRLEŞTİRME
+    // ==============================================================
+    const normalExpenses: SchoolExpense[] = [];
+    const cardSlipGroups = new Map<
+      string,
+      {
+        cardKey: string;
+        cardLabel: string;
+        cardHolder: string;
+        cardBank: string;
+        dueYM: string;
+        dueDate: string | null;
+        dueDateStr: string | null;
+        slips: SchoolExpense[];
+      }
+    >();
+
+    baseList.forEach((exp) => {
+      const desc = exp.description || "";
+      const isCard = exp.category === "CREDIT_CARD" || exp.paymentMethod === "CREDIT_CARD";
+      const isMultiInstallment = Boolean(exp.installmentInfo && exp.installmentInfo !== "1t/1t");
+      const isExplicitSlip = desc.includes("[CARD_SLIP") || desc.includes("[txDate:");
+
+      if (isCard && !isMultiInstallment && !exp.isCommitment && (isExplicitSlip || exp.cardBank || exp.cardHolder)) {
+        const cardMatch = findMatchingCardForExpense(exp);
+        const cardKey = cardMatch ? cardMatch.id : `${exp.cardHolder || "Kart"}_${exp.cardBank || "Banka"}`;
+        const cardLabel = cardMatch ? cardMatch.cardLabel : `${exp.cardBank || "Kredi Kartı"}${exp.cardHolder ? ` (${exp.cardHolder})` : ""}`;
+        const expYM = getExpenseDueYM(exp);
+        const dueYM = expYM.ym;
+        const groupKey = `${cardKey}_${dueYM}`;
+
+        if (!cardSlipGroups.has(groupKey)) {
+          cardSlipGroups.set(groupKey, {
+            cardKey,
+            cardLabel,
+            cardHolder: exp.cardHolder || cardMatch?.holder || "",
+            cardBank: exp.cardBank || cardMatch?.bankName || "",
+            dueYM,
+            dueDate: exp.dueDate,
+            dueDateStr: exp.dueDateStr,
+            slips: [],
+          });
+        }
+        cardSlipGroups.get(groupKey)!.slips.push(exp);
+      } else {
+        normalExpenses.push(exp);
+      }
+    });
+
+    const consolidatedStatementExpenses: SchoolExpense[] = [];
+    cardSlipGroups.forEach((grp, grpKey) => {
+      const { slips, cardLabel, cardHolder, cardBank, dueYM, dueDate, dueDateStr } = grp;
+      const totalDue = slips.reduce((s, x) => s + (Number(x.amountDue) || 0), 0);
+      const totalPaid = slips.reduce((s, x) => s + (Number(x.amountPaid) || 0), 0);
+      const totalRemaining = slips.reduce((s, x) => s + (Number(x.amountRemaining) || 0), 0);
+      const allPaid = slips.every((x) => x.status === "PAID");
+      const anyPaid = slips.some((x) => x.status === "PAID" || x.status === "PARTIAL");
+      const status: "PAID" | "PARTIAL" | "PENDING" = allPaid ? "PAID" : anyPaid ? "PARTIAL" : "PENDING";
+      const [yPart, mPart] = dueYM.split("-");
+      const mIdx = parseInt(mPart, 10);
+      const trMonths = ["", "Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran", "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"];
+      const periodLabel = `${trMonths[mIdx] || mPart} ${yPart}`;
+
+      consolidatedStatementExpenses.push({
+        id: `stmt-group-${grpKey}`,
+        title: `${cardLabel} - ${periodLabel} Ekstresi`,
+        category: "CREDIT_CARD",
+        subCategory: "Konsolide Kart Ekstresi",
+        period: `${mIdx}.Ay Ekstre`,
+        installmentInfo: null,
+        dueDate: dueDate || slips[0]?.dueDate,
+        dueDateStr: dueDateStr || slips[0]?.dueDateStr || `${periodLabel} Ekstresi`,
+        amountDue: totalDue,
+        amountPaid: totalPaid,
+        amountRemaining: totalRemaining,
+        status,
+        periodStatus: "Cari Dönem",
+        description: `${slips.length} Kalem Harcama Fişi (${slips.map((s) => s.title).slice(0, 3).join(", ")}${slips.length > 3 ? "..." : ""})`,
+        paymentHistory: null,
+        isCommitment: false,
+        paymentMethod: "CREDIT_CARD",
+        cardHolder,
+        cardBank,
+        monthIndex: mIdx,
+        createdAt: slips[0]?.createdAt || new Date().toISOString(),
+        isConsolidatedStatement: true,
+        cardSlips: slips,
+      });
+    });
+
+    const finalBaseList = [...normalExpenses, ...consolidatedStatementExpenses];
+
+    return [...finalBaseList].sort((a, b) => {
       const aISO = getExpenseEffectiveDateISO(a);
       const bISO = getExpenseEffectiveDateISO(b);
 
@@ -2187,10 +2314,7 @@ function GiderlerPageContent() {
         form.category === "CHEQUE" ||
         form.paymentMethod === "CHEQUE";
       const finalCategory = isChequeEntry ? "CHEQUE" : form.category;
-      const finalPaymentMethod =
-        finalCategory === "CREDIT_CARD" || finalCategory === "CHEQUE"
-          ? "CASH"
-          : form.paymentMethod;
+      const finalPaymentMethod = isChequeEntry ? "CASH" : form.paymentMethod;
 
       let effectiveMonthIndex = Number(form.monthIndex) || 9;
       let targetSavedYM: string | null = null;
@@ -2279,6 +2403,24 @@ function GiderlerPageContent() {
   };
 
   const handleDelete = async (id: string, title: string, exp?: SchoolExpense) => {
+    if (exp?.isConsolidatedStatement && exp.cardSlips) {
+      if (
+        !confirm(
+          `"${title}" ekstre kaydı toplam ${exp.cardSlips.length} adet harcama fişini içermektedir.\n\nBu ekstrenin altındaki TÜM fişleri kalıcı olarak silmek istediğinize emin misiniz?`
+        )
+      )
+        return;
+      try {
+        for (const s of exp.cardSlips) {
+          await fetch(`/api/giderler/${s.id}`, { method: "DELETE" });
+        }
+        await fetchExpenses();
+      } catch {
+        alert("Fişler silinemedi.");
+      }
+      return;
+    }
+
     let deleteAllSeries = false;
     if (exp?.installmentInfo) {
       const askAll = confirm(
@@ -2312,6 +2454,28 @@ function GiderlerPageContent() {
   };
 
   const handleMarkPaid = async (expense: SchoolExpense) => {
+    if (expense.isConsolidatedStatement && expense.cardSlips) {
+      if (
+        !confirm(
+          `"${expense.title}" ekstresindeki ${expense.cardSlips.length} adet fişin tamamını ödendi olarak işaretlemek istiyor musunuz?`
+        )
+      )
+        return;
+      try {
+        for (const s of expense.cardSlips) {
+          await fetch(`/api/giderler/${s.id}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action: "MARK_PAID" }),
+          });
+        }
+        await fetchExpenses();
+      } catch (e) {
+        alert("İşlem yapılamadı");
+      }
+      return;
+    }
+
     if (!confirm(`"${expense.title}" ödemesinin tamamını ödendi olarak işaretlemek istiyor musunuz?`)) return;
     try {
       const res = await fetch(`/api/giderler/${expense.id}`, {
@@ -2395,6 +2559,33 @@ function GiderlerPageContent() {
     if (!activePaymentExpense) return;
     try {
       setPaymentSubmitting(true);
+
+      if (activePaymentExpense.isConsolidatedStatement && activePaymentExpense.cardSlips) {
+        let remainingToApply = Number(paymentAmount) || 0;
+        for (const slip of activePaymentExpense.cardSlips) {
+          if (remainingToApply <= 0) break;
+          const dueForThisSlip = slip.amountRemaining;
+          const payForSlip = Math.min(remainingToApply, dueForThisSlip);
+          if (payForSlip > 0) {
+            await fetch(`/api/giderler/${slip.id}`, {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                action: "ADD_PAYMENT",
+                amount: payForSlip,
+                date: paymentDate,
+                note: paymentNote.trim() ? `${paymentNote.trim()} (Ekstre Toplu Ödemesi)` : "Ekstre Toplu Ödemesi",
+                paymentMethod: "CASH",
+              }),
+            });
+            remainingToApply -= payForSlip;
+          }
+        }
+        setPaymentModalOpen(false);
+        await fetchExpenses();
+        return;
+      }
+
       const isCard = paymentMethodChoice === "CREDIT_CARD";
       const isDefinedCard = isCard && paymentCardSource === "DEFINED";
       const selectedCard = isDefinedCard
@@ -3090,10 +3281,10 @@ function GiderlerPageContent() {
           customInstallments:
             count > 1 ? cardTxCustomInstallments.map((v) => Number(v) || 0) : null,
           isCommitment: false,
-          paymentMethod: "CASH",
+          paymentMethod: "CREDIT_CARD",
           cardHolder: holderName,
           cardBank: card.bankName,
-          description: `${cardTxForm.description ? cardTxForm.description + " " : ""}[${card.id}]`.trim(),
+          description: `[txDate:${new Date().toISOString().split("T")[0]}] ${cardTxForm.description ? cardTxForm.description + " " : ""}[${card.id}]`.trim(),
         }),
       });
 
@@ -4312,8 +4503,8 @@ function GiderlerPageContent() {
                       }
 
                       return (
+                        <Fragment key={exp.id}>
                         <tr
-                          key={exp.id}
                           className={`hover:bg-slate-50/60 transition-colors border-l-4 ${
                             exp.status === "PAID"
                               ? "border-l-emerald-500 bg-emerald-50/20"
@@ -4324,39 +4515,73 @@ function GiderlerPageContent() {
                         >
                           {/* Cari Başlığı */}
                           <td className="py-3 px-3">
-                            <div className="font-bold text-slate-900 text-sm leading-tight flex items-center gap-1.5 flex-wrap">
-                              <span>{exp.title}</span>
+                            {exp.isConsolidatedStatement ? (
+                              <div className="space-y-1">
+                                <div className="font-extrabold text-slate-900 text-sm leading-tight flex items-center gap-1.5 flex-wrap">
+                                  <span>{exp.title}</span>
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black bg-purple-100 text-purple-900 border border-purple-300">
+                                    <Layers className="w-2.5 h-2.5 text-purple-700" />
+                                    <span>{exp.cardSlips?.length || 0} Harcama Fişi Birleştirildi</span>
+                                  </span>
+                                </div>
+                                <p className="text-[11px] text-slate-500 line-clamp-1">
+                                  {exp.cardSlips && exp.cardSlips.map((s) => s.title).join(" • ")}
+                                </p>
+                                <button
+                                  type="button"
+                                  onClick={() => toggleStatementExpand(exp.id)}
+                                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl text-[11px] font-extrabold bg-purple-50 hover:bg-purple-100 text-purple-900 border border-purple-300 shadow-2xs transition-all mt-1"
+                                >
+                                  {expandedStatements.includes(exp.id) ? (
+                                    <>
+                                      <ChevronUp className="w-3.5 h-3.5 text-purple-700" />
+                                      <span>Fiş Detaylarını Gizle ({exp.cardSlips?.length || 0})</span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <ChevronDown className="w-3.5 h-3.5 text-purple-700" />
+                                      <span>Detayları Gör ({exp.cardSlips?.length || 0} Harcama Fişi)</span>
+                                    </>
+                                  )}
+                                </button>
+                              </div>
+                            ) : (
+                              <>
+                                <div className="font-bold text-slate-900 text-sm leading-tight flex items-center gap-1.5 flex-wrap">
+                                  <span>{exp.title}</span>
 
-                              {/* Kart Sahibi Rozeti */}
-                              {exp.cardHolder && (
-                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-indigo-50 text-indigo-800 border border-indigo-200">
-                                  <CreditCard className="w-2.5 h-2.5" />
-                                  <span>{exp.cardHolder}</span>
-                                </span>
-                              )}
+                                  {/* Kart Sahibi Rozeti */}
+                                  {exp.cardHolder && (
+                                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-indigo-50 text-indigo-800 border border-indigo-200">
+                                      <CreditCard className="w-2.5 h-2.5" />
+                                      <span>{exp.cardHolder}</span>
+                                    </span>
+                                  )}
 
-                              {/* Taahhüt Rozeti */}
-                              {exp.isCommitment && (
-                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-black bg-blue-100 text-blue-800 border border-blue-200">
-                                  <Smartphone className="w-2.5 h-2.5 text-blue-700" />
-                                  <span>Taahhütlü</span>
-                                </span>
-                              )}
+                                  {/* Taahhüt Rozeti */}
+                                  {exp.isCommitment && (
+                                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-black bg-blue-100 text-blue-800 border border-blue-200">
+                                      <Smartphone className="w-2.5 h-2.5 text-blue-700" />
+                                      <span>Taahhütlü</span>
+                                    </span>
+                                  )}
 
-                              {exp.periodStatus && (
-                                <span className="text-[10px] px-1.5 py-0.5 rounded font-bold bg-slate-100 text-slate-600 border border-slate-200">
-                                  {exp.periodStatus}
-                                </span>
-                              )}
-                            </div>
+                                  {exp.periodStatus && (
+                                    <span className="text-[10px] px-1.5 py-0.5 rounded font-bold bg-slate-100 text-slate-600 border border-slate-200">
+                                      {exp.periodStatus}
+                                    </span>
+                                  )}
+                                </div>
 
-                            {/* Açıklama / Not */}
-                            {exp.description && (
-                              <span className="text-[11px] text-slate-500 block mt-0.5">
-                                {(exp.status === "PAID" || exp.amountRemaining <= 0) && exp.description.toLowerCase().includes("kaldı")
-                                  ? "Tüm taksitler ödendi - Borç tamamen kapandı ✅"
-                                  : exp.description.replace(/\[SUPPLIER_CARI:[^\]]+\]|\[STUDENT_REFUND:[^\]]+\]/g, "").trim()}
-                              </span>
+                                {/* Açıklama / Not */}
+                                {exp.description && (
+                                  <span className="text-[11px] text-slate-500 block mt-0.5">
+                                    {(exp.status === "PAID" || exp.amountRemaining <= 0) && exp.description.toLowerCase().includes("kaldı")
+                                      ? "Tüm taksitler ödendi - Borç tamamen kapandı ✅"
+                                      : exp.description.replace(/\[SUPPLIER_CARI:[^\]]+\]|\[STUDENT_REFUND:[^\]]+\]/g, "").trim()}
+                                  </span>
+                                )}
+                              </>
                             )}
 
                             {exp.category === "STUDENT_REFUND" && (
@@ -4687,14 +4912,16 @@ function GiderlerPageContent() {
                                   )}
                                 </>
                               )}
-                              <button
-                                type="button"
-                                onClick={() => openEditModal(exp)}
-                                className="p-1 text-slate-500 hover:text-teal-700 hover:bg-teal-50 rounded-lg transition-colors"
-                                title="Düzenle"
-                              >
-                                <Edit2 className="w-3.5 h-3.5" />
-                              </button>
+                              {!exp.isConsolidatedStatement && (
+                                <button
+                                  type="button"
+                                  onClick={() => openEditModal(exp)}
+                                  className="p-1 text-slate-500 hover:text-teal-700 hover:bg-teal-50 rounded-lg transition-colors"
+                                  title="Düzenle"
+                                >
+                                  <Edit2 className="w-3.5 h-3.5" />
+                                </button>
+                              )}
                               <button
                                 type="button"
                                 onClick={() => handleDelete(exp.id, exp.title, exp)}
@@ -4706,6 +4933,126 @@ function GiderlerPageContent() {
                             </div>
                           </td>
                         </tr>
+
+                        {/* KONSOLİDE KREDİ KARTI EKSTRESİ AÇILIR FİŞ LİSTESİ */}
+                        {exp.isConsolidatedStatement && expandedStatements.includes(exp.id) && (
+                          <tr key={`${exp.id}-slips-row`} className="bg-purple-50/50 border-b-2 border-purple-200">
+                            <td colSpan={8} className="p-3 sm:p-4">
+                              <div className="bg-white rounded-2xl border border-purple-200 p-4 shadow-sm space-y-3">
+                                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2.5 border-b border-purple-100">
+                                  <div className="flex items-center gap-2">
+                                    <div className="w-8 h-8 rounded-lg bg-purple-100 text-purple-700 flex items-center justify-center shrink-0">
+                                      <ReceiptText className="w-4 h-4" />
+                                    </div>
+                                    <div>
+                                      <h4 className="font-extrabold text-xs text-purple-950 flex items-center gap-2">
+                                        <span>Bu Ekstreye Dahil Harcama Fişleri ({exp.cardSlips?.length || 0} Kalem)</span>
+                                        <span className="text-[10px] font-bold bg-purple-100 text-purple-800 px-2 py-0.5 rounded-full border border-purple-200">
+                                          {exp.title}
+                                        </span>
+                                      </h4>
+                                      <p className="text-[11px] text-slate-500">
+                                        Günlük kasadan girilen tek çekim harcamalar bu ekstrenin son ödeme tarihine ({exp.dueDateStr || "-"}) biriktirilmiştir.
+                                      </p>
+                                    </div>
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-xs font-black text-purple-900 bg-purple-50 px-3 py-1.5 rounded-xl border border-purple-200">
+                                      Toplam Ekstre: {formatCurrency(exp.amountDue)}
+                                    </span>
+                                  </div>
+                                </div>
+
+                                <div className="overflow-x-auto">
+                                  <table className="w-full text-xs text-left border-collapse">
+                                    <thead>
+                                      <tr className="text-[10px] text-slate-500 font-bold uppercase tracking-wider bg-slate-50 border-b border-slate-200">
+                                        <th className="py-2 px-3">İşlem Tarihi</th>
+                                        <th className="py-2 px-3">Harcama Başlığı (Nereye / Kime)</th>
+                                        <th className="py-2 px-3">Kategori</th>
+                                        <th className="py-2 px-3">Açıklama / Fiş Notu</th>
+                                        <th className="py-2 px-3 text-right">Tutar</th>
+                                        <th className="py-2 px-3 text-center">Durum</th>
+                                        <th className="py-2 px-3 text-right">İşlem</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-100">
+                                      {(exp.cardSlips || []).map((slip) => {
+                                        const txDate = extractTxDate(slip);
+                                        return (
+                                          <tr key={slip.id} className="hover:bg-purple-50/30 transition-colors">
+                                            <td className="py-2.5 px-3 font-bold text-slate-700 whitespace-nowrap">
+                                              <span className="inline-flex items-center gap-1">
+                                                <Calendar className="w-3 h-3 text-slate-400" />
+                                                <span>{txDate ? formatSafeDate(txDate) : "-"}</span>
+                                              </span>
+                                            </td>
+                                            <td className="py-2.5 px-3 font-extrabold text-slate-900">
+                                              {slip.title}
+                                            </td>
+                                            <td className="py-2.5 px-3 text-slate-600">
+                                              <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-slate-100 text-slate-700 border border-slate-200">
+                                                {slip.subCategory || "Okul Harcaması"}
+                                              </span>
+                                            </td>
+                                            <td className="py-2.5 px-3 text-slate-500 text-[11px]">
+                                              {cleanSlipDescription(slip.description)}
+                                            </td>
+                                            <td className="py-2.5 px-3 text-right font-black text-purple-950 whitespace-nowrap">
+                                              {formatCurrency(slip.amountDue)}
+                                            </td>
+                                            <td className="py-2.5 px-3 text-center">
+                                              <span
+                                                className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                                                  slip.status === "PAID"
+                                                    ? "bg-emerald-100 text-emerald-800 border border-emerald-200"
+                                                    : "bg-amber-100 text-amber-800 border border-amber-200"
+                                                }`}
+                                              >
+                                                {slip.status === "PAID" ? "Ödendi" : "Bekliyor"}
+                                              </span>
+                                            </td>
+                                            <td className="py-2.5 px-3 text-right whitespace-nowrap">
+                                              <div className="flex items-center justify-end gap-1">
+                                                <button
+                                                  type="button"
+                                                  onClick={() => openEditModal(slip)}
+                                                  className="p-1 text-slate-400 hover:text-teal-700 hover:bg-teal-50 rounded-lg transition-colors"
+                                                  title="Bu Fişi Düzenle"
+                                                >
+                                                  <Edit2 className="w-3.5 h-3.5" />
+                                                </button>
+                                                {slip.status !== "PAID" && (
+                                                  <button
+                                                    type="button"
+                                                    onClick={() => handleMarkPaid(slip)}
+                                                    className="px-2 py-1 bg-emerald-700 hover:bg-emerald-800 text-white rounded-lg text-[10px] font-bold transition-colors"
+                                                    title="Bu Fişi Ödendi Yap"
+                                                  >
+                                                    Öde
+                                                  </button>
+                                                )}
+                                                <button
+                                                  type="button"
+                                                  onClick={() => handleDelete(slip.id, slip.title, slip)}
+                                                  className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
+                                                  title="Bu Fişi Sil"
+                                                >
+                                                  <Trash2 className="w-3.5 h-3.5" />
+                                                </button>
+                                              </div>
+                                            </td>
+                                          </tr>
+                                        );
+                                      })}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                        </Fragment>
                       );
                     })}
                   </tbody>

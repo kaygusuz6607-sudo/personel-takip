@@ -318,6 +318,7 @@ export async function PUT(
       photoConsent,
       tags,
       notes,
+      installments,
     } = body;
 
     let finalNotes = notes !== undefined ? notes : undefined;
@@ -333,57 +334,114 @@ export async function PUT(
       calculatedContractAmount = contractItems.reduce((s: number, i: any) => s + (Number(i.amount) || 0), 0);
     }
 
-    const updated = await prisma.student.update({
-      where: { id },
-      data: {
-        studentNo: studentNo !== undefined ? studentNo : undefined,
-        tcNo: tcNo !== undefined ? tcNo.trim() : undefined,
-        fullName: fullName !== undefined ? fullName.trim() : undefined,
-        birthDate: birthDate !== undefined ? (birthDate ? new Date(birthDate) : null) : undefined,
-        gender: gender !== undefined ? gender : undefined,
-        bloodGroup: bloodGroup !== undefined ? bloodGroup : undefined,
-        healthNotes: healthNotes !== undefined ? healthNotes : undefined,
-        dietNotes: dietNotes !== undefined ? dietNotes : undefined,
-        toiletTrained: toiletTrained !== undefined ? Boolean(toiletTrained) : undefined,
-        napTime: napTime !== undefined ? Boolean(napTime) : undefined,
-        photoUrl: photoUrl !== undefined ? photoUrl : undefined,
-        status: status !== undefined ? status : undefined,
-        fatherName: fatherName !== undefined ? fatherName : undefined,
-        fatherPhone: fatherPhone !== undefined ? fatherPhone : undefined,
-        fatherJob: fatherJob !== undefined ? fatherJob : undefined,
-        motherName: motherName !== undefined ? motherName : undefined,
-        motherPhone: motherPhone !== undefined ? motherPhone : undefined,
-        motherJob: motherJob !== undefined ? motherJob : undefined,
-        guardianRelation: guardianRelation !== undefined ? guardianRelation : undefined,
-        primaryPhone: primaryPhone !== undefined ? primaryPhone.trim() : undefined,
-        primaryEmail: primaryEmail !== undefined ? primaryEmail : undefined,
-        homeAddress: homeAddress !== undefined ? homeAddress : undefined,
-        cityDistrict: cityDistrict !== undefined ? cityDistrict : undefined,
-        authorizedPickups: authorizedPickups !== undefined ? (typeof authorizedPickups === "string" ? authorizedPickups : JSON.stringify(authorizedPickups)) : undefined,
-        emergencyContact: emergencyContact !== undefined ? (typeof emergencyContact === "string" ? emergencyContact : JSON.stringify(emergencyContact)) : undefined,
-        section: section !== undefined ? section : undefined,
-        educationType: educationType !== undefined ? educationType : undefined,
-        classroomId: classroomId !== undefined ? (classroomId || null) : undefined,
-        academicYear: academicYear !== undefined ? academicYear : undefined,
-        previousSchool: previousSchool !== undefined ? previousSchool : undefined,
-        graduationDate: graduationDate !== undefined ? (graduationDate ? new Date(graduationDate) : null) : undefined,
-        serviceUsed: serviceUsed !== undefined ? Boolean(serviceUsed) : (Array.isArray(contractItems) ? contractItems.some((i: any) => i.type === "SERVICE") : undefined),
-        mealUsed: mealUsed !== undefined ? Boolean(mealUsed) : (Array.isArray(contractItems) ? contractItems.some((i: any) => i.type === "MEAL") : undefined),
-        contractAmount: calculatedContractAmount,
-        discountAmount: discountAmount !== undefined ? parseFloat(discountAmount) : undefined,
-        contractDiscountType: contractDiscountType !== undefined ? contractDiscountType : undefined,
-        netAmount: netAmount !== undefined ? parseFloat(netAmount) : undefined,
-        installmentCount: installmentCount !== undefined ? parseInt(installmentCount) : undefined,
-        portalUsername: portalUsername !== undefined ? portalUsername : undefined,
-        portalPassword: portalPassword !== undefined ? portalPassword : undefined,
-        kvkkConsent: kvkkConsent !== undefined ? Boolean(kvkkConsent) : undefined,
-        photoConsent: photoConsent !== undefined ? Boolean(photoConsent) : undefined,
-        tags: tags !== undefined ? (Array.isArray(tags) ? JSON.stringify(tags) : tags) : undefined,
-        notes: finalNotes,
-      },
-      include: {
-        classroom: true,
-      },
+    const updated = await prisma.$transaction(async (tx) => {
+      // Eğer taksit listesi gönderildiyse taksitleri senkronize et
+      if (Array.isArray(installments)) {
+        const existingPayments = await tx.studentPayment.findMany({ where: { studentId: id } });
+        const incomingIds = new Set(installments.map((i: any) => i.id).filter(Boolean));
+
+        // Silinmesi istenen ve ÖDENMEMİŞ olanları sil
+        for (const existing of existingPayments) {
+          if (!incomingIds.has(existing.id)) {
+            if (!existing.isPaid && (!existing.paidAmount || existing.paidAmount === 0)) {
+              await tx.studentPayment.delete({ where: { id: existing.id } });
+            }
+          }
+        }
+
+        // Güncelle veya oluştur
+        for (let idx = 0; idx < installments.length; idx++) {
+          const item = installments[idx];
+          const instNo = item.installmentNo || (idx + 1);
+          const parsedDueDate = new Date(item.dueDate);
+          const parsedAmount = parseFloat(item.amount) || 0;
+
+          if (item.id && existingPayments.some((p) => p.id === item.id)) {
+            await tx.studentPayment.update({
+              where: { id: item.id },
+              data: {
+                installmentNo: instNo,
+                title: item.title || `${instNo}. Taksit`,
+                dueDate: parsedDueDate,
+                amount: parsedAmount,
+                notes: item.notes !== undefined ? item.notes : undefined,
+              },
+            });
+          } else {
+            await tx.studentPayment.create({
+              data: {
+                studentId: id,
+                installmentNo: instNo,
+                title: item.title || `${instNo}. Taksit`,
+                dueDate: parsedDueDate,
+                amount: parsedAmount,
+                paidAmount: Number(item.paidAmount) || 0,
+                isPaid: Boolean(item.isPaid),
+                paidDate: item.paidDate ? new Date(item.paidDate) : null,
+                paymentMethod: item.paymentMethod || null,
+                receiptNo: item.receiptNo || null,
+                notes: item.notes || null,
+              },
+            });
+          }
+        }
+      }
+
+      return await tx.student.update({
+        where: { id },
+        data: {
+          studentNo: studentNo !== undefined ? studentNo : undefined,
+          tcNo: tcNo !== undefined ? tcNo.trim() : undefined,
+          fullName: fullName !== undefined ? fullName.trim() : undefined,
+          birthDate: birthDate !== undefined ? (birthDate ? new Date(birthDate) : null) : undefined,
+          gender: gender !== undefined ? gender : undefined,
+          bloodGroup: bloodGroup !== undefined ? bloodGroup : undefined,
+          healthNotes: healthNotes !== undefined ? healthNotes : undefined,
+          dietNotes: dietNotes !== undefined ? dietNotes : undefined,
+          toiletTrained: toiletTrained !== undefined ? Boolean(toiletTrained) : undefined,
+          napTime: napTime !== undefined ? Boolean(napTime) : undefined,
+          photoUrl: photoUrl !== undefined ? photoUrl : undefined,
+          status: status !== undefined ? status : undefined,
+          fatherName: fatherName !== undefined ? fatherName : undefined,
+          fatherPhone: fatherPhone !== undefined ? fatherPhone : undefined,
+          fatherJob: fatherJob !== undefined ? fatherJob : undefined,
+          motherName: motherName !== undefined ? motherName : undefined,
+          motherPhone: motherPhone !== undefined ? motherPhone : undefined,
+          motherJob: motherJob !== undefined ? motherJob : undefined,
+          guardianRelation: guardianRelation !== undefined ? guardianRelation : undefined,
+          primaryPhone: primaryPhone !== undefined ? primaryPhone.trim() : undefined,
+          primaryEmail: primaryEmail !== undefined ? primaryEmail : undefined,
+          homeAddress: homeAddress !== undefined ? homeAddress : undefined,
+          cityDistrict: cityDistrict !== undefined ? cityDistrict : undefined,
+          authorizedPickups: authorizedPickups !== undefined ? (typeof authorizedPickups === "string" ? authorizedPickups : JSON.stringify(authorizedPickups)) : undefined,
+          emergencyContact: emergencyContact !== undefined ? (typeof emergencyContact === "string" ? emergencyContact : JSON.stringify(emergencyContact)) : undefined,
+          section: section !== undefined ? section : undefined,
+          educationType: educationType !== undefined ? educationType : undefined,
+          classroomId: classroomId !== undefined ? (classroomId || null) : undefined,
+          academicYear: academicYear !== undefined ? academicYear : undefined,
+          previousSchool: previousSchool !== undefined ? previousSchool : undefined,
+          graduationDate: graduationDate !== undefined ? (graduationDate ? new Date(graduationDate) : null) : undefined,
+          serviceUsed: serviceUsed !== undefined ? Boolean(serviceUsed) : (Array.isArray(contractItems) ? contractItems.some((i: any) => i.type === "SERVICE") : undefined),
+          mealUsed: mealUsed !== undefined ? Boolean(mealUsed) : (Array.isArray(contractItems) ? contractItems.some((i: any) => i.type === "MEAL") : undefined),
+          contractAmount: calculatedContractAmount,
+          discountAmount: discountAmount !== undefined ? parseFloat(discountAmount) : undefined,
+          contractDiscountType: contractDiscountType !== undefined ? contractDiscountType : undefined,
+          netAmount: netAmount !== undefined ? parseFloat(netAmount) : undefined,
+          installmentCount: Array.isArray(installments) ? installments.length : (installmentCount !== undefined ? parseInt(installmentCount) : undefined),
+          portalUsername: portalUsername !== undefined ? portalUsername : undefined,
+          portalPassword: portalPassword !== undefined ? portalPassword : undefined,
+          kvkkConsent: kvkkConsent !== undefined ? Boolean(kvkkConsent) : undefined,
+          photoConsent: photoConsent !== undefined ? Boolean(photoConsent) : undefined,
+          tags: tags !== undefined ? (Array.isArray(tags) ? JSON.stringify(tags) : tags) : undefined,
+          notes: finalNotes,
+        },
+        include: {
+          classroom: true,
+          payments: {
+            orderBy: { installmentNo: "asc" },
+          },
+        },
+      });
     });
 
     return NextResponse.json(updated);

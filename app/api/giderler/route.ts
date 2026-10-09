@@ -40,17 +40,7 @@ export async function GET(request: Request) {
     // Kayıt silme iadeleri taksitlerini Okul Gider & Borç Takibi tablosuyla eşitle
     await syncAllRefundsToSchoolExpenses();
 
-    // Kredi kartı borçları ve çek ödemeleri nakit ödenir: mevcut CREDIT_CARD ve CHEQUE kategorisindeki kayıtların ödeme yöntemini CASH olarak düzelt
-    await prisma.schoolExpense.updateMany({
-      where: {
-        category: "CREDIT_CARD",
-        paymentMethod: "CREDIT_CARD",
-      },
-      data: {
-        paymentMethod: "CASH",
-      },
-    });
-
+    // Çek ödemeleri vadesi gelince banka/nakit ödenir
     await prisma.schoolExpense.updateMany({
       where: {
         category: "CHEQUE",
@@ -86,8 +76,13 @@ export async function GET(request: Request) {
     const paymentMethod = searchParams.get("paymentMethod"); // "CASH", "CREDIT_CARD", "CHEQUE"
     const cardHolder = searchParams.get("cardHolder");
     const chequesOnly = searchParams.get("chequesOnly") === "true";
+    const excludeLoans = searchParams.get("excludeLoans") === "true";
 
     const where: any = {};
+
+    if (excludeLoans) {
+      where.category = { not: "LOAN" };
+    }
 
     if (search) {
       where.OR = [
@@ -251,10 +246,15 @@ export async function GET(request: Request) {
       where,
       orderBy: [{ status: "asc" }, { dueDate: "asc" }, { createdAt: "desc" }],
     });
-    const expenses = rawFilteredExpenses.filter(doesMatchPeriod);
+    const expenses = rawFilteredExpenses
+      .filter(doesMatchPeriod)
+      .filter((e) => !excludeLoans || (e.category !== "LOAN" && !e.description?.includes("[LOAN_ID:")));
 
     // İstatistikler ve Devreden Borç Hesaplaması (Tüm kayıtlar üzerinden)
-    const allExpenses = await prisma.schoolExpense.findMany();
+    const rawAllExpenses = await prisma.schoolExpense.findMany();
+    const allExpenses = excludeLoans
+      ? rawAllExpenses.filter((e) => e.category !== "LOAN" && !e.description?.includes("[LOAN_ID:"))
+      : rawAllExpenses;
 
     // Veritabanındaki tüm yıllar ve aylar (2026, 2027, 2028 vb.) için özet dönem listesi
     const periodMap = new Map<
@@ -493,9 +493,10 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Lütfen başlık ve geçerli bir tutar girin" }, { status: 400 });
     }
 
-    const numAmount = Math.max(0, Number(amountDue) || 0);
+    const numAmount = Number(amountDue) || 0;
+
     const effectivePaymentMethod =
-      category === "CREDIT_CARD" || category === "CHEQUE" ? "CASH" : paymentMethod;
+      category === "CHEQUE" ? "CASH" : paymentMethod || "CASH";
     const userExplicitMonth =
       monthIndex && Number(monthIndex) >= 1 && Number(monthIndex) <= 12
         ? Number(monthIndex)
@@ -707,11 +708,12 @@ export async function POST(request: Request) {
         dueDateStr: finalDueDateStr,
         dueDate: baseDate,
         amountDue: numAmount,
-        amountPaid: 0,
-        amountRemaining: numAmount,
-        status: "PENDING",
+        amountPaid: body.status === "PAID" ? (Number(body.amountPaid) || numAmount) : 0,
+        amountRemaining: body.status === "PAID" ? Math.max(0, numAmount - (Number(body.amountPaid) || numAmount)) : numAmount,
+        status: body.status === "PAID" ? "PAID" : "PENDING",
         periodStatus,
         description,
+        paymentHistory: body.paymentHistory ? (typeof body.paymentHistory === "string" ? body.paymentHistory : JSON.stringify(body.paymentHistory)) : null,
         isCommitment: Boolean(isCommitment),
         commitmentMonths: isCommitment ? Number(commitmentMonths) || 12 : null,
         commitmentEndDate: isCommitment ? (dueDate ? addMonthsPreservingDay(new Date(dueDate), (Number(commitmentMonths) || 12) - 1) : null) : null,

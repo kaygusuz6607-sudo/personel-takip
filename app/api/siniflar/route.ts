@@ -11,6 +11,7 @@ export async function GET(request: NextRequest) {
 
     const { searchParams } = new URL(request.url);
     const academicYear = searchParams.get("academicYear") || "ALL";
+    const includeStudents = searchParams.get("includeStudents") === "true";
 
     const where: any = {};
     if (academicYear !== "ALL") {
@@ -28,6 +29,38 @@ export async function GET(request: NextRequest) {
             phone: true,
           },
         },
+        students: includeStudents
+          ? {
+              select: {
+                id: true,
+                studentNo: true,
+                tcNo: true,
+                fullName: true,
+                status: true,
+                gender: true,
+                birthDate: true,
+                bloodGroup: true,
+                fatherName: true,
+                fatherPhone: true,
+                fatherJob: true,
+                motherName: true,
+                motherPhone: true,
+                motherJob: true,
+                guardianRelation: true,
+                primaryPhone: true,
+                primaryEmail: true,
+                homeAddress: true,
+                cityDistrict: true,
+                healthNotes: true,
+                emergencyContact: true,
+                serviceUsed: true,
+                mealUsed: true,
+                enrollmentDate: true,
+                photoUrl: true,
+              },
+              orderBy: [{ status: "asc" }, { fullName: "asc" }],
+            }
+          : false,
         _count: {
           select: {
             students: {
@@ -52,6 +85,7 @@ export async function GET(request: NextRequest) {
       activeStudentCount: c._count.students,
       occupancyRate: Math.round((c._count.students / (c.capacity || 1)) * 100),
       createdAt: c.createdAt,
+      students: (c as any).students || undefined,
     }));
 
     return NextResponse.json(formatted);

@@ -30,12 +30,14 @@ import {
   Coins,
   FileText,
   Save,
+  Landmark,
 } from "lucide-react";
 import {
   DefinedCreditCard,
   DEFAULT_DEFINED_CARDS,
   getClientLoadedCreditCards,
   saveClientCreditCards,
+  calculateCardStatementAndDueDate,
 } from "@/lib/defined-credit-cards";
 
 interface PaymentHistoryItem {
@@ -547,6 +549,7 @@ function KrediKartlariPageContent() {
   const [cardTxSubmitting, setCardTxSubmitting] = useState(false);
   const [cardTxForm, setCardTxForm] = useState({
     cardId: "card-1",
+    txDate: new Date().toISOString().split("T")[0],
     title: "",
     amount: "",
     amountMode: "TOTAL" as "TOTAL" | "MONTHLY",
@@ -1179,11 +1182,16 @@ function KrediKartlariPageContent() {
 
   // Harcama / Taksit Modalı Aç
   const openCardTxModal = (cardId: string) => {
-    const todayStr = new Date().toISOString().split("T")[0];
-    const targetCard = cardsComputed.find((c) => c.id === cardId) || cardsComputed[0];
-    const defDueDate = targetCard?.dueDateISO || todayStr;
+    const today = new Date();
+    const trD = new Date(today.getTime() + 3 * 3600 * 1000);
+    const todayStr = trD.toISOString().split("T")[0];
+    const targetCard = cards.find((c) => c.id === cardId) || cards[0];
+    const stmtCalc = targetCard ? calculateCardStatementAndDueDate(targetCard, todayStr) : null;
+    const defDueDate = stmtCalc ? stmtCalc.dueDateISO : todayStr;
+
     setCardTxForm({
       cardId: targetCard?.id || "card-1",
+      txDate: todayStr,
       title: "",
       amount: "",
       amountMode: "TOTAL",
@@ -1197,13 +1205,25 @@ function KrediKartlariPageContent() {
     setCardTxModalOpen(true);
   };
 
+  const handleCardTxChange = (updates: Partial<typeof cardTxForm>) => {
+    const nextForm = { ...cardTxForm, ...updates };
+    if (updates.cardId !== undefined || updates.txDate !== undefined) {
+      const targetCard = cards.find((c) => c.id === (updates.cardId || nextForm.cardId));
+      if (targetCard && nextForm.txDate) {
+        const stmt = calculateCardStatementAndDueDate(targetCard, nextForm.txDate);
+        nextForm.dueDate = stmt.dueDateISO;
+      }
+    }
+    setCardTxForm(nextForm);
+  };
+
   const handleCardTxSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const card = cards.find((c) => c.id === cardTxForm.cardId) || cards[0];
     if (!card) return;
 
-    const numAmount = Number(cardTxForm.amount) || 0;
-    if (numAmount <= 0) {
+    const numAmount = parseFloat(String(cardTxForm.amount).replace(",", "."));
+    if (isNaN(numAmount) || numAmount <= 0) {
       alert("Geçerli bir tutar girin");
       return;
     }
@@ -1211,27 +1231,37 @@ function KrediKartlariPageContent() {
     try {
       setCardTxSubmitting(true);
       const isInst = cardTxForm.installmentCount > 1;
+      const txDateStr = cardTxForm.txDate || new Date().toISOString().split("T")[0];
+      const stmtCalc = calculateCardStatementAndDueDate(card, txDateStr);
+
+      const targetDueDate = cardTxForm.dueDate || stmtCalc.dueDateISO;
+      const targetDueDateISO = new Date(`${targetDueDate}T12:00:00.000Z`).toISOString();
+
+      const payload: any = {
+        title: cardTxForm.title.trim(),
+        category: "CREDIT_CARD",
+        subCategory: cardTxForm.subCategory,
+        amountDue: numAmount,
+        dueDate: targetDueDateISO,
+        dueDateStr: stmtCalc.dueDateStr,
+        monthIndex: stmtCalc.periodMonth,
+        entryType: isInst ? "INSTALLMENT" : "SINGLE",
+        isInstallment: isInst,
+        installmentCount: cardTxForm.installmentCount,
+        currentInstallment: cardTxForm.currentInstallment || 1,
+        amountMode: cardTxForm.amountMode,
+        paymentMethod: "CREDIT_CARD",
+        cardHolder: card.holder,
+        cardBank: card.bankName,
+      };
+
+      const slipTag = !isInst ? `[CARD_SLIP:${stmtCalc.statementPeriodKey}] ` : "";
+      payload.description = `[txDate:${txDateStr}] ${slipTag}${cardTxForm.description ? cardTxForm.description + " " : ""}[${card.id}] ${card.bankName} (${card.holder})`.trim();
+
       const res = await fetch("/api/giderler", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title: cardTxForm.title.trim(),
-          category: cardTxForm.category,
-          subCategory: cardTxForm.subCategory,
-          amountDue: numAmount,
-          dueDate: cardTxForm.dueDate,
-          entryType: isInst ? "INSTALLMENT" : "SINGLE",
-          isInstallment: isInst,
-          installmentCount: cardTxForm.installmentCount,
-          currentInstallment: cardTxForm.currentInstallment || 1,
-          amountMode: cardTxForm.amountMode,
-          paymentMethod: "CREDIT_CARD",
-          cardHolder: card.holder,
-          cardBank: card.bankName,
-          description: cardTxForm.description
-            ? `${cardTxForm.description} [${card.id}]`
-            : `[${card.id}] ${card.bankName} (${card.holder})`,
-        }),
+        body: JSON.stringify(payload),
       });
 
       if (!res.ok) {
@@ -1506,6 +1536,14 @@ function KrediKartlariPageContent() {
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
+          <Link
+            href="/krediler"
+            className="px-3.5 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-extrabold text-xs rounded-xl border border-indigo-200 shadow-xs transition-all flex items-center gap-1.5 cursor-pointer"
+          >
+            <Landmark className="w-4 h-4 text-indigo-600" />
+            <span>🏦 Banka Kredileri Takibi →</span>
+          </Link>
+
           <button
             type="button"
             onClick={() => setNewCardFormOpen(!newCardFormOpen)}
@@ -2840,20 +2878,55 @@ function KrediKartlariPageContent() {
             </div>
 
             <form onSubmit={handleCardTxSubmit} className="space-y-3 text-xs">
-              <div>
-                <label className="block text-[11px] font-bold text-slate-700 mb-1">Kullanılan Kart *</label>
-                <select
-                  value={cardTxForm.cardId}
-                  onChange={(e) => setCardTxForm({ ...cardTxForm, cardId: e.target.value })}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs font-bold"
-                >
-                  {cards.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.bankName} — {c.cardLabel || `...${c.last4}`} ({c.holder})
-                    </option>
-                  ))}
-                </select>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-700 mb-1">Kullanılan Kart *</label>
+                  <select
+                    value={cardTxForm.cardId}
+                    onChange={(e) => handleCardTxChange({ cardId: e.target.value })}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs font-bold"
+                  >
+                    {cards.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.bankName} — {c.cardLabel || `...${c.last4}`} ({c.holder})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-700 mb-1">İşlem / Harcama Tarihi *</label>
+                  <input
+                    type="date"
+                    required
+                    value={cardTxForm.txDate}
+                    onChange={(e) => handleCardTxChange({ txDate: e.target.value })}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs font-bold bg-amber-50/50"
+                  />
+                </div>
               </div>
+
+              {(() => {
+                const selectedCard = cards.find((c) => c.id === cardTxForm.cardId);
+                if (!selectedCard || !cardTxForm.txDate) return null;
+                const stmt = calculateCardStatementAndDueDate(selectedCard, cardTxForm.txDate);
+                const isNextMonth = stmt.dueDateISO > cardTxForm.txDate;
+                return (
+                  <div className="p-3 bg-amber-50/80 border border-amber-200 rounded-xl space-y-1 text-amber-950">
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-[11px] text-amber-900 flex items-center gap-1.5">
+                        <span>📅</span>
+                        <span>Hesap Kesim Kuralı: Her ayın {stmt.statementDay}. günü</span>
+                      </span>
+                      <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-amber-200/90 text-amber-900">
+                        {stmt.periodLabel} Ekstresi
+                      </span>
+                    </div>
+                    <p className="text-[11px] leading-relaxed text-amber-900">
+                      Harcama tarihi ({cardTxForm.txDate.split("-").reverse().join(".")}) kartın hesap kesim gününden ({stmt.statementDay}) sonra olduğu için bu işlem <b>{stmt.periodLabel}</b> dönemine aktarılır ve son ödeme tarihi otomatik olarak <b>{stmt.dueDateStr || stmt.dueDateISO}</b> olarak ayarlanmıştır.
+                    </p>
+                  </div>
+                );
+              })()}
 
               <div>
                 <label className="block text-[11px] font-bold text-slate-700 mb-1">Harcama Başlığı / Açıklama *</label>
@@ -2923,14 +2996,19 @@ function KrediKartlariPageContent() {
               )}
 
               <div>
-                <label className="block text-[11px] font-bold text-slate-700 mb-1">İlk Ekstre / Son Ödeme Tarihi *</label>
+                <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                  İlk Ekstre / Son Ödeme Tarihi *
+                </label>
                 <input
                   type="date"
                   required
                   value={cardTxForm.dueDate}
                   onChange={(e) => setCardTxForm({ ...cardTxForm, dueDate: e.target.value })}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs font-bold"
+                  className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs font-bold bg-slate-50"
                 />
+                <p className="text-[10px] text-slate-500 mt-0.5">
+                  * Kartın hesap kesim kuralına göre otomatik belirlenir, dilerseniz el ile değiştirebilirsiniz.
+                </p>
               </div>
 
               <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-200">

@@ -130,6 +130,7 @@ model Payroll {
   isPaid               Boolean   @default(false)
   paidDate             DateTime?
   notes                String?
+  paymentItems         String?   // JSON formatında parça ödeme geçmişi: [{ id, amount, type: 'CASH'|'BANK', date, notes }]
   
   createdAt            DateTime  @default(now())
   updatedAt            DateTime  @updatedAt
