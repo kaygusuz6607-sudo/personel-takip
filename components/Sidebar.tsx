@@ -203,6 +203,7 @@ export function Sidebar() {
       [
         "/finansal-analiz",
         "/gunluk-kasa-plan",
+        "/faturalar",
         "/kredi-kartlari",
         "/krediler",
         "/cekler",
@@ -251,6 +252,7 @@ export function Sidebar() {
           subItems: [
             { href: "/finansal-analiz", label: "Finansal Analiz & AI Paneli", icon: BrainCircuit },
             { href: "/gunluk-kasa-plan", label: "Günlük Kasa & Gider Planı", icon: BarChart3 },
+            { href: "/faturalar", label: "Fatura & Abonelik Takibi", icon: ReceiptText },
             { href: "/kredi-kartlari", label: "Kredi Kartları Takip", icon: CreditCard },
             { href: "/krediler", label: "Kredi Takibi", icon: Landmark },
             { href: "/cekler", label: "Çek Takibi", icon: ScrollText },
