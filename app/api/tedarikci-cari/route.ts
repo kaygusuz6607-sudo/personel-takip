@@ -268,12 +268,16 @@ export async function POST(request: Request) {
                 dueDate: new Date(stepDueISO),
                 dueDateStr: stepDueISO,
                 amountDue: amount,
-                amountPaid: 0,
-                amountRemaining: amount,
-                status: "PENDING",
+                amountPaid: amount,
+                amountRemaining: 0,
+                status: "PAID",
+                periodStatus: "Ödendi",
                 paymentMethod: "CREDIT_CARD",
                 cardHolder: cHolder,
                 cardBank: cBank,
+                paymentHistory: JSON.stringify([
+                  { date: stepDateISO, amount, note: `Kredi Kartı ile Ödendi ${cIdTag}`.trim() },
+                ]),
                 description: `Tedarikçi cari ödemesi: ${supName} ${cIdTag} ${ccSyncTag}`.trim(),
               },
             });
@@ -348,6 +352,7 @@ export async function POST(request: Request) {
           const cIdTag = body.cardId ? `[${body.cardId}]` : "";
           const dueISO = body.dueDate || body.date || new Date().toISOString().split("T")[0];
 
+          const txDateISO = body.date || dueISO;
           await prisma.schoolExpense.create({
             data: {
               id: `exp-sup-pay-${txId}`,
@@ -357,12 +362,16 @@ export async function POST(request: Request) {
               dueDate: new Date(dueISO),
               dueDateStr: dueISO,
               amountDue: amount,
-              amountPaid: 0,
-              amountRemaining: amount,
-              status: "PENDING",
+              amountPaid: amount,
+              amountRemaining: 0,
+              status: "PAID",
+              periodStatus: "Ödendi",
               paymentMethod: "CREDIT_CARD",
               cardHolder: cHolder,
               cardBank: cBank,
+              paymentHistory: JSON.stringify([
+                { date: txDateISO, amount, note: `Kredi Kartı ile Ödendi ${cIdTag}`.trim() },
+              ]),
               description: `Tedarikçi cari ödemesi: ${supName} ${cIdTag} ${ccSyncTag}`.trim(),
             },
           });

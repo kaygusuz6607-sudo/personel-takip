@@ -3851,13 +3851,23 @@ function GiderlerPageContent() {
                         </div>
                         <div className="text-right">
                           <span className="font-extrabold text-rose-600 block">{formatCurrency(re.amountRemaining)}</span>
-                          <button
-                            type="button"
-                            onClick={() => openPaymentModal(re)}
-                            className="text-[10px] font-bold text-emerald-700 hover:underline"
-                          >
-                            Ödeme Yap →
-                          </button>
+                          <div className="flex items-center gap-1.5 justify-end pt-0.5">
+                            <button
+                              type="button"
+                              onClick={() => openPaymentModal(re)}
+                              className="text-[10px] font-bold text-emerald-700 hover:underline"
+                            >
+                              Ödeme Yap →
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleMarkPaid(re)}
+                              className="text-[10px] font-extrabold text-teal-800 bg-teal-50 px-1.5 py-0.5 rounded border border-teal-200 hover:bg-teal-100"
+                              title="Bu geçmiş borcu tek tıkla ödendi olarak işaretle"
+                            >
+                              ✓ Ödendi
+                            </button>
+                          </div>
                         </div>
                       </div>
                     );
