@@ -15,4 +15,5 @@ scripts/staging/
 cosmos_tum_veriler.json
 backups/
 *.bak*
+uploads/
 
