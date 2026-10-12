@@ -19,14 +19,31 @@ export async function GET(request: NextRequest) {
     const where: any = {};
 
     if (search) {
-      where.OR = [
-        { fullName: { contains: search } },
-        { tcNo: { contains: search } },
-        { studentNo: { contains: search } },
-        { primaryPhone: { contains: search } },
-        { fatherName: { contains: search } },
-        { motherName: { contains: search } },
-      ];
+      const searchLower = search.toLowerCase();
+      const searchUpper = search.toUpperCase();
+      const searchTrLower = search.toLocaleLowerCase("tr-TR");
+      const searchTrUpper = search.toLocaleUpperCase("tr-TR");
+      const searchWithDot = search.replace(/i/g, "İ").replace(/ı/g, "I");
+      const searchWithoutDot = search.replace(/İ/g, "i").replace(/I/g, "ı");
+
+      const searchTerms = Array.from(new Set([
+        search,
+        searchLower,
+        searchUpper,
+        searchTrLower,
+        searchTrUpper,
+        searchWithDot,
+        searchWithoutDot,
+      ]));
+
+      where.OR = searchTerms.flatMap((term) => [
+        { fullName: { contains: term } },
+        { tcNo: { contains: term } },
+        { studentNo: { contains: term } },
+        { primaryPhone: { contains: term } },
+        { fatherName: { contains: term } },
+        { motherName: { contains: term } },
+      ]);
     }
 
     if (status !== "ALL") {

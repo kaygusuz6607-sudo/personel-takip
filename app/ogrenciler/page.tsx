@@ -347,6 +347,29 @@ const ATTENDANCE_STATUS: { [key: string]: { label: string; color: string } } = {
   EXCUSED: { label: "İzinli / Raporlu", color: "bg-blue-100 text-blue-800" },
 };
 
+// Büyük/küçük harf ve Türkçe karakter duyarsız arama normalleştirici
+function normalizeForSearch(text: string | null | undefined): string {
+  if (!text) return "";
+  return text
+    .toString()
+    .trim()
+    .replace(/İ/g, "i")
+    .replace(/I/g, "i")
+    .replace(/ı/g, "i")
+    .toLocaleLowerCase("tr-TR")
+    .replace(/ı/g, "i")
+    .replace(/ğ/g, "g")
+    .replace(/ü/g, "u")
+    .replace(/ş/g, "s")
+    .replace(/ö/g, "o")
+    .replace(/ç/g, "c");
+}
+
+function cleanDigits(text: string | null | undefined): string {
+  if (!text) return "";
+  return text.toString().replace(/\D/g, "");
+}
+
 export default function OgrencilerPage() {
   const {
     schoolSection,
@@ -515,19 +538,37 @@ export default function OgrencilerPage() {
 
   // Filtreleme
   const filteredStudents = useMemo(() => {
+    const trimmedSearch = search.trim();
+    const normSearch = normalizeForSearch(trimmedSearch);
+    const searchDigits = cleanDigits(trimmedSearch);
+    const searchTokens = normSearch.split(/\s+/).filter(Boolean);
+
     return students.filter((s) => {
       // Sekme Filtresi (Aktif / Kayıt Sildiren / Tümü)
       if (activeListTab === "ACTIVE" && s.status === "DROPPED") return false;
       if (activeListTab === "DROPPED" && s.status !== "DROPPED") return false;
 
-      const matchSearch =
-        !search.trim() ||
-        s.fullName.toLowerCase().includes(search.toLowerCase()) ||
-        s.tcNo.includes(search) ||
-        (s.studentNo && s.studentNo.includes(search)) ||
-        s.primaryPhone.includes(search) ||
-        (s.fatherName && s.fatherName.toLowerCase().includes(search.toLowerCase())) ||
-        (s.motherName && s.motherName.toLowerCase().includes(search.toLowerCase()));
+      // Arama Kontrolü: Büyük/küçük harf ve Türkçe karakter duyarsız (3 harf veya herhangi bir parça yeterli)
+      let matchSearch = true;
+      if (searchTokens.length > 0) {
+        const normFullName = normalizeForSearch(s.fullName);
+        const normFather = normalizeForSearch(s.fatherName);
+        const normMother = normalizeForSearch(s.motherName);
+        const normClass = normalizeForSearch(s.classroom?.name);
+        const normStudentNo = normalizeForSearch(s.studentNo);
+        const normTc = s.tcNo || "";
+        const normNotes = normalizeForSearch(s.notes);
+        const phoneDigits = cleanDigits(s.primaryPhone || s.fatherPhone || s.motherPhone || "");
+
+        const combinedText = `${normFullName} ${normFather} ${normMother} ${normClass} ${normStudentNo} ${normNotes} ${normTc}`;
+
+        matchSearch = searchTokens.every((token) => {
+          if (combinedText.includes(token)) return true;
+          if (searchDigits && searchDigits.length >= 2 && phoneDigits.includes(searchDigits)) return true;
+          if (searchDigits && searchDigits.length >= 2 && normTc.includes(searchDigits)) return true;
+          return false;
+        });
+      }
 
       const matchSection = sectionFilter === "ALL" || s.section === sectionFilter;
       const matchStatus = statusFilter === "ALL" || s.status === statusFilter;
@@ -1628,11 +1669,21 @@ export default function OgrencilerPage() {
             <Search className="w-4 h-4 absolute left-3 top-3 text-slate-400" />
             <input
               type="text"
-              placeholder="Öğrenci adı, no, TC Kimlik, veli adı veya telefon ara..."
+              placeholder="Öğrenci adı, no, TC Kimlik, veli veya sınıf ara (3 harf yeterlidir)..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="w-full pl-9 pr-4 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs focus:ring-2 focus:ring-teal-600 focus:bg-white focus:outline-none"
+              className="w-full pl-9 pr-8 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs focus:ring-2 focus:ring-teal-600 focus:bg-white focus:outline-none"
             />
+            {search && (
+              <button
+                type="button"
+                onClick={() => setSearch("")}
+                className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600 transition-colors"
+                title="Aramayı Temizle"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
           </div>
 
           <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
