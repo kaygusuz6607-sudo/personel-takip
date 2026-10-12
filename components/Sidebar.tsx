@@ -226,6 +226,7 @@ export function Sidebar() {
       ]
     : [
         { type: "link", href: "/", label: "Gösterge Paneli", icon: LayoutDashboard },
+        { type: "link", href: "/is-plani", label: "İş Planı & Ajanda", icon: CalendarCheck },
         { type: "link", href: "/crm", label: "CRM & Aday Öğrenci", icon: Target },
         { type: "link", href: "/teklifler", label: "Fiyat Teklif Formu", icon: FileText },
         { type: "link", href: "/ogrenciler", label: "Öğrenci Kütüğü", icon: GraduationCap },

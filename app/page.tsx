@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import Link from "next/link";
-import { Users, UserCheck, UserX, Clock, Building2, UserPlus, ArrowRight, Wallet, CheckCircle2, AlertCircle, Target, GraduationCap, Car, ShieldAlert, PhoneCall } from "lucide-react";
+import { Users, UserCheck, UserX, Clock, Building2, UserPlus, ArrowRight, Wallet, CheckCircle2, AlertCircle, Target, GraduationCap, Car, ShieldAlert, PhoneCall, CalendarCheck } from "lucide-react";
 import { DashboardSalarySchedule, SalaryStaffItem } from "@/components/DashboardSalarySchedule";
 
 export const dynamic = "force-dynamic";
@@ -300,6 +300,24 @@ export default async function DashboardPage() {
     } catch {}
   }
 
+  // İş Planı & Görev Hatırlatmaları
+  let todayWorkTasks: any[] = [];
+  let overdueWorkTasksCount = 0;
+  const todayDateStr = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Istanbul",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(now);
+
+  try {
+    const rawTasks = (await prisma.$queryRawUnsafe(
+      `SELECT id, title, dueDate, dueTime, category, priority, status FROM WorkTask WHERE status = 'BEKLIYOR' ORDER BY dueDate ASC, CASE WHEN dueTime IS NULL THEN '23:59' ELSE dueTime END ASC`
+    )) as any[];
+    todayWorkTasks = rawTasks.filter((t) => t.dueDate === todayDateStr);
+    overdueWorkTasksCount = rawTasks.filter((t) => t.dueDate < todayDateStr).length;
+  } catch {}
+
   return (
     <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto w-full space-y-6">
       {/* Header */}
@@ -309,6 +327,13 @@ export default async function DashboardPage() {
           <p className="text-sm text-slate-500 mt-0.5">Kurumunuzun personel ve ödeme özeti</p>
         </div>
         <div className="flex items-center gap-3">
+          <Link
+            href="/is-plani"
+            className="inline-flex items-center gap-2 px-3.5 py-2 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-sm font-semibold rounded-lg shadow-xs transition-all"
+          >
+            <CalendarCheck className="w-4 h-4 text-teal-600" />
+            <span>İş Planı & Ajanda</span>
+          </Link>
           <Link
             href="/personeller"
             className="inline-flex items-center gap-2 px-4 py-2 bg-teal-700 hover:bg-teal-800 text-white text-sm font-semibold rounded-lg shadow-sm transition-all"
@@ -325,6 +350,63 @@ export default async function DashboardPage() {
           </Link>
         </div>
       </div>
+
+      {/* İŞ PLANI & GÖREV HATIRLATMA EKRANI */}
+      {(todayWorkTasks.length > 0 || overdueWorkTasksCount > 0) && (
+        <div className="bg-gradient-to-r from-amber-50 to-orange-50 border-2 border-amber-300 rounded-2xl p-4 sm:p-5 shadow-sm space-y-3">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-start gap-3">
+              <div className="p-2 rounded-xl bg-amber-500 text-white shrink-0 shadow-xs">
+                <Clock className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="font-extrabold text-sm sm:text-base text-amber-950 flex items-center gap-2">
+                  <span>⚡ Bugün Yapılacak İşler ({todayWorkTasks.length} Görev)</span>
+                  {overdueWorkTasksCount > 0 && (
+                    <span className="text-[11px] bg-red-600 text-white px-2 py-0.5 rounded-full font-bold">
+                      {overdueWorkTasksCount} Geciken İş!
+                    </span>
+                  )}
+                </h3>
+                <p className="text-xs text-amber-800 mt-0.5">
+                  Bugün planlanan işlerinizi ajandanızdan takip edip tek tıkla yapıldı olarak işaretleyebilirsiniz.
+                </p>
+              </div>
+            </div>
+            <Link
+              href="/is-plani"
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold shadow-xs transition shrink-0 self-start sm:self-center"
+            >
+              <CalendarCheck className="w-4 h-4" />
+              <span>İş Planına Git</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </Link>
+          </div>
+          {todayWorkTasks.length > 0 && (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2 pt-1">
+              {todayWorkTasks.slice(0, 3).map((task) => (
+                <Link
+                  key={task.id}
+                  href="/is-plani"
+                  className="bg-white hover:bg-amber-100/50 rounded-xl border border-amber-200 p-2.5 shadow-2xs transition flex items-center justify-between gap-2 text-xs"
+                >
+                  <div className="min-w-0">
+                    <div className="font-bold text-slate-900 truncate">{task.title}</div>
+                    <div className="text-[11px] text-slate-500 font-medium">
+                      {task.dueTime ? `Saat: ${task.dueTime}` : "Tüm Gün"}
+                    </div>
+                  </div>
+                  {task.priority === "ACIL" && (
+                    <span className="text-[10px] font-bold text-red-600 bg-red-50 px-1.5 py-0.5 rounded border border-red-200 shrink-0">
+                      ACİL
+                    </span>
+                  )}
+                </Link>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* TELEFON HATLARI TAAHHÜT BİTİŞİ 10 GÜN KALA HATIRLATMA EKRANI */}
       {warningPhoneLines.length > 0 && (
