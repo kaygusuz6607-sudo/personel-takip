@@ -13,3 +13,4 @@ services:
     volumes:
       # Veritabanını kalıcı tutmak için host ile eşleştir
       - ./prisma/dev.db:/app/prisma/dev.db
+      - ./uploads:/app/uploads

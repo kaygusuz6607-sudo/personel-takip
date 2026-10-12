@@ -37,6 +37,7 @@ import {
   Car,
   BarChart3,
   BrainCircuit,
+  FolderOpen,
 } from "lucide-react";
 import { PWAInstallButton } from "@/components/PWAInstallButton";
 import { ThemeToggle } from "@/components/ThemeToggle";
@@ -264,6 +265,7 @@ export function Sidebar() {
             { href: "/giderler?tab=GOLD_DAYS", label: "Altın Günleri Takibi", icon: Coins },
           ],
         },
+        { type: "link", href: "/dosyalar", label: "Evrak & Dosyalar", icon: FolderOpen },
         { type: "link", href: "/raporlar", label: "Raporlar & Excel", icon: FileSpreadsheet },
         { type: "link", href: "/kullanicilar", label: "Yetkili Kullanıcılar", icon: ShieldCheck },
         { type: "link", href: "/yedekleme", label: "Yedek & Senkronizasyon", icon: HardDrive },
